@@ -1,0 +1,27 @@
+name: codex_timezone
+description: Codex 时区启动器，Flutter + Forui 桌面版。
+publish_to: none
+version: 0.2.0+1
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+  flutter: '>=3.47.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  forui: 0.27.0
+  ffi: ^2.1.4
+  file_selector: ^1.0.3
+  timezone: ^0.10.1
+  path: ^1.9.1
+  shared_preferences: ^2.5.3
+  flutter_acrylic: 1.1.4
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: false
+  assets:
+    - assets/app_icon.png

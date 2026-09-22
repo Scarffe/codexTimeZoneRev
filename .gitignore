@@ -7,18 +7,10 @@ data/
 
 # 依赖、构建目录与本地缓存
 environment/
-resource/node_modules/
-resource/dist/
-resource/**/target/
-resource/**/build/
-resource/**/.cache/
-resource/**/.vite/
-resource/**/coverage/
-
-# 本地开发文档（操作手册、开发日志、截图与审查备份均不上传）
-docs/
+native/**/target/
 
 # 开发过程文件
+开发日志.md
 GitHub上传指南.md
 *.tmp
 *.log
@@ -27,11 +19,13 @@ GitHub上传指南.md
 Thumbs.db
 .DS_Store
 
-# 桌面构建产物由 GitHub Actions / Releases 分发，不提交到源码树
-/CodexTimeZoneLauncher.exe
-/Codex 时区启动器.app/
+# UI 审查期间生成的本地源码备份和截图运行缓存
+docs/
+docs/ui-review/source-backup-*/
+docs/ui-review/.screenshot-profile/
 
-# 不上传其他临时归档或安装包
+# 构建产物通过构建脚本生成，不提交安装包
+/*.exe
 **/*.dmg
 **/*.zip
 **/*.7z

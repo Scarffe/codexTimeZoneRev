@@ -1,0 +1,40 @@
+name: Flutter desktop verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+      - name: Windows checks and isolated native acceptance
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/flutter-windows.ps1 -Action test -FlutterSdk $env:FLUTTER_ROOT
+          ./scripts/test-native-windows.ps1 -FlutterSdk $env:FLUTTER_ROOT
+          ./scripts/flutter-windows.ps1 -Action build -FlutterSdk $env:FLUTTER_ROOT
+      - name: macOS checks and local signed build
+        if: runner.os == 'macOS'
+        run: |
+          bash scripts/flutter-macos.sh test
+          bash scripts/flutter-macos.sh build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flutter-${{ matrix.os }}
+          path: environment/artifacts/*.zip
+          if-no-files-found: error

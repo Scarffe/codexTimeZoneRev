@@ -1,0 +1,81 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest.dart' as timezone;
+import 'package:codex_timezone/app/application.dart';
+import 'package:codex_timezone/services/backend.dart';
+import 'package:codex_timezone/services/desktop_services.dart';
+import 'package:codex_timezone/services/network_info.dart';
+
+class FakeDesktop implements DesktopServices {
+  String? selected;
+  String? copied;
+  bool failCopy = false;
+  @override
+  Future<String?> chooseClient(String platform) async => selected;
+  @override
+  Future<void> copyVerified(String text) async {
+    if (failCopy) throw StateError('clipboard unavailable');
+    copied = text;
+  }
+}
+
+class Backend implements LauncherBackend {
+  final List<String> calls = [];
+  @override
+  Future<Map<String, dynamic>> call(
+    String command, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
+    calls.add(command);
+    if (command == 'bootstrap') return const PreviewBackend().call(command);
+    if (command == 'validate') return {'path': payload['path']};
+    return {'message': '设置已保存。'};
+  }
+}
+
+void main() {
+  setUpAll(timezone.initializeTimeZones);
+  testWidgets(
+    'Forui file selection, dirty state and clipboard feedback are wired',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 900);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final desktop = FakeDesktop()..selected = r'C:\测试 客户端\Codex.exe';
+      final backend = Backend();
+      await tester.pumpWidget(
+        LauncherApplication(
+          backend: backend,
+          desktop: desktop,
+          networkFactory: () => NetworkController(preview: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('选择客户端'));
+      await tester.pumpAndSettle();
+      expect(backend.calls, ['bootstrap', 'validate']);
+      expect(find.text('未保存修改'), findsOneWidget);
+      expect(find.text(r'C:\测试 客户端\Codex.exe'), findsOneWidget);
+      await tester.tap(find.text('保存设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('未保存修改'), findsNothing);
+      await tester.ensureVisible(find.text('复制 IP').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('复制 IP').first);
+      await tester.pumpAndSettle();
+      expect(desktop.copied, '192.0.2.10');
+      expect(find.text('已复制'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 1600));
+      desktop.failCopy = true;
+      await tester.tap(find.text('复制 IP').first);
+      await tester.pumpAndSettle();
+      expect(find.text('复制失败'), findsOneWidget);
+      expect(find.text('无法复制 IP。'), findsWidgets);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+}
