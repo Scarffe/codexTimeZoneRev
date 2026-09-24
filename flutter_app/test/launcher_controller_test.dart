@@ -94,7 +94,7 @@ void main() {
   });
 
   test(
-    'failed save retains draft and opening skin never marks it saved',
+    'failed save retains draft and skin actions never mark it saved',
     () async {
       final backend = FakeBackend();
       final controller = LauncherController(backend);
@@ -110,6 +110,9 @@ void main() {
       backend.failSave = false;
       await controller.action('launch_dream_skin');
       expect(controller.dirty, isTrue);
+      await controller.action('reapply_dream_skin');
+      expect(controller.dirty, isTrue);
+      expect(backend.calls.last, 'reapply_dream_skin');
       await controller.action('save');
       expect(controller.dirty, isFalse);
     },

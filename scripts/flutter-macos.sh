@@ -8,7 +8,7 @@ export CARGO_TARGET_DIR="$project_root/environment/flutter-cargo-target"
 if [[ "$action" == test ]]; then
   cargo test --manifest-path "$project_root/native/launcher_core/Cargo.toml"
   flutter analyze
-  flutter test
+  flutter test --concurrency=1
   exit 0
 fi
 if [[ "$action" == preview ]]; then
@@ -20,8 +20,18 @@ export CODEX_TZ_NATIVE_LIBRARY="$CARGO_TARGET_DIR/release/libcodex_timezone_core
 if [[ "$action" == run ]]; then
   flutter run -d macos
 elif [[ "$action" == build ]]; then
-  flutter build macos --release
+  if [[ "$(uname -m)" == arm64 ]]; then
+    FLUTTER_MACOS_ARM64_ONLY=true flutter build macos --release
+  else
+    flutter build macos --release
+  fi
   app="$project_root/flutter_app/build/macos/Build/Products/Release/Codex 时区启动器.app"
+  app_archs="$(lipo -archs "$app/Contents/MacOS/Codex 时区启动器")"
+  native_archs="$(lipo -archs "$CODEX_TZ_NATIVE_LIBRARY")"
+  if [[ "$app_archs" != "$native_archs" ]]; then
+    printf 'Architecture mismatch: app=%s, native=%s\n' "$app_archs" "$native_archs" >&2
+    exit 1
+  fi
   cp "$CODEX_TZ_NATIVE_LIBRARY" "$app/Contents/Frameworks/"
   codesign --force --sign - "$app/Contents/Frameworks/libcodex_timezone_core.dylib"
   codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$app"

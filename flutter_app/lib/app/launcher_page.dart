@@ -154,15 +154,33 @@ class LauncherPage extends StatelessWidget {
             launcher.update(settings.copyWith(dreamSkinCompatible: value)),
       ),
       const SizedBox(height: 16),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: FButton(
-          mainAxisSize: MainAxisSize.min,
-          variant: FButtonVariant.outline,
-          onPress: launcher.editable && !launcher.preview
-              ? () => launcher.action('launch_dream_skin')
-              : null,
-          child: const Text('打开 Dream Skin'),
+      Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          FButton(
+            mainAxisSize: MainAxisSize.min,
+            variant: FButtonVariant.outline,
+            onPress: launcher.editable && !launcher.preview
+                ? () => launcher.action('launch_dream_skin')
+                : null,
+            child: const Text('打开 Dream Skin'),
+          ),
+          FButton(
+            mainAxisSize: MainAxisSize.min,
+            variant: FButtonVariant.outline,
+            onPress: launcher.editable && !launcher.preview
+                ? () => launcher.action('reapply_dream_skin')
+                : null,
+            child: const Text('重新注入皮肤'),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Text(
+        '重新注入需要客户端由兼容启动打开；不会重启客户端或更改时区。',
+        style: context.theme.typography.body.sm.copyWith(
+          color: context.theme.colors.mutedForeground,
         ),
       ),
     ]);

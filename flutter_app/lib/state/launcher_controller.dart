@@ -119,6 +119,7 @@ class LauncherController extends ChangeNotifier {
       'launch',
       'create_shortcut',
       'launch_dream_skin',
+      'reapply_dream_skin',
     ].contains(command)) {
       return false;
     }
@@ -136,7 +137,8 @@ class LauncherController extends ChangeNotifier {
       'save' => '正在保存设置…',
       'launch' => '正在保存设置并启动 Codex…',
       'create_shortcut' => '正在创建桌面快捷方式…',
-      _ => '正在打开 Dream Skin…',
+      'launch_dream_skin' => '正在打开 Dream Skin…',
+      _ => '正在重新注入 Dream Skin…',
     });
     try {
       final data = await backend.call(command, {

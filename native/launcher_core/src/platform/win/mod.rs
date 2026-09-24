@@ -267,7 +267,7 @@ fn launch_dream_skin(root: &Path, state: &Value) -> Result<Value, String> {
     Ok(json!({"launched":true,"path":tray,"message":"Dream Skin 已启动。"}))
 }
 fn apply_skin(dir: &Path, script: &Path, port: u16) -> Result<Value, String> {
-    if !endpoint_ready(port) { return Err("已保存兼容启动设置，但当前客户端没有皮肤调试接口。请保存工作并完全退出客户端，再点击“保存并启动 Codex”。".into()); }
+    if !endpoint_ready(port) { return Err("当前客户端没有皮肤调试接口。请保存工作并完全退出客户端，勾选 Dream Skin 兼容启动后点击“保存并启动”。".into()); }
     let system = std::env::var_os("SystemRoot").ok_or("无法确定 Windows 系统目录")?;
     let mut command = Command::new(PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"));
     command.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "RemoteSigned", "-File"])
@@ -276,6 +276,16 @@ fn apply_skin(dir: &Path, script: &Path, port: u16) -> Result<Value, String> {
         .creation_flags(0x08000000).env_remove("TZ").env_remove("ELECTRON_RUN_AS_NODE");
     run_logged(command, &dir.join("dream-skin.log"), Duration::from_secs(330))?;
     Ok(json!({"launched":true,"message":"Dream Skin 已完成皮肤应用和验证。"}))
+}
+fn reapply_skin(dir: &Path, s: Settings) -> Result<Value, String> {
+    let selected = if s.executable.trim().is_empty() { discover() } else { s.executable };
+    let executable = validate(&selected)?;
+    if !is_running(&executable)? {
+        return Err("客户端尚未运行。请勾选 Dream Skin 兼容启动，再点击“保存并启动”。".into());
+    }
+    let root = skin_root()?;
+    let state = skin_state(&root)?;
+    apply_skin(dir, &skin_script(&root, &state)?, skin_port(&state)?)
 }
 fn launch(dir: &Path, s: Settings) -> Result<Value, String> {
     tz(&s)?;
@@ -310,6 +320,14 @@ pub fn execute(command: &str, payload: Value) -> Result<Value, String> {
         "validate" => Ok(json!({"path":validate(payload["path"].as_str().unwrap_or_default())?})),
         "save" => { save(&dir, &settings(&payload, &dir)?)?; Ok(json!({"path":dir.join("settings.json"),"message":format!("设置已保存到 {}", dir.join("settings.json").display())})) },
         "launch" => launch(&dir, settings(&payload, &dir)?),
+        "reapply_dream_skin" => {
+            let s = if let Some(value) = payload.get("settings").filter(|v| !v.is_null()) {
+                serde_json::from_value(value.clone()).map_err(|e| e.to_string())?
+            } else {
+                load_migrated(&dir)?
+            };
+            reapply_skin(&dir, s)
+        },
         "create_shortcut" => Ok(json!({"created":true,"path":create_shortcut()?})),
         "launch_dream_skin" | "launch_dream_skin_app" => {
             let root = skin_root()?; let state = skin_state(&root)?; launch_dream_skin(&root, &state)

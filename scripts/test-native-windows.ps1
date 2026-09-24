@@ -1,15 +1,20 @@
 param(
-    [string]$FlutterSdk = 'E:\development\flutter',
-    [string]$DevelopmentRoot = 'E:\development'
+    [string]$FlutterSdk = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (!$FlutterSdk) { $FlutterSdk = $env:FLUTTER_ROOT }
+if (!$FlutterSdk) {
+    $dartCommand = Get-Command dart.bat -ErrorAction SilentlyContinue
+    if ($dartCommand) { $FlutterSdk = Split-Path -Parent (Split-Path -Parent $dartCommand.Source) }
+}
+if (!$FlutterSdk) { throw 'Flutter SDK not found. Set FLUTTER_ROOT or pass -FlutterSdk.' }
 $dart = Join-Path $FlutterSdk 'bin\dart.bat'
-$env:PATH = "$(Join-Path $DevelopmentRoot 'Rust\cargo\bin');$env:PATH"
+if (!(Test-Path -LiteralPath $dart)) { throw "Dart SDK not found: $dart" }
+$env:PATH = "$(Join-Path $FlutterSdk 'bin');$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $projectRoot 'environment\flutter-cargo-target'
 $cachedCargo = Join-Path $projectRoot 'environment\cargo'
 if (Test-Path -LiteralPath $cachedCargo) { $env:CARGO_HOME = $cachedCargo }
-if (!$env:PUB_CACHE) { $env:PUB_CACHE = Join-Path $DevelopmentRoot 'flutter-pub-cache' }
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE)." }

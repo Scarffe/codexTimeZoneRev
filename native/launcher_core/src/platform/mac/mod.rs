@@ -128,7 +128,7 @@ fn skin_port() -> Result<u16, String> {
 }
 fn apply_skin(dir: &Path, bundle: &Path, port: u16) -> Result<Value, String> {
     if !endpoint_ready(port) {
-        return Err("已保存 Dream Skin 兼容设置，但当前客户端没有可用的皮肤调试接口。请保存工作并完全退出 Codex / ChatGPT，再点击“保存并启动 Codex”。只打开 Dream Skin 管理器不会给已运行的客户端增加调试接口。".into());
+        return Err("当前客户端没有可用的皮肤调试接口。请保存工作并完全退出 Codex / ChatGPT，勾选 Dream Skin 兼容启动后点击“保存并启动”。只打开 Dream Skin 管理器不会给已运行的客户端增加调试接口。".into());
     }
     let app = skin_bundle()?;
     let mut cmd = Command::new("/bin/bash");
@@ -141,6 +141,15 @@ fn apply_skin(dir: &Path, bundle: &Path, port: u16) -> Result<Value, String> {
         .env_remove("ELECTRON_RUN_AS_NODE");
     run_logged(cmd, &dir.join("dream-skin.log"), Duration::from_secs(150))?;
     Ok(json!({"launched":true,"message":"Dream Skin 已完成皮肤应用和验证。当前客户端的时区保持不变。"}))
+}
+fn reapply_skin(dir: &Path, s: Settings) -> Result<Value, String> {
+    let selected = if s.executable.trim().is_empty() { discover() } else { s.executable };
+    let (bundle, executable) = validate(&selected)?;
+    skin_bundle()?;
+    if !is_running(&executable)? {
+        return Err("客户端尚未运行。请勾选 Dream Skin 兼容启动，再点击“保存并启动”。".into());
+    }
+    apply_skin(dir, &bundle, skin_port()?)
 }
 fn launch(dir: &Path, s: Settings) -> Result<Value, String> {
     tz(&s)?;
@@ -203,19 +212,19 @@ pub fn execute(command: &str, payload: Value) -> Result<Value, String> {
         ),
         "discover" => Ok(json!({"path":discover()})),
         "validate" => Ok(json!({"path":validate(payload["path"].as_str().unwrap_or_default())?.0})),
-        "save" | "launch" => {
+        "save" | "launch" | "reapply_dream_skin" => {
             let s = if let Some(value) = payload.get("settings").filter(|v| !v.is_null()) {
                 serde_json::from_value(value.clone()).map_err(|e| e.to_string())?
             } else {
                 load(&dir)?
             };
-            if command == "launch" {
-                launch(&dir, s)
-            } else {
-                save(&dir, &s)?;
-                Ok(
-                    json!({"path":dir.join("settings.json"),"message":format!("设置已保存到 {}",dir.join("settings.json").display())}),
-                )
+            match command {
+                "launch" => launch(&dir, s),
+                "reapply_dream_skin" => reapply_skin(&dir, s),
+                _ => {
+                    save(&dir, &s)?;
+                    Ok(json!({"path":dir.join("settings.json"),"message":format!("设置已保存到 {}",dir.join("settings.json").display())}))
+                }
             }
         }
         "create_shortcut" => Ok(

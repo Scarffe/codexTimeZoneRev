@@ -1,12 +1,14 @@
 # Flutter + Forui 重制执行方案
 
+此文档保留迁移时的设计与验收记录；当前使用与发布方式以 [项目简介](README.md) 为准。
+
 ## 目标与边界
 
 - 分支：`codex/flutter-forui-rebuild`。
 - Windows 和 macOS 桌面重制，业务功能与现有版本保持一致。
 - 所有应用内交互控件使用 Forui；Flutter 基础布局、文字、语义及系统文件选择器除外。
 - 保留用户配置。按用户后续指令清理旧 Vue/Tauri 工程，并经用户明确确认删除根目录旧 EXE；功能所需原生后端和图标迁入新工程。
-- 开发工具安装于 `E:\development`；本地缓存与构建产物不提交。
+- 开发工具由开发者自行安装；本地缓存与构建产物不提交。
 - 本方案不包含发布、推送远端、修改系统时区或操作用户正在运行的 Codex。
 
 ## 基线与版本
@@ -110,13 +112,13 @@ FFI 采用带协议版本的 JSON 请求/响应，显式分配及释放 UTF-8 �
 - Forui 尚为 0.x：精确锁定版本，基于已安装源码确认 API，不边迁移边升级。
 - 原生桥接内存/线程：分配与释放必须同库完成；串行后台执行；禁用重复提交。
 - 双工具链：脚本提供明确 SDK 和 Rust 检查，失败停止，不产生看似完整的产物。
-- Windows C++ 组件不足：使用 E:\development 下已有 VS Build Tools，缺项按需补齐。
+- Windows C++ 组件不足：安装 Visual Studio C++ 桌面工具链并按需补齐组件。
 - macOS 无法在 Windows 实测：交付标明待验证，保留旧版作为回退。
 
 ## 执行记录
 
 - 2026-09-22：已建立分支和方案；开始安装 Flutter SDK、实现独立 Rust 桥接。
-- 2026-09-22：Flutter 3.47.5 安装于 E:\development\flutter，官方 SHA-256 校验通过；既有 VS Build Tools 满足 Windows 桌面构建。
+- 2026-09-22：Flutter 3.47.5 的官方 SHA-256 校验通过；Windows C++ 工具链满足桌面构建。
 - 2026-09-22：Rust 5 项测试通过；Flutter 16 项测试通过；analyze 无问题；浅深主题三种尺寸截图通过。
 - 2026-09-22：Windows Release + 便携 ZIP 构建通过；Dart → DLL 实测发现客户端和 10 次中文错误返回/释放。未执行保存、启动、快捷方式及 Dream Skin 系统操作。
 - 2026-09-22（第二轮）：系统代理接入、取消/超时保护、文件选择与剪贴板状态反馈完成；Rust 10 项、Flutter 29 项测试通过，analyze 无问题。
@@ -126,3 +128,4 @@ FFI 采用带协议版本的 JSON 请求/响应，显式分配及释放 UTF-8 �
 - 当前交付仍为开发版本，P3 真实客户端联动及 P4 双平台发布门槛尚未全部达成。后续验收：实际代理出口对比及 SOCKS/认证代理兼容性 → 实际 Codex/Dream Skin 联动 → macOS 构建与回归 → 默认入口切换。
 - 2026-09-22（清理轮）：应用标题区、Windows EXE 与 macOS 资源沿用原图标；Rust 后端迁入 native，删除旧 Vue/Tauri/Node 源码、旧构建工作流及经确认的旧 EXE。清理后 Rust 10 项与 Flutter 29 项测试通过，静态检查无问题；README 已切换为 Flutter 默认说明。
 - 2026-09-22（清理轮）：Windows Release 和便携 ZIP 重建成功；26 个打包文件含图标及运行库、不含用户设置。解压后演示启动及 DLL 只读检查通过，浅深主题三尺寸图标布局截图通过。ZIP SHA-256：`2257DD9A0CD5DACED2CF9F223C47C99CD5959A83239A8E2579D7162C3053B992`。
+- 2026-09-24：Apple Silicon Mac 上完成 Flutter 测试、应用构建、临时签名和 Dream Skin 重新注入验证；发布版改由 GitHub Release 触发云端双平台构建。

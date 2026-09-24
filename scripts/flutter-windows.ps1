@@ -1,16 +1,19 @@
 param(
     [ValidateSet('doctor', 'test', 'build', 'run', 'preview')]
     [string]$Action = 'run',
-    [string]$DevelopmentRoot = 'E:\development',
     [string]$FlutterSdk = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-if (!$FlutterSdk) { $FlutterSdk = Join-Path $DevelopmentRoot 'flutter' }
+if (!$FlutterSdk) { $FlutterSdk = $env:FLUTTER_ROOT }
+if (!$FlutterSdk) {
+    $flutterCommand = Get-Command flutter.bat -ErrorAction SilentlyContinue
+    if ($flutterCommand) { $FlutterSdk = Split-Path -Parent (Split-Path -Parent $flutterCommand.Source) }
+}
+if (!$FlutterSdk) { throw 'Flutter SDK not found. Set FLUTTER_ROOT or pass -FlutterSdk.' }
 $flutter = Join-Path $FlutterSdk 'bin\flutter.bat'
 if (!(Test-Path -LiteralPath $flutter)) { throw "Flutter SDK not found: $flutter" }
-if (!$env:PUB_CACHE) { $env:PUB_CACHE = Join-Path $DevelopmentRoot 'flutter-pub-cache' }
-$env:PATH = "$(Join-Path $FlutterSdk 'bin');$(Join-Path $DevelopmentRoot 'Rust\cargo\bin');$env:PATH"
+$env:PATH = "$(Join-Path $FlutterSdk 'bin');$env:PATH"
 $env:CARGO_TARGET_DIR = Join-Path $projectRoot 'environment\flutter-cargo-target'
 $cachedCargo = Join-Path $projectRoot 'environment\cargo'
 if (Test-Path -LiteralPath $cachedCargo) { $env:CARGO_HOME = $cachedCargo }

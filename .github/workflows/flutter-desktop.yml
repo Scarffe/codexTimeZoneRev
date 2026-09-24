@@ -1,7 +1,8 @@
-name: Flutter desktop verification
+name: Flutter desktop release
 
 on:
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -38,3 +39,20 @@ jobs:
           name: flutter-${{ matrix.os }}
           path: environment/artifacts/*.zip
           if-no-files-found: error
+
+  publish:
+    needs: desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: flutter-*
+          path: dist
+          merge-multiple: true
+      - name: Attach desktop builds to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/*.zip --clobber

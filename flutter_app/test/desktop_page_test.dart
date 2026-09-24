@@ -74,6 +74,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('复制失败'), findsOneWidget);
       expect(find.text('无法复制 IP。'), findsWidgets);
+      await tester.ensureVisible(find.text('重新注入皮肤'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('重新注入皮肤'));
+      await tester.pumpAndSettle();
+      expect(backend.calls.last, 'reapply_dream_skin');
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
