@@ -62,6 +62,17 @@ fn validate(path: &str) -> Result<PathBuf, String> {
 fn discover() -> String {
     target::discover().map(|target| target.executable.to_string_lossy().into_owned()).unwrap_or_default()
 }
+pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
+    let _runtime = Runtime::new()?;
+    let selected = payload["path"].as_str().unwrap_or_default();
+    // Re-resolve saved Store paths after an app update, as normal launches do.
+    let desktop = if selected.is_empty() {
+        target::discover().map(|t| t.executable)
+    } else {
+        Some(target::for_launch(selected)?.executable)
+    };
+    crate::account_usage::query(desktop.as_deref())
+}
 fn same_path(a: &Path, b: &Path) -> bool {
     let normalize = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().trim_start_matches(r"\\?\").to_lowercase();
     normalize(a) == normalize(b)

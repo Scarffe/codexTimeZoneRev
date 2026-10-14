@@ -33,3 +33,17 @@ ClockReading targetClock(LauncherSettings settings, DateTime instant) {
     tz.TZDateTime.from(instant, tz.getLocation(settings.zoneId)),
   );
 }
+
+String usageResetTime(
+  LauncherSettings settings,
+  DateTime instant, {
+  required bool local,
+}) {
+  final date = local
+      ? instant.toLocal()
+      : settings.mode == 'offset'
+      ? instant.toUtc().add(Duration(hours: settings.offset))
+      : tz.TZDateTime.from(instant, tz.getLocation(settings.zoneId));
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${date.year}/${two(date.month)}/${two(date.day)} ${two(date.hour)}:${two(date.minute)}';
+}

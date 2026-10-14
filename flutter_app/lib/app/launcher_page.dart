@@ -8,18 +8,22 @@ import '../services/clocks.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../state/launcher_controller.dart';
+import '../state/account_usage_controller.dart';
+import 'account_usage_panel.dart';
 
 class LauncherPage extends StatelessWidget {
   const LauncherPage({
     super.key,
     required this.launcher,
     required this.network,
+    required this.usage,
     required this.appearance,
     required this.onAppearance,
     this.desktop = const SystemDesktopServices(),
   });
   final LauncherController launcher;
   final NetworkController network;
+  final AccountUsageController usage;
   final String appearance;
   final ValueChanged<String> onAppearance;
   final DesktopServices desktop;
@@ -338,9 +342,19 @@ class LauncherPage extends StatelessWidget {
                 ],
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final preview = ClockPanel(
-                      settings: settings,
-                      preview: launcher.preview,
+                    final preview = Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ClockPanel(
+                          settings: settings,
+                          preview: launcher.preview,
+                        ),
+                        const SizedBox(height: 20),
+                        AccountUsagePanel(
+                          controller: usage,
+                          launcher: launcher,
+                        ),
+                      ],
                     );
                     if (constraints.maxWidth < 820) {
                       return Column(
@@ -352,12 +366,47 @@ class LauncherPage extends StatelessWidget {
                         ],
                       );
                     }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    // Fill cells use the settings cell's height, so query results
+                    // cannot push either the row or the network card down.
+                    return Table(
+                      columnWidths: const {
+                        0: FlexColumnWidth(3),
+                        1: FixedColumnWidth(20),
+                        2: FlexColumnWidth(2),
+                      },
                       children: [
-                        Expanded(flex: 3, child: settingCard),
-                        const SizedBox(width: 20),
-                        Expanded(flex: 2, child: preview),
+                        TableRow(
+                          children: [
+                            TableCell(
+                              key: const ValueKey('launch-settings-card'),
+                              verticalAlignment: TableCellVerticalAlignment.top,
+                              child: settingCard,
+                            ),
+                            const SizedBox.shrink(),
+                            TableCell(
+                              verticalAlignment:
+                                  TableCellVerticalAlignment.fill,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ClockPanel(
+                                    settings: settings,
+                                    preview: launcher.preview,
+                                    compact: true,
+                                  ),
+                                  const SizedBox(height: 20),
+                                  Expanded(
+                                    child: AccountUsagePanel(
+                                      controller: usage,
+                                      launcher: launcher,
+                                      bounded: true,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     );
                   },
@@ -488,9 +537,15 @@ class _PathFieldState extends State<_PathField> {
 }
 
 class ClockPanel extends StatefulWidget {
-  const ClockPanel({super.key, required this.settings, required this.preview});
+  const ClockPanel({
+    super.key,
+    required this.settings,
+    required this.preview,
+    this.compact = false,
+  });
   final LauncherSettings settings;
   final bool preview;
+  final bool compact;
   @override
   State<ClockPanel> createState() => _ClockPanelState();
 }
@@ -540,7 +595,106 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     final local = widget.preview
         ? targetClock(const LauncherSettings(), _now)
         : ClockReading.fromDate(_now.toLocal());
+    if (widget.compact) {
+      return FCard(
+        key: const ValueKey('time-preview-card'),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '时间预览',
+                style: context.theme.typography.display.lg.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                widget.settings.mode == 'zone'
+                    ? widget.settings.zoneId
+                    : '固定偏移',
+                style: context.theme.typography.body.sm,
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        target?.time ?? '--:--:--',
+                        style: context.theme.typography.display.xl.copyWith(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FBadge(child: Text(target?.offset ?? '无效时区')),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                target?.date ?? '请选择有效时区',
+                style: context.theme.typography.body.sm,
+              ),
+              const FDivider(
+                style: FDividerStyleDelta.delta(
+                  padding: EdgeInsetsGeometryDelta.value(
+                    EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('本地时间', style: context.theme.typography.body.sm),
+                        const SizedBox(height: 4),
+                        Text(
+                          local.date,
+                          style: context.theme.typography.body.sm.copyWith(
+                            color: context.theme.colors.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        local.time,
+                        style: context.theme.typography.body.lg.copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        local.offset,
+                        style: context.theme.typography.body.sm.copyWith(
+                          color: context.theme.colors.mutedForeground,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return FCard(
+      key: const ValueKey('time-preview-card'),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
