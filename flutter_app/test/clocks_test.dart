@@ -37,4 +37,35 @@ void main() {
     expect(fixed.time, '13:00:00');
     expect(fixed.date, contains('1 月 2 日'));
   });
+  test('usage reset time switches between node timezone and local time', () {
+    final instant = DateTime.utc(2026, 10, 14, 12, 36);
+    expect(
+      usageResetTime(
+        const LauncherSettings(zoneId: 'America/Los_Angeles'),
+        instant,
+        local: false,
+      ),
+      '2026/10/14 05:36',
+    );
+    expect(
+      usageResetTime(
+        const LauncherSettings(mode: 'offset', offset: 14),
+        instant,
+        local: false,
+      ),
+      '2026/10/15 02:36',
+    );
+    final local = instant.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final expected =
+        '${local.year}/${two(local.month)}/${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+    expect(
+      usageResetTime(
+        const LauncherSettings(zoneId: 'invalid/zone'),
+        instant,
+        local: true,
+      ),
+      expected,
+    );
+  });
 }

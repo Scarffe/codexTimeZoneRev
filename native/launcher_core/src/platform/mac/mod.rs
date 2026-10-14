@@ -79,6 +79,12 @@ fn discover() -> String {
     }
     String::new()
 }
+pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
+    let selected = payload["path"].as_str().unwrap_or_default();
+    let path = if selected.is_empty() { discover() } else { selected.to_owned() };
+    let desktop = validate(&path).ok().map(|(bundle, _)| bundle);
+    crate::account_usage::query(desktop.as_deref())
+}
 fn is_running(executable: &Path) -> Result<bool, String> {
     let output = Command::new("/bin/ps")
         .args(["-axo", "comm="])

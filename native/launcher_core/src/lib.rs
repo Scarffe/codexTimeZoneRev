@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 #[path = "platform/common.rs"]
 mod common;
+mod account_usage;
 #[cfg(target_os = "macos")]
 #[path = "platform/mac/mod.rs"]
 mod macos;
@@ -36,6 +37,15 @@ fn dispatch(request: &str) -> Result<Value, String> {
     if request.command == "proxy_for_url" {
         return proxy::resolve(request.payload["url"].as_str().unwrap_or_default())
             .map(|proxy| json!({"proxy": proxy}));
+    }
+    // Account reads can wait on the network. Never hold the settings/launch lock.
+    if request.command == "account_usage" {
+        #[cfg(windows)]
+        return windows::account_usage(request.payload);
+        #[cfg(target_os = "macos")]
+        return macos::account_usage(request.payload);
+        #[cfg(not(any(windows, target_os = "macos")))]
+        return Err("仅支持 Windows 和 macOS。".into());
     }
     // Reject unknown commands before initializing OS services or touching files.
     if !["bootstrap", "discover", "validate", "save", "launch", "check_launch", "repair_launch", "create_shortcut", "launch_dream_skin", "reapply_dream_skin"].contains(&request.command.as_str()) {

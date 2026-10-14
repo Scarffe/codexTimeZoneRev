@@ -3,10 +3,12 @@ import 'package:forui/forui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backend.dart';
+import '../services/account_usage.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../services/window_material.dart';
 import '../state/launcher_controller.dart';
+import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
 import 'theme.dart';
 
@@ -19,6 +21,7 @@ class LauncherApplication extends StatefulWidget {
     this.desktop = const SystemDesktopServices(),
     this.networkFactory,
     this.acrylicEnabled = false,
+    this.usageService,
   });
   final bool preview;
   final LauncherBackend? backend;
@@ -26,6 +29,7 @@ class LauncherApplication extends StatefulWidget {
   final DesktopServices desktop;
   final NetworkController Function()? networkFactory;
   final bool acrylicEnabled;
+  final AccountUsageService? usageService;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
 }
@@ -39,6 +43,9 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late final network =
       widget.networkFactory?.call() ??
       NetworkController(preview: widget.preview);
+  late final usage = AccountUsageController(
+    widget.usageService ?? NativeAccountUsageService(launcher.backend),
+  );
   late final appearance = ValueNotifier(widget.initialAppearance);
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
@@ -125,11 +132,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     onGenerateRoute: (settings) => PageRouteBuilder<void>(
       settings: settings,
       pageBuilder: (context, animation, secondary) => ListenableBuilder(
-        listenable: Listenable.merge([launcher, network, appearance]),
+        listenable: Listenable.merge([launcher, network, usage, appearance]),
         builder: (context, _) => LauncherPage(
           desktop: widget.desktop,
           launcher: launcher,
           network: network,
+          usage: usage,
           appearance: appearance.value,
           onAppearance: _setAppearance,
         ),
@@ -141,6 +149,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   void dispose() {
     launcher.dispose();
     network.dispose();
+    usage.dispose();
     appearance.dispose();
     super.dispose();
   }
