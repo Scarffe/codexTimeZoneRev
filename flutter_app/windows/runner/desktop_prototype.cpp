@@ -15,12 +15,14 @@ namespace {
 constexpr wchar_t kOwnerClass[] = L"CodexTimeZone.StageA.Owner";
 constexpr wchar_t kPetClass[] = L"CodexTimeZone.StageA.Pet";
 constexpr wchar_t kHostClass[] = L"CodexTimeZone.StageA.TestHost";
+constexpr wchar_t kBubbleClass[] = L"CodexTimeZone.StageC.Bubble";
 constexpr UINT kTray = WM_APP + 71;
 constexpr UINT kRestore = WM_APP + 72;
 constexpr int kWidth = 240, kHeight = 160;
 constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
+constexpr UINT kAlertTest=113;
 struct State {
   HWND owner = nullptr, pet = nullptr, host = nullptr;
   bool tray = false, dragging = false;
@@ -30,6 +32,10 @@ struct State {
   std::filesystem::path settings;
   std::wstring detail;
   int64_t alertSerial=0;
+  bool testControls=false;
+  HWND bubble=nullptr;
+  ULONGLONG bubbleUntil=0;
+  int alertsShown=0, alertTests=0, bubbleDismissals=0;
   int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0;
   std::filesystem::path report;
   UINT taskbarCreated = 0;
@@ -73,6 +79,9 @@ void Report() {
         << ",\"hostForeground\":" << (GetForegroundWindow() == s.host ? "true" : "false")
         << ",\"petForeground\":" << (GetForegroundWindow() == s.pet ? "true" : "false")
         << ",\"mode\":" << s.mode
+        << ",\"alertsShown\":" << s.alertsShown << ",\"alertTests\":" << s.alertTests
+        << ",\"bubbleDismissals\":" << s.bubbleDismissals
+        << ",\"bubbleVisible\":" << (IsWindowVisible(s.bubble) ? "true" : "false")
         << ",\"revision\":" << s.revision << ",\"attempts\":" << s.attempts
         << ",\"failures\":" << s.failures << ",\"remaining\":" << s.remaining
         << ",\"paused\":" << (s.paused ? "true" : "false")
@@ -183,17 +192,19 @@ bool DrawPet() {
   }
   auto old = SelectObject(dc, bitmap);
   if(current->live) {
-    HFONT font=CreateFontW(-14,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
+    HFONT font=CreateFontW(current->mode==0 ? -22 : -16,0,0,0,current->mode==0 ? FW_BOLD : FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     auto previousFont=SelectObject(dc,font);
     SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
     RECT label{8,3,width-8,current->mode==0 ? height-8 : 49};
     auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : current->caption;
-    DrawTextW(dc,caption.c_str(),-1,&label,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+    DrawTextW(dc,caption.c_str(),-1,&label,current->mode==0 ? DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX : DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
     if(current->mode==2) {
       RECT detail{16,160,width-16,height-12};
       DrawTextW(dc,current->detail.c_str(),-1,&detail,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
     }
+    // GDI batches text writes. Flush before restoring alpha in the DIB.
+    GdiFlush();
     for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
       auto& pixel=data[y*width+x]; if(pixel & 0x00ffffff) pixel |= 0xff000000;
     }
@@ -213,6 +224,66 @@ void ShowPet() {
   Report();
 }
 
+bool Register(const wchar_t* name,WNDPROC proc);
+
+LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
+  if(msg==WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+  if(msg==WM_LBUTTONUP || msg==WM_CLOSE) {
+    ++current->bubbleDismissals;
+    ShowWindow(hwnd,SW_HIDE); KillTimer(current->owner,2); Report(); return 0;
+  }
+  return DefWindowProcW(hwnd,msg,wp,lp);
+}
+
+bool ShowAlert(const std::wstring& text) {
+  auto& s=*current;
+  if(!s.bubble) {
+    if(!Register(kBubbleClass,BubbleProc)) return false;
+    s.bubble=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
+        kBubbleClass,L"Codex 桌宠额度气泡",WS_POPUP,0,0,320,110,s.pet,nullptr,GetModuleHandleW(nullptr),nullptr);
+  }
+  if(!s.bubble) return false;
+  constexpr int width=320,height=110;
+  BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth=width; info.bmiHeader.biHeight=-height;
+  info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32;
+  HDC screen=GetDC(nullptr),dc=CreateCompatibleDC(screen); void* pixels=nullptr;
+  HBITMAP bitmap=CreateDIBSection(screen,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
+  if(!screen || !dc || !bitmap || !pixels) {
+    if(bitmap) DeleteObject(bitmap); if(dc) DeleteDC(dc); if(screen) ReleaseDC(nullptr,screen); return false;
+  }
+  auto data=static_cast<std::uint32_t*>(pixels);
+  for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
+    const int dx=x-std::clamp(x,12,width-13),dy=y-std::clamp(y,12,height-13);
+    data[y*width+x]=dx*dx+dy*dy<=144 ? 0xff344663 : 0;
+  }
+  auto old=SelectObject(dc,bitmap);
+  HFONT font=CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
+      OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
+  auto previousFont=SelectObject(dc,font); SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
+  RECT label{14,10,width-14,height-8};
+  const auto message=L"低额度提醒 · 点击关闭\n"+text;
+  DrawTextW(dc,message.c_str(),-1,&label,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+  GdiFlush();
+  for(int i=0;i<width*height;++i) if(data[i]&0x00ffffff) data[i]|=0xff000000;
+  RECT pet{}; GetWindowRect(s.pet,&pet); MONITORINFO monitor{}; monitor.cbSize=sizeof(monitor);
+  GetMonitorInfoW(MonitorFromRect(&pet,MONITOR_DEFAULTTONEAREST),&monitor);
+  const auto a=monitor.rcWork;
+  POINT destination{std::clamp(pet.left,a.left,std::max(a.left,a.right-width)),
+      std::clamp(pet.top-height-4>=a.top ? pet.top-height-4 : pet.bottom+4,a.top,std::max(a.top,a.bottom-height))};
+  POINT source{}; SIZE size{width,height}; BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
+  const bool ok=UpdateLayeredWindow(s.bubble,screen,&destination,&size,dc,&source,0,&blend,ULW_ALPHA)!=FALSE;
+  SelectObject(dc,previousFont); DeleteObject(font); SelectObject(dc,old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(nullptr,screen);
+  if(ok) {
+    // Extra inspection time only in explicitly opted-in UI test mode.
+    s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
+    ShowWindow(s.bubble,SW_SHOWNOACTIVATE);
+    SetWindowPos(s.bubble,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+    SetTimer(s.owner,2,250,nullptr); ++s.alertsShown;
+  }
+  Report(); return ok;
+}
+
 LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   auto& s = *current;
   switch (msg) {
@@ -229,6 +300,16 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         s.drag=p;
       } return 0;
     case WM_LBUTTONUP: {
+      // Fast input may coalesce WM_MOUSEMOVE behind button-up. Always account
+      // for the final cursor displacement before deciding this was a click.
+      if(s.dragging) {
+        POINT p{}; GetCursorPos(&p);
+        if(s.moved || abs(p.x-s.origin.x)>=GetSystemMetrics(SM_CXDRAG) || abs(p.y-s.origin.y)>=GetSystemMetrics(SM_CYDRAG)) {
+          RECT r{}; GetWindowRect(hwnd,&r);
+          SetWindowPos(hwnd,HWND_TOPMOST,r.left+p.x-s.drag.x,r.top+p.y-s.drag.y,0,0,SWP_NOSIZE|SWP_NOACTIVATE);
+          s.moved=true;
+        }
+      }
       const bool clicked=s.dragging && !s.moved;
       s.dragging=false; ReleaseCapture();
       if(clicked) s.mode=(s.mode+1)%3;
@@ -271,7 +352,9 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
   }
   switch (msg) {
-    case WM_TIMER: Report(); return 0;
+    case WM_TIMER:
+      if(wp==2 && GetTickCount64()>=s.bubbleUntil) { ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2); }
+      Report(); return 0;
     case kTray:
       if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); return 0; }
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
@@ -288,13 +371,15 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         AppendMenuW(menu,MF_STRING,kShow,s.live ? L"显示桌宠" : L"Show pet (DEMO)");
         AppendMenuW(menu,MF_STRING,kHide,s.live ? L"隐藏桌宠" : L"Hide pet");
         AppendMenuW(menu,MF_STRING,kReset,s.live ? L"复位桌宠位置" : L"Reset position");
+        if(s.testControls) AppendMenuW(menu,MF_STRING,kAlertTest,L"测试低额度气泡（模拟 10%）");
         AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         AppendMenuW(menu,MF_STRING,kExit,s.live ? L"退出监控" : L"Exit Stage A prototype");
         POINT p{}; GetCursorPos(&p);
         // Menus require foreground ownership; ordinary pet show/click never does.
-        SetForegroundWindow(hwnd);
-        auto command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_NONOTIFY|TPM_RIGHTBUTTON,p.x,p.y,0,hwnd,nullptr);
-        DestroyMenu(menu); PostMessageW(hwnd,WM_NULL,0,0);
+        HWND menuOwner=s.live && IsWindowVisible(s.mainWindow) ? s.mainWindow : hwnd;
+        SetForegroundWindow(menuOwner);
+        auto command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_NONOTIFY|TPM_RIGHTBUTTON,p.x,p.y,0,menuOwner,nullptr);
+        DestroyMenu(menu); PostMessageW(menuOwner,WM_NULL,0,0);
         if (command) PostMessageW(hwnd,WM_COMMAND,command,0);
       } return 0;
     case WM_COMMAND:
@@ -307,6 +392,8 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kMain:
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
         case kRefresh: if(s.action) s.action("refresh"); break;
+        case kAlertTest:
+          TriggerTestAlert(); break;
         case kPause: if(s.action) s.action(s.paused ? "resume" : "pause"); break;
         case kExit: if(s.live && s.action) s.action("exit"); else DestroyWindow(hwnd); break;
       } return 0;
@@ -314,7 +401,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_DESTROY: {
       NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=hwnd; icon.uID=1;
       if (s.tray) Shell_NotifyIconW(NIM_DELETE,&icon);
-      KillTimer(hwnd,1); if(!s.live) PostQuitMessage(0); return 0;
+      KillTimer(hwnd,1); KillTimer(hwnd,2); if(!s.live) PostQuitMessage(0); return 0;
     }
   }
   return DefWindowProcW(hwnd,msg,wp,lp);
@@ -329,6 +416,12 @@ bool Register(const wchar_t* name,WNDPROC proc) {
 
 bool Requested(const std::vector<std::wstring>& args) {
   return std::find(args.begin(),args.end(),L"--desktop-prototype")!=args.end();
+}
+
+bool TriggerTestAlert() {
+  if(!current || !current->testControls) return false;
+  ++current->alertTests;
+  return ShowAlert(L"测试模拟：剩余 10%。\n真实用量未改变。");
 }
 
 bool ClaimMonitorInstance(bool request_exit) {
@@ -356,6 +449,7 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   if(argv) {
     for(int i=1;i<argc;++i) { std::wstring arg(argv[i]); constexpr wchar_t prefix[]=L"--monitor-report=";
       if(arg.rfind(prefix,0)==0) current->report=arg.substr(std::size(prefix)-1);
+      if(arg==L"--monitor-test-controls") current->testControls=true;
     }
     LocalFree(argv);
   }
@@ -381,11 +475,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   current->attempts=attempts; current->failures=failures;
   current->detail=detail;
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
-    NOTIFYICONDATAW bubble{}; bubble.cbSize=sizeof(bubble); bubble.hWnd=current->owner;
-    bubble.uID=1; bubble.uFlags=NIF_INFO; bubble.dwInfoFlags=NIIF_WARNING|NIIF_NOSOUND;
-    wcsncpy_s(bubble.szInfoTitle,L"Codex 低额度提醒",_TRUNCATE);
-    wcsncpy_s(bubble.szInfo,alert.c_str(),_TRUNCATE);
-    if(Shell_NotifyIconW(NIM_MODIFY,&bubble)) current->alertSerial=alert_serial;
+    if(ShowAlert(alert)) current->alertSerial=alert_serial;
   }
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=current->owner;
   icon.uID=1; icon.uFlags=NIF_TIP; wcsncpy_s(icon.szTip,text.c_str(),_TRUNCATE);
@@ -397,6 +487,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
 void DetachMonitor() {
   if(current && current->live) {
     SavePosition();
+    if(IsWindow(current->bubble)) DestroyWindow(current->bubble);
     if(IsWindow(current->pet)) DestroyWindow(current->pet);
     if(IsWindow(current->owner)) DestroyWindow(current->owner);
     delete current; current=nullptr;
@@ -453,6 +544,14 @@ int Run(const std::vector<std::wstring>& args) {
         check(WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
       }
       check((GetWindowLongPtrW(state.pet,GWL_EXSTYLE)&(WS_EX_NOACTIVATE|WS_EX_LAYERED))==(WS_EX_NOACTIVATE|WS_EX_LAYERED));
+      check(ShowAlert(L"自检模拟 10%，非真实用量"));
+      check(IsWindowVisible(state.bubble)!=FALSE);
+      check(GetForegroundWindow()==foreground);
+      SendMessageW(state.bubble,WM_LBUTTONUP,0,0);
+      check(!IsWindowVisible(state.bubble) && state.bubbleDismissals==1);
+      check(ShowAlert(L"自检自动消失") && IsWindowVisible(state.bubble));
+      state.bubbleUntil=0; SendMessageW(state.owner,WM_TIMER,2,0);
+      check(!IsWindowVisible(state.bubble));
       SetWindowPos(state.pet,nullptr,-90000,-90000,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
       Place(false);
       RECT r{}; GetWindowRect(state.pet,&r);
@@ -486,6 +585,7 @@ int Run(const std::vector<std::wstring>& args) {
     if(status<0) result=7;
   }
   if(IsWindow(state.pet)) DestroyWindow(state.pet);
+  if(IsWindow(state.bubble)) DestroyWindow(state.bubble);
   if(IsWindow(state.host)) DestroyWindow(state.host);
   if(IsWindow(state.owner)) DestroyWindow(state.owner);
   CloseHandle(mutex); current=nullptr; return result;

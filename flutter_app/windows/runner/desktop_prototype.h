@@ -17,5 +17,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
                     const std::wstring& detail, const std::wstring& alert, int64_t alert_serial);
 void DetachMonitor();
+// Available only with the explicit --monitor-test-controls launch flag.
+bool TriggerTestAlert();
 }
 #endif

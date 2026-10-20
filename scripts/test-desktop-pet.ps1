@@ -7,5 +7,5 @@ $report = Join-Path $evidence "native-self-test-$([Guid]::NewGuid().ToString('N'
 $process = Start-Process -FilePath $executable -ArgumentList '--desktop-prototype','--prototype-self-test',"--prototype-report=$report" -WindowStyle Hidden -PassThru -Wait
 if ($process.ExitCode -ne 0) { throw "Pet self-test failed: $($process.ExitCode)" }
 $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-if ($result.selfChecks -ne 15) { throw "Expected 15 checks, got $($result.selfChecks)" }
-Write-Output "PASS: 15 native surface checks; $report"
+if ($result.selfChecks -ne 21) { throw "Expected 21 checks, got $($result.selfChecks)" }
+Write-Output "PASS: 21 native surface checks; $report"
