@@ -1,6 +1,6 @@
 param([string]$Destination = 'stage-b-portable')
 $ErrorActionPreference = 'Stop'
-if ($Destination -notmatch '^stage-b-[a-z0-9-]+$') { throw 'Use an isolated stage-b-* directory name.' }
+if ($Destination -notmatch '^stage-[bc]-[a-z0-9-]+$') { throw 'Use an isolated stage-b-* or stage-c-* directory name.' }
 $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root 'flutter_app\build\windows\x64\runner\Release'
 $output = Join-Path $root "environment\$Destination"

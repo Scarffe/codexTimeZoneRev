@@ -58,7 +58,12 @@ bool FlutterWindow::OnCreate() {
         if(!caption || !percent || !old || !stopped) { result->Error("invalid_snapshot","Missing fields"); return; }
         const int n=MultiByteToWideChar(CP_UTF8,0,caption->data(),static_cast<int>(caption->size()),nullptr,0);
         std::wstring wide(n,L'\0'); MultiByteToWideChar(CP_UTF8,0,caption->data(),static_cast<int>(caption->size()),wide.data(),n);
-        desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"));
+        const auto wideField=[&](const char* key) {
+          auto v=value(key); auto p=std::get_if<std::string>(&v); if(!p) return std::wstring();
+          int length=MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),nullptr,0);
+          std::wstring w(length,L'\0'); MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),w.data(),length); return w;
+        };
+        desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"));
         result->Success(); return;
       }
       result->NotImplemented();

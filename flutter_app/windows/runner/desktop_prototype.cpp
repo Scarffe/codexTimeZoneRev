@@ -18,13 +18,19 @@ constexpr wchar_t kHostClass[] = L"CodexTimeZone.StageA.TestHost";
 constexpr UINT kTray = WM_APP + 71;
 constexpr UINT kRestore = WM_APP + 72;
 constexpr int kWidth = 240, kHeight = 160;
+constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
 struct State {
   HWND owner = nullptr, pet = nullptr, host = nullptr;
   bool tray = false, dragging = false;
-  POINT drag{};
-  int petClicks = 0, hostClicks = 0, restores = 0;
+  POINT drag{}, origin{};
+  bool moved=false;
+  int mode=1;
+  std::filesystem::path settings;
+  std::wstring detail;
+  int64_t alertSerial=0;
+  int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0;
   std::filesystem::path report;
   UINT taskbarCreated = 0;
   bool live = false, stale = false, paused = false;
@@ -59,12 +65,14 @@ void Report() {
   {
     std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
     out << "{\"pid\":" << GetCurrentProcessId()
+        << ",\"selfChecks\":" << s.selfChecks
         << ",\"petClicks\":" << s.petClicks << ",\"hostClicks\":" << s.hostClicks
         << ",\"restores\":" << s.restores << ",\"tray\":" << (s.tray ? "true" : "false")
         << ",\"visible\":" << (IsWindowVisible(s.pet) ? "true" : "false")
         << ",\"foregroundPid\":" << foregroundPid
         << ",\"hostForeground\":" << (GetForegroundWindow() == s.host ? "true" : "false")
         << ",\"petForeground\":" << (GetForegroundWindow() == s.pet ? "true" : "false")
+        << ",\"mode\":" << s.mode
         << ",\"revision\":" << s.revision << ",\"attempts\":" << s.attempts
         << ",\"failures\":" << s.failures << ",\"remaining\":" << s.remaining
         << ",\"paused\":" << (s.paused ? "true" : "false")
@@ -84,6 +92,52 @@ bool InstallTray() {
   return current->tray;
 }
 
+int Width() { return current->mode==0 ? 88 : (current->mode==2 ? 320 : 240); }
+int Height() { return current->mode==0 ? 72 : (current->mode==2 ? 310 : 160); }
+
+void SavePosition() {
+  if(current->settings.empty()) return;
+  RECT r{}; GetWindowRect(current->pet,&r);
+  const auto temporary=current->settings.wstring()+L".tmp";
+  { std::ofstream out(temporary); out << "1 " << current->mode << ' ' << r.left << ' ' << r.top; }
+  MoveFileExW(temporary.c_str(),current->settings.c_str(),MOVEFILE_REPLACE_EXISTING);
+}
+
+void Place(bool snap) {
+  RECT r{}; GetWindowRect(current->pet,&r);
+  MONITORINFO info{}; info.cbSize=sizeof(info);
+  if(!GetMonitorInfoW(MonitorFromRect(&r,MONITOR_DEFAULTTONEAREST),&info)) return;
+  auto a=info.rcWork;
+  int x=r.left,y=r.top,w=Width(),h=Height();
+  if(current->mode==0) x=abs(x-a.left)<=abs(x+w-a.right) ? a.left : a.right-w;
+  if(snap) {
+    if(abs(x-a.left)<24) x=a.left;
+    if(abs(x+w-a.right)<24) x=a.right-w;
+    if(abs(y-a.top)<24) y=a.top;
+    if(abs(y+h-a.bottom)<24) y=a.bottom-h;
+  }
+  x=std::clamp(x,static_cast<int>(a.left),std::max(static_cast<int>(a.left),static_cast<int>(a.right)-w));
+  y=std::clamp(y,static_cast<int>(a.top),std::max(static_cast<int>(a.top),static_cast<int>(a.bottom)-h));
+  SetWindowPos(current->pet,HWND_TOPMOST,x,y,w,h,SWP_NOACTIVATE);
+}
+
+void ReadPosition() {
+  int version=0,mode=1,x=0,y=0;
+  std::ifstream in(current->settings);
+  if(in>>version>>mode>>x>>y && version==1 && mode>=0 && mode<=2 && abs(static_cast<int64_t>(x))<100000 && abs(static_cast<int64_t>(y))<100000) {
+    current->mode=mode;
+    SetWindowPos(current->pet,HWND_TOPMOST,x,y,Width(),Height(),SWP_NOACTIVATE);
+    Place(false);
+  }
+}
+
+void LoadPosition() {
+  if(!current->live) return;
+  wchar_t executable[32768]{}; GetModuleFileNameW(nullptr,executable,32768);
+  current->settings=std::filesystem::path(executable).parent_path()/L"pet-position-v1.txt";
+  ReadPosition();
+}
+
 void ResetPosition() {
   RECT area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0);
   int x = area.right - kWidth - 32, y = area.bottom - kHeight - 48;
@@ -95,10 +149,11 @@ void ResetPosition() {
 }
 
 bool DrawPet() {
+  const int width=Width(),height=Height();
   // A real premultiplied-alpha DIB: zero-alpha pixels are not mouse targets.
   // Original geometric placeholder; no downloaded character assets.
   BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  info.bmiHeader.biWidth = kWidth; info.bmiHeader.biHeight = -kHeight;
+  info.bmiHeader.biWidth = width; info.bmiHeader.biHeight = -height;
   info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
   HDC screen = GetDC(nullptr), dc = CreateCompatibleDC(screen);
   void* pixels = nullptr;
@@ -108,19 +163,23 @@ bool DrawPet() {
     return false;
   }
   auto data = static_cast<std::uint32_t*>(pixels);
-  for (int y = 0; y < kHeight; ++y) for (int x = 0; x < kWidth; ++x) {
+  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
     const auto ellipse = [](int px, int py, int cx, int cy, int rx, int ry) {
       const double dx = static_cast<double>(px - cx) / rx;
       const double dy = static_cast<double>(py - cy) / ry; return dx * dx + dy * dy <= 1;
     };
     std::uint32_t color = 0;
+    if(current->mode==2 && x>=8 && x<width-8 && y>=3 && y<height-8) color=0xff202b40;
     if(current->live && x>=8 && x<kWidth-8 && y>=3 && y<49) color=0xff202b40;
     if (ellipse(x,y,118,94,66,43) || ellipse(x,y,54,74,24,14) || ellipse(x,y,53,103,21,13)) color = current->live && current->stale ? 0xff89919a : 0xff66bfe8;
     if (ellipse(x,y,131,112,41,17)) color = 0xffcbeaf4;
     if (ellipse(x,y,150,85,5,7)) color = 0xff182d49;
     const double remaining = current->live ? current->remaining : 72;
     if (x >= 77 && x <= 174 && y >= 141 && y <= 147) color = remaining >= 0 && x < 77 + remaining * .98 ? (current->stale ? 0xff89919a : 0xff6bd4ad) : 0xff43526b;
-    data[y * kWidth + x] = color;
+    if(current->mode==0) {
+      color=ellipse(x,y,44,36,40,30) ? (current->stale ? 0xff89919a : 0xff202b40) : 0;
+    }
+    data[y * width + x] = color;
   }
   auto old = SelectObject(dc, bitmap);
   if(current->live) {
@@ -128,14 +187,19 @@ bool DrawPet() {
         OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     auto previousFont=SelectObject(dc,font);
     SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
-    RECT label{8,3,kWidth-8,49};
-    DrawTextW(dc,current->caption.c_str(),-1,&label,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
-    for(int y=0;y<49;++y) for(int x=0;x<kWidth;++x) {
-      auto& pixel=data[y*kWidth+x]; if(pixel & 0x00ffffff) pixel |= 0xff000000;
+    RECT label{8,3,width-8,current->mode==0 ? height-8 : 49};
+    auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : current->caption;
+    DrawTextW(dc,caption.c_str(),-1,&label,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
+    if(current->mode==2) {
+      RECT detail{16,160,width-16,height-12};
+      DrawTextW(dc,current->detail.c_str(),-1,&detail,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
+    }
+    for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
+      auto& pixel=data[y*width+x]; if(pixel & 0x00ffffff) pixel |= 0xff000000;
     }
     SelectObject(dc,previousFont); DeleteObject(font);
   }
-  SIZE size{kWidth,kHeight}; POINT source{}; RECT r{}; GetWindowRect(current->pet, &r);
+  SIZE size{width,height}; POINT source{}; RECT r{}; GetWindowRect(current->pet, &r);
   POINT destination{r.left,r.top}; BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
   const bool ok = UpdateLayeredWindow(current->pet, screen, &destination, &size, dc,
                                       &source, 0, &blend, ULW_ALPHA) != FALSE;
@@ -154,15 +218,24 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_LBUTTONDOWN: {
-      ++s.petClicks; s.dragging = true; GetCursorPos(&s.drag); SetCapture(hwnd); Report(); return 0;
+      ++s.petClicks; s.dragging = true; s.moved=false; GetCursorPos(&s.drag); s.origin=s.drag; SetCapture(hwnd); Report(); return 0;
     }
     case WM_MOUSEMOVE:
       if (s.dragging) {
         POINT p{}; GetCursorPos(&p); RECT r{}; GetWindowRect(hwnd,&r);
+        if(!s.moved && abs(p.x-s.origin.x)<GetSystemMetrics(SM_CXDRAG) && abs(p.y-s.origin.y)<GetSystemMetrics(SM_CYDRAG)) return 0;
+        s.moved=true;
         SetWindowPos(hwnd,HWND_TOPMOST,r.left+p.x-s.drag.x,r.top+p.y-s.drag.y,0,0,SWP_NOSIZE|SWP_NOACTIVATE);
         s.drag=p;
       } return 0;
-    case WM_LBUTTONUP: s.dragging=false; ReleaseCapture(); Report(); return 0;
+    case WM_LBUTTONUP: {
+      const bool clicked=s.dragging && !s.moved;
+      s.dragging=false; ReleaseCapture();
+      if(clicked) s.mode=(s.mode+1)%3;
+      Place(true); DrawPet(); SavePosition(); Report(); return 0;
+    }
+    case WM_DISPLAYCHANGE: case WM_SETTINGCHANGE:
+      Place(false); DrawPet(); SavePosition(); return 0;
     case WM_CAPTURECHANGED: s.dragging=false; return 0;
     case WM_RBUTTONUP: PostMessageW(s.owner,kTray,0,WM_RBUTTONUP); return 0;
     case WM_CLOSE: ShowWindow(hwnd,SW_HIDE); Report(); return 0;
@@ -209,6 +282,9 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
           AppendMenuW(menu,MF_STRING,kPause,s.paused ? L"恢复自动刷新" : L"暂停自动刷新");
           AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         }
+        AppendMenuW(menu,MF_STRING|(s.mode==0?MF_CHECKED:0),kEdge,L"边缘形态");
+        AppendMenuW(menu,MF_STRING|(s.mode==1?MF_CHECKED:0),kCompact,L"紧凑形态");
+        AppendMenuW(menu,MF_STRING|(s.mode==2?MF_CHECKED:0),kExpanded,L"展开形态");
         AppendMenuW(menu,MF_STRING,kShow,s.live ? L"显示桌宠" : L"Show pet (DEMO)");
         AppendMenuW(menu,MF_STRING,kHide,s.live ? L"隐藏桌宠" : L"Hide pet");
         AppendMenuW(menu,MF_STRING,kReset,s.live ? L"复位桌宠位置" : L"Reset position");
@@ -225,7 +301,9 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       switch (LOWORD(wp)) {
         case kShow: ShowPet(); break;
         case kHide: ShowWindow(s.pet,SW_HIDE); Report(); break;
-        case kReset: ResetPosition(); ShowPet(); break;
+        case kReset: ResetPosition(); Place(false); DrawPet(); SavePosition(); ShowPet(); break;
+        case kEdge: case kCompact: case kExpanded:
+          s.mode=static_cast<int>(LOWORD(wp)-kEdge); Place(true); DrawPet(); SavePosition(); ShowPet(); break;
         case kMain:
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
         case kRefresh: if(s.action) s.action("refresh"); break;
@@ -289,17 +367,26 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   current->pet=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
       kPetClass,L"Codex 用量桌宠",WS_POPUP,0,0,kWidth,kHeight,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   if(!current->owner || !current->pet || !InstallTray()) { DetachMonitor(); return false; }
-  ResetPosition();
+  ResetPosition(); LoadPosition();
   if(!DrawPet()) { DetachMonitor(); return false; }
   ShowPet(); return true;
 }
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
-                    bool paused, int64_t revision, int64_t attempts, int64_t failures) {
+                    bool paused, int64_t revision, int64_t attempts, int64_t failures,
+                    const std::wstring& detail, const std::wstring& alert, int64_t alert_serial) {
   if(!current || !current->live) return;
   current->caption=text; current->remaining=std::clamp(remaining,-1.0,100.0);
   current->stale=stale; current->paused=paused; current->revision=revision;
   current->attempts=attempts; current->failures=failures;
+  current->detail=detail;
+  if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
+    NOTIFYICONDATAW bubble{}; bubble.cbSize=sizeof(bubble); bubble.hWnd=current->owner;
+    bubble.uID=1; bubble.uFlags=NIF_INFO; bubble.dwInfoFlags=NIIF_WARNING|NIIF_NOSOUND;
+    wcsncpy_s(bubble.szInfoTitle,L"Codex 低额度提醒",_TRUNCATE);
+    wcsncpy_s(bubble.szInfo,alert.c_str(),_TRUNCATE);
+    if(Shell_NotifyIconW(NIM_MODIFY,&bubble)) current->alertSerial=alert_serial;
+  }
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=current->owner;
   icon.uID=1; icon.uFlags=NIF_TIP; wcsncpy_s(icon.szTip,text.c_str(),_TRUNCATE);
   Shell_NotifyIconW(NIM_MODIFY,&icon);
@@ -309,6 +396,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
 
 void DetachMonitor() {
   if(current && current->live) {
+    SavePosition();
     if(IsWindow(current->pet)) DestroyWindow(current->pet);
     if(IsWindow(current->owner)) DestroyWindow(current->owner);
     delete current; current=nullptr;
@@ -354,6 +442,43 @@ int Run(const std::vector<std::wstring>& args) {
   if(!result) { ResetPosition(); if(!DrawPet()) result=6; }
   if(!result) {
     ShowPet(); SetTimer(state.owner,1,200,nullptr);
+    if(std::find(args.begin(),args.end(),L"--prototype-self-test")!=args.end()) {
+      const auto foreground=GetForegroundWindow();
+      const auto check=[&](bool condition) { if(condition) ++state.selfChecks; else result=8; };
+      for(UINT command : {kEdge,kCompact,kExpanded}) {
+        SendMessageW(state.owner,WM_COMMAND,command,0);
+        RECT r{}; GetWindowRect(state.pet,&r);
+        check(r.right-r.left==Width() && r.bottom-r.top==Height());
+        check(GetForegroundWindow()==foreground);
+        check(WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
+      }
+      check((GetWindowLongPtrW(state.pet,GWL_EXSTYLE)&(WS_EX_NOACTIVATE|WS_EX_LAYERED))==(WS_EX_NOACTIVATE|WS_EX_LAYERED));
+      SetWindowPos(state.pet,nullptr,-90000,-90000,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
+      Place(false);
+      RECT r{}; GetWindowRect(state.pet,&r);
+      MONITORINFO info{}; info.cbSize=sizeof(info);
+      GetMonitorInfoW(MonitorFromRect(&r,MONITOR_DEFAULTTONEAREST),&info);
+      check(r.left>=info.rcWork.left && r.top>=info.rcWork.top && r.right<=info.rcWork.right && r.bottom<=info.rcWork.bottom);
+      SetWindowPos(state.pet,nullptr,info.rcWork.left+12,info.rcWork.top+12,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
+      Place(true); GetWindowRect(state.pet,&r);
+      check(r.left==info.rcWork.left && r.top==info.rcWork.top);
+      if(!state.report.empty()) {
+        state.settings=state.report.parent_path()/L"fixture-position.txt";
+        SavePosition();
+        state.mode=1;
+        SetWindowPos(state.pet,nullptr,r.left+50,r.top+50,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
+        ReadPosition();
+        RECT restored{}; GetWindowRect(state.pet,&restored);
+        check(state.mode==2 && EqualRect(&r,&restored));
+        { std::ofstream bad(state.settings); bad<<"1 999 9000000000 -9000000000"; }
+        ReadPosition(); check(state.mode==2);
+        { std::ofstream bad(state.settings); bad<<"broken"; }
+        ReadPosition(); check(state.mode==2);
+        SavePosition();
+      }
+      Report();
+      DestroyWindow(state.owner);
+    }
     MSG message{}; int status=0;
     while((status=static_cast<int>(GetMessageW(&message,nullptr,0,0)))>0) {
       TranslateMessage(&message); DispatchMessageW(&message);

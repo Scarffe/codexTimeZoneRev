@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../services/account_usage.dart';
+import '../services/pet_alerts.dart';
 
 /// One query owner for main window, tray and pet. Cache is session-only.
 class AccountUsageController extends ChangeNotifier {
@@ -22,6 +23,9 @@ class AccountUsageController extends ChangeNotifier {
   String _source = '';
   String Function()? _path;
   int _generation = 0;
+  final _petAlerts = PetAlerts();
+  String _alert = '';
+  int _alertSerial = 0;
 
   bool get stale =>
       data != null &&
@@ -74,6 +78,7 @@ class AccountUsageController extends ChangeNotifier {
     _source = path;
     _generation++;
     data = null;
+    _alert = '';
     error = null;
     failures = 0;
     nextRefreshAt = null;
@@ -132,6 +137,9 @@ class AccountUsageController extends ChangeNotifier {
       data = retainUsageDetails(result, data);
       failures = 0;
       revision++;
+      final alert = stale ? null : _petAlerts.observe(result, _now());
+      _alert = alert ?? '';
+      if (alert != null) _alertSerial++;
     } catch (e) {
       if (!_disposed && generation == _generation) {
         error = e.toString().replaceFirst(RegExp(r'^Bad state: '), '');
@@ -176,6 +184,20 @@ class AccountUsageController extends ChangeNotifier {
         : '$label · 剩余 ${remaining.toStringAsFixed(0)}% · $status';
     return {
       'text': text,
+      'detail': windows
+          .map((w) {
+            final left = w.usedPercent == null
+                ? '未知'
+                : '${(100 - w.usedPercent!).round()}%';
+            final countdown = resetCountdown(
+              w.resetsAt,
+              _now(),
+            ).replaceFirst('已到重置时间，点击重新查询', '已到重置时间 · 等待查询确认');
+            return '${w.label} · 剩余 $left\n$countdown';
+          })
+          .join('\n\n'),
+      'alert': !busy && !stale && error == null ? _alert : '',
+      'alertSerial': _alertSerial,
       'remaining': remaining ?? -1.0,
       'stale': stale,
       'busy': busy,
