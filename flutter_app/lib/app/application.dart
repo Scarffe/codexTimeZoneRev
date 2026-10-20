@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backend.dart';
 import '../services/account_usage.dart';
+import '../services/desktop_monitor.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../services/window_material.dart';
@@ -22,6 +23,8 @@ class LauncherApplication extends StatefulWidget {
     this.networkFactory,
     this.acrylicEnabled = false,
     this.usageService,
+    this.monitorEnabled = false,
+    this.monitorInterval = const Duration(minutes: 2),
   });
   final bool preview;
   final LauncherBackend? backend;
@@ -30,6 +33,8 @@ class LauncherApplication extends StatefulWidget {
   final NetworkController Function()? networkFactory;
   final bool acrylicEnabled;
   final AccountUsageService? usageService;
+  final bool monitorEnabled;
+  final Duration monitorInterval;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
 }
@@ -49,6 +54,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late final appearance = ValueNotifier(widget.initialAppearance);
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
+  DesktopMonitor? monitor;
+
+  void _sourceChanged() {
+    if (widget.monitorEnabled) usage.sourceChanged(launcher.effectivePath);
+  }
 
   void _syncMaterial(bool dark) {
     if (!acrylicEnabled || materialDark == dark) return;
@@ -66,7 +76,16 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   @override
   void initState() {
     super.initState();
-    launcher.initialize();
+    launcher.addListener(_sourceChanged);
+    launcher.initialize().then((_) {
+      if (mounted && widget.monitorEnabled && !widget.preview) {
+        monitor = DesktopMonitor(
+          usage,
+          () => launcher.effectivePath,
+          interval: widget.monitorInterval,
+        )..start();
+      }
+    });
     network.initialize();
     if (!widget.preview) _loadAppearance();
   }
@@ -147,6 +166,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   @override
   void dispose() {
+    monitor?.dispose();
+    launcher.removeListener(_sourceChanged);
     launcher.dispose();
     network.dispose();
     usage.dispose();

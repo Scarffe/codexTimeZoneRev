@@ -50,24 +50,53 @@ fn cli_paths(desktop: Option<&Path>) -> Result<Vec<PathBuf>, String> {
 }
 
 #[derive(Debug)]
-enum RpcError { Unsupported, Auth, Timeout, Failed }
+enum RpcError { Unsupported, Auth, Timeout, RateLimited, Failed }
 impl RpcError {
     fn message(&self) -> &'static str {
         match self {
             Self::Unsupported => "当前 Codex 版本不支持此统计，请更新客户端后重试。",
             Self::Auth => "登录状态已失效，请在 Codex 中重新登录后重试。",
             Self::Timeout => "查询超时，请检查 Codex 的网络或代理设置后重试。",
+            Self::RateLimited => "查询受到限流，请稍后重试。",
             Self::Failed => "无法读取账号数据，请检查 Codex 的登录状态和网络后重试。",
         }
     }
 }
 
 struct Rpc {
+    #[cfg(windows)]
+    _job: QueryJob,
     child: Child,
     input: ChildStdin,
     output: Receiver<Result<Value, RpcError>>,
     next_id: u32,
     deadline: Instant,
+}
+
+// Kill only this query's app-server if the isolated launcher exits unexpectedly.
+#[cfg(windows)]
+struct QueryJob(windows::Win32::Foundation::HANDLE);
+#[cfg(windows)]
+impl QueryJob {
+    fn attach(child: &Child) -> Result<Self, String> {
+        use std::{mem::size_of, os::windows::io::AsRawHandle};
+        use windows::Win32::{Foundation::HANDLE, System::JobObjects::*};
+        unsafe {
+            let job=Self(CreateJobObjectW(None, None).map_err(|_| "无法创建账号查询隔离环境。")?);
+            let mut info=JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            info.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(job.0, JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _, size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32)
+                .map_err(|_| "无法设置账号查询隔离环境。")?;
+            AssignProcessToJobObject(job.0,HANDLE(child.as_raw_handle()))
+                .map_err(|_| "无法隔离账号查询进程，已停止。")?;
+            Ok(job)
+        }
+    }
+}
+#[cfg(windows)]
+impl Drop for QueryJob {
+    fn drop(&mut self) { unsafe { let _=windows::Win32::Foundation::CloseHandle(self.0); } }
 }
 
 impl Rpc {
@@ -81,6 +110,11 @@ impl Rpc {
             command.creation_flags(0x08000000); // CREATE_NO_WINDOW
         }
         let mut child = command.spawn().map_err(|_| "无法启动 Codex 账号查询组件，请检查客户端安装。".to_string())?;
+        #[cfg(windows)]
+        let job=match QueryJob::attach(&child) {
+            Ok(job)=>job,
+            Err(error)=> { let _=child.kill(); let _=child.wait(); return Err(error); }
+        };
         let input = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let (sender, output) = mpsc::sync_channel(16);
@@ -98,7 +132,10 @@ impl Rpc {
                 if sender.send(result).is_err() || terminal { break; }
             }
         });
-        Ok(Self { child, input, output, next_id: 1, deadline: Instant::now() + timeout })
+        Ok(Self {
+            #[cfg(windows)]
+            _job: job,
+            child, input, output, next_id: 1, deadline: Instant::now() + timeout })
     }
 
     fn send(&mut self, value: Value) -> Result<(), RpcError> {
@@ -129,6 +166,8 @@ impl Rpc {
                     RpcError::Unsupported
                 } else if text.contains("401") || text.contains("unauthorized") || text.contains("not authenticated") {
                     RpcError::Auth
+                } else if text.contains("429") || text.contains("rate limit") {
+                    RpcError::RateLimited
                 } else { RpcError::Failed });
             }
             return message.get("result").cloned().ok_or(RpcError::Failed);
@@ -144,7 +183,7 @@ impl Drop for Rpc {
     }
 }
 
-fn read_usage(rpc: &mut Rpc) -> Result<Value, String> {
+fn read_usage_mode(rpc: &mut Rpc, details: bool) -> Result<Value, String> {
     rpc.call("initialize", json!({
         "clientInfo": {"name": "codex_timezone", "title": "Codex 时区启动器", "version": env!("CARGO_PKG_VERSION")},
         "capabilities": null
@@ -156,33 +195,37 @@ fn read_usage(rpc: &mut Rpc) -> Result<Value, String> {
         return Err("当前登录方式不支持 ChatGPT 账号用量查询，请在 Codex 中使用 ChatGPT 账号登录。".into());
     }
     let limits = rpc.call("account/rateLimits/read", json!({}));
-    let tokens = rpc.call("account/usage/read", json!({}));
+    let tokens = if details { rpc.call("account/usage/read", json!({})) } else { Ok(Value::Null) };
     let after = rpc.call("account/read", json!({"refreshToken": false})).map_err(|e| e.message())?;
     if after["account"] != account { return Err("查询期间账号已切换，请重新查询。".into()); }
     let (limits, limits_error) = match limits {
         Ok(v) => (json!({"rateLimits": v["rateLimits"], "rateLimitsByLimitId": v["rateLimitsByLimitId"]}), None),
         Err(e) => (Value::Null, Some(e.message())),
     };
-    let (tokens, tokens_error) = match tokens {
+    let (tokens, tokens_error) = if !details { (Value::Null, None) } else { match tokens {
         Ok(v) => (json!({"summary": v["summary"], "dailyUsageBuckets": v["dailyUsageBuckets"]}), None),
         Err(e) => (Value::Null, Some(e.message())),
-    };
+    }};
     if limits.is_null() && tokens.is_null() {
         return Err(limits_error.unwrap_or("账号用量暂不可用。").into());
     }
     Ok(json!({
         "account": {"email": account["email"], "planType": account["planType"]},
+        "identityKey": account.to_string(), "detailsIncluded": details,
         "limits": limits, "tokenUsage": tokens,
         "limitsError": limits_error, "tokensError": tokens_error,
     }))
 }
 
-pub(crate) fn query(desktop: Option<&Path>) -> Result<Value, String> {
+#[cfg(test)]
+fn read_usage(rpc: &mut Rpc) -> Result<Value, String> { read_usage_mode(rpc, true) }
+
+pub(crate) fn query(desktop: Option<&Path>, details: bool) -> Result<Value, String> {
     for cli in cli_paths(desktop)? {
         // Store package ACLs can prohibit executing its bundled CLI outside package
         // identity. Try the app's exported CLI before asking the user to reinstall.
         if let Ok(mut rpc) = Rpc::start(&cli, QUERY_TIMEOUT) {
-            return read_usage(&mut rpc);
+            return read_usage_mode(&mut rpc, details);
         }
     }
     Err("无法启动 Codex 账号查询组件，请检查客户端安装。".into())
@@ -201,7 +244,7 @@ mod tests {
             let executable = root.path().join(if cfg!(windows) { "success.exe" } else { "success" });
             let status = Command::new("rustc").arg("--edition=2021").arg(source).arg("-o").arg(&executable).status().unwrap();
             assert!(status.success());
-            for mode in ["no_login", "api_key", "old", "limits_failure", "secret_failure", "switched", "timeout"] {
+            for mode in ["no_login", "api_key", "old", "limits_failure", "secret_failure", "switched", "timeout", "limits_only", "rate_limited"] {
                 let target = root.path().join(if cfg!(windows) { format!("{mode}.exe") } else { mode.into() });
                 fs::copy(&executable, target).unwrap();
             }
@@ -217,6 +260,29 @@ mod tests {
         let path = if cfg!(windows) { Path::new("client/Codex.exe") } else { Path::new("Codex.app") };
         assert!(bundled_candidates(path).iter().all(|p| p != path));
         assert!(bundled_candidates(path)[0].to_string_lossy().contains("resources") || bundled_candidates(path)[0].to_string_lossy().contains("Resources"));
+    }
+    #[test]
+    fn lightweight_query_never_requests_full_token_statistics() {
+        let mut rpc=Rpc::start(&fixture("limits_only"),Duration::from_secs(10)).unwrap();
+        let value=read_usage_mode(&mut rpc,false).unwrap();
+        assert!(value["tokenUsage"].is_null());
+        assert_eq!(value["detailsIncluded"],false);
+        assert!(value["identityKey"].as_str().unwrap().contains("tester@example.com"));
+    }
+    #[test]
+    fn rate_limit_failure_is_sanitized_and_light_query_fails() {
+        let mut rpc=Rpc::start(&fixture("rate_limited"),Duration::from_secs(10)).unwrap();
+        let error=read_usage_mode(&mut rpc,false).unwrap_err();
+        assert!(error.contains("限流")); assert!(!error.contains("SECRET"));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn query_job_closure_cleans_its_child() {
+        let mut child=Command::new(fixture("timeout")).stdin(Stdio::piped()).stdout(Stdio::null()).spawn().unwrap();
+        let job=QueryJob::attach(&child).unwrap();
+        drop(job);
+        let start=Instant::now(); child.wait().unwrap();
+        assert!(start.elapsed()<Duration::from_secs(3));
     }
     #[test]
     fn protocol_reads_account_limits_and_tokens_despite_notifications() {

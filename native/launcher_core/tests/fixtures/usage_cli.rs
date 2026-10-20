@@ -20,10 +20,12 @@ fn main() {
                 _ => r#"{"account":{"type":"chatgpt","email":"tester@example.com","planType":"plus"}}"#,
             }
         } else if line.contains("\"method\":\"account/rateLimits/read\"") {
+            if mode == "rate_limited" { error = Some(r#"{"code":-32603,"message":"429 rate limit SECRET_DO_NOT_EXPOSE"}"#); }
             if mode == "limits_failure" { error = Some(r#"{"code":-32603,"message":"401 unauthorized Bearer SECRET_DO_NOT_EXPOSE"}"#); }
             if mode == "secret_failure" { error = Some(r#"{"code":-32603,"message":"SECRET_DO_NOT_EXPOSE"}"#); }
             r#"{"rateLimits":{"limitId":"codex","primary":{"usedPercent":8,"windowDurationMins":300,"resetsAt":1791981390}}}"#
         } else if line.contains("\"method\":\"account/usage/read\"") {
+            if mode == "limits_only" { panic!("light query must never ask for tokens"); }
             if mode == "old" { error = Some(r#"{"code":-32601,"message":"Unsupported method"}"#); }
             if mode == "secret_failure" { error = Some(r#"{"code":-32603,"message":"SECRET_DO_NOT_EXPOSE"}"#); }
             r#"{"summary":{"lifetimeTokens":1234567},"dailyUsageBuckets":[{"startDate":"2026-10-14","tokens":12345}]}"#

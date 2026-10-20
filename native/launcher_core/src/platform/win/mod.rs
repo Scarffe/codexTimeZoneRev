@@ -73,7 +73,7 @@ pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
     } else {
         Some(target::for_launch(selected)?.executable)
     };
-    crate::account_usage::query(desktop.as_deref())
+    crate::account_usage::query(desktop.as_deref(), payload["details"].as_bool().unwrap_or(true))
 }
 fn same_path(a: &Path, b: &Path) -> bool {
     let normalize = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().trim_start_matches(r"\\?\").to_lowercase();

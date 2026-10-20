@@ -134,7 +134,7 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(service.calls, 0);
-          expect(find.text('点击按钮后查询，不会自动获取或刷新。'), findsOneWidget);
+          expect(find.text('点击按钮查询，或开启自动监控。'), findsOneWidget);
           expect(find.text('本地时间 · 系统时区'), findsOneWidget);
           final card = find.byKey(const ValueKey('account-usage-card'));
           expect(

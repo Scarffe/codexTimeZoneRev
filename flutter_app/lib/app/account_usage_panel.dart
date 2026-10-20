@@ -65,17 +65,23 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
           const FProgress(),
           const SizedBox(height: 10),
           Text('正在读取登录账号与用量…', style: muted),
-        ] else if (controller.error != null)
+        ],
+        if (controller.error != null)
           FAlert(
             variant: FAlertVariant.destructive,
             title: const Text('查询失败'),
             subtitle: Text(controller.error!),
           )
-        else if (data == null) ...[
+        else if (data == null && !controller.busy) ...[
           Text('查看当前 Codex 账号的额度与 token 用量。', style: muted),
           const SizedBox(height: 8),
-          Text('点击按钮后查询，不会自动获取或刷新。', style: muted),
-        ] else ...[
+          Text(
+            controller.monitoring ? '正在自动监控当前账号额度。' : '点击按钮查询，或开启自动监控。',
+            style: muted,
+          ),
+        ],
+        if (data != null) ...[
+          if (controller.stale) Text('上次成功结果 · 当前数据可能已过期', style: muted),
           Row(
             children: [
               Expanded(
@@ -165,7 +171,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
           ],
           const SizedBox(height: 10),
           Text(
-            '查询于 ${ClockReading.fromDate(data.fetchedAt.toLocal()).time} · 手动更新',
+            '查询于 ${ClockReading.fromDate(data.fetchedAt.toLocal()).time} · ${controller.monitoring ? '自动监控' : '手动更新'}',
             style: muted,
           ),
         ],
@@ -205,6 +211,62 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FButton(
+                  key: const ValueKey('toggle-usage-monitor'),
+                  mainAxisSize: MainAxisSize.min,
+                  variant: FButtonVariant.outline,
+                  onPress: widget.launcher.preview
+                      ? null
+                      : () {
+                          if (controller.monitoring) {
+                            controller.pause();
+                          } else {
+                            controller.startMonitoring(
+                              () => widget.launcher.effectivePath,
+                            );
+                          }
+                        },
+                  child: Text(controller.monitoring ? '暂停自动刷新' : '开启自动刷新'),
+                ),
+                SizedBox(
+                  width: 160,
+                  child: FSelect<int>(
+                    key: const ValueKey('usage-monitor-interval'),
+                    items: const {
+                      '1 分钟': 60,
+                      '2 分钟': 120,
+                      '5 分钟': 300,
+                      '10 分钟': 600,
+                    },
+                    control: FSelectControl.lifted(
+                      value:
+                          const [
+                            60,
+                            120,
+                            300,
+                            600,
+                          ].contains(controller.interval.inSeconds)
+                          ? controller.interval.inSeconds
+                          : 120,
+                      onChange: (value) {
+                        if (value == null) return;
+                        controller.setInterval(Duration(seconds: value));
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (controller.failures > 0 && controller.nextRefreshAt != null)
+              Text(
+                '失败退避中，最早重试：${ClockReading.fromDate(controller.nextRefreshAt!.toLocal()).time}',
+                style: muted,
+              ),
             const SizedBox(height: 12),
             Row(
               children: [

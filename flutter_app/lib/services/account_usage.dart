@@ -33,12 +33,18 @@ class UsageWindow {
 }
 
 class UsageBucket {
-  const UsageBucket({required this.label, required this.windows});
+  const UsageBucket({
+    required this.label,
+    required this.windows,
+    this.id = 'codex',
+  });
+  final String id;
   final String label;
   final List<UsageWindow> windows;
   factory UsageBucket.fromJson(String id, Map<String, dynamic> json) {
     final name = json['limitName'] as String?;
     return UsageBucket(
+      id: id,
       label: name?.isNotEmpty == true ? name! : (id == 'codex' ? 'Codex' : id),
       windows: [
         for (final key in ['primary', 'secondary'])
@@ -60,11 +66,18 @@ class AccountUsage {
     this.latestDate,
     this.limitsError,
     this.tokensError,
+    this.identityKey,
+    this.detailsIncluded = true,
+    this.tokensFetchedAt,
   });
   final String? email;
   final String? plan;
   final List<UsageBucket> buckets;
   final DateTime fetchedAt;
+  final String? identityKey;
+  final bool detailsIncluded;
+  final DateTime? tokensFetchedAt;
+  String get identity => identityKey ?? '$email|$plan';
   final int? lifetimeTokens, latestDailyTokens;
   final String? latestDate, limitsError, tokensError;
 
@@ -89,6 +102,9 @@ class AccountUsage {
     final lifetime = summary?['lifetimeTokens'];
     return AccountUsage(
       email: account['email'] as String?,
+      identityKey: json['identityKey'] as String?,
+      detailsIncluded: json['detailsIncluded'] != false,
+      tokensFetchedAt: json['detailsIncluded'] == false ? null : DateTime.now(),
       plan: account['planType'] as String?,
       buckets: [
         if (byId != null && byId.isNotEmpty) ...[
@@ -109,6 +125,28 @@ class AccountUsage {
       fetchedAt: DateTime.now(),
     );
   }
+}
+
+AccountUsage retainUsageDetails(AccountUsage current, AccountUsage? previous) {
+  if (current.detailsIncluded ||
+      previous == null ||
+      previous.identity != current.identity) {
+    return current;
+  }
+  return AccountUsage(
+    email: current.email,
+    plan: current.plan,
+    buckets: current.buckets,
+    fetchedAt: current.fetchedAt,
+    identityKey: current.identityKey,
+    detailsIncluded: false,
+    lifetimeTokens: previous.lifetimeTokens,
+    latestDailyTokens: previous.latestDailyTokens,
+    latestDate: previous.latestDate,
+    tokensError: previous.tokensError,
+    tokensFetchedAt: previous.tokensFetchedAt,
+    limitsError: current.limitsError,
+  );
 }
 
 String tokenCount(int? value) {
@@ -137,9 +175,21 @@ abstract interface class AccountUsageService {
   Future<AccountUsage> query(String desktopPath);
 }
 
-class NativeAccountUsageService implements AccountUsageService {
+abstract interface class LimitsUsageService implements AccountUsageService {
+  Future<AccountUsage> queryLimits(String desktopPath);
+}
+
+class NativeAccountUsageService implements LimitsUsageService {
   const NativeAccountUsageService(this.backend);
   final LauncherBackend backend;
+  @override
+  Future<AccountUsage> queryLimits(String desktopPath) async =>
+      AccountUsage.fromJson(
+        await backend.call('account_usage', {
+          'path': desktopPath,
+          'details': false,
+        }),
+      );
   @override
   Future<AccountUsage> query(String desktopPath) async => AccountUsage.fromJson(
     await backend.call('account_usage', {'path': desktopPath}),

@@ -2,6 +2,7 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 #include <shellapi.h>
+#include <algorithm>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -22,6 +23,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (desktop_prototype::Requested(arguments)) {
     return desktop_prototype::Run(arguments);
   }
+  const bool monitor = std::find(arguments.begin(),arguments.end(),L"--desktop-monitor") != arguments.end();
+  const bool monitor_exit = std::find(arguments.begin(),arguments.end(),L"--monitor-exit") != arguments.end();
+  if(monitor && !desktop_prototype::ClaimMonitorInstance(monitor_exit)) return 0;
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -42,7 +46,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  FlutterWindow window(project);
+  FlutterWindow window(project, monitor);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1100, 900);
   if (!window.Create(L"Codex 时区启动器", origin, size)) {

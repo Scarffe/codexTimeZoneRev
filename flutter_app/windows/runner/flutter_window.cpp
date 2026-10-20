@@ -4,9 +4,12 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "resource.h"
+#include "desktop_prototype.h"
+#include <flutter/standard_method_codec.h>
+#include "utils.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project, bool monitor)
+    : project_(project), monitor_(monitor) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -27,6 +30,40 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  if(monitor_) {
+    monitor_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+        flutter_controller_->engine()->messenger(), "codex_timezone/monitor",
+        &flutter::StandardMethodCodec::GetInstance());
+    if(!desktop_prototype::AttachMonitor(GetHandle(),[this](const std::string& action) {
+      monitor_channel_->InvokeMethod(action,nullptr);
+    })) return false;
+    monitor_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+      if(call.method_name()=="exit") {
+        exiting_=true; result->Success(); PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
+      }
+      if(call.method_name()=="hide") { ShowWindow(GetHandle(),SW_HIDE); result->Success(); return; }
+      if(call.method_name()=="publish") {
+        const auto* map=std::get_if<flutter::EncodableMap>(call.arguments());
+        if(!map) { result->Error("invalid_snapshot","Expected map"); return; }
+        const auto value=[&](const char* key)->flutter::EncodableValue {
+          auto found=map->find(flutter::EncodableValue(key)); return found==map->end()?flutter::EncodableValue():found->second;
+        };
+        const auto number=[&](const char* key)->int64_t {
+          auto v=value(key); if(auto p=std::get_if<int64_t>(&v)) return *p;
+          if(auto p=std::get_if<int32_t>(&v)) return *p; return 0;
+        };
+        auto text=value("text"), remain=value("remaining"), stale=value("stale"), paused=value("paused");
+        auto caption=std::get_if<std::string>(&text); auto percent=std::get_if<double>(&remain);
+        auto old=std::get_if<bool>(&stale), stopped=std::get_if<bool>(&paused);
+        if(!caption || !percent || !old || !stopped) { result->Error("invalid_snapshot","Missing fields"); return; }
+        const int n=MultiByteToWideChar(CP_UTF8,0,caption->data(),static_cast<int>(caption->size()),nullptr,0);
+        std::wstring wide(n,L'\0'); MultiByteToWideChar(CP_UTF8,0,caption->data(),static_cast<int>(caption->size()),wide.data(),n);
+        desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"));
+        result->Success(); return;
+      }
+      result->NotImplemented();
+    });
+  }
 
   // Set both icon sizes on the runner and Flutter's child HWND. Shell tools
   // and overlay utilities may inspect either window rather than the EXE icon.
@@ -57,6 +94,10 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Win32Window::Create calls Destroy before OnCreate. The instance lock must
+  // survive that initial cleanup; only tear down an attached monitor channel.
+  if(monitor_ && monitor_channel_) desktop_prototype::DetachMonitor();
+  monitor_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -68,6 +109,7 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if(message==WM_CLOSE && monitor_ && !exiting_) { ShowWindow(hwnd,SW_HIDE); return 0; }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
