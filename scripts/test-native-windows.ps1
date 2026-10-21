@@ -1,6 +1,7 @@
 param(
     [string]$FlutterSdk = '',
-    [switch]$InstalledPreflight
+    [switch]$InstalledPreflight,
+    [string]$NativeLibrary = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -20,7 +21,13 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE)." }
 }
-Invoke-Checked 'cargo' @('build', '--release', '--manifest-path', (Join-Path $projectRoot 'native\launcher_core\Cargo.toml'))
+if ($NativeLibrary) {
+    $NativeLibrary = (Resolve-Path -LiteralPath $NativeLibrary).Path
+    if ([IO.Path]::GetExtension($NativeLibrary) -ne '.dll') { throw 'Expected a native DLL.' }
+} else {
+    Invoke-Checked 'cargo' @('build', '--release', '--manifest-path', (Join-Path $projectRoot 'native\launcher_core\Cargo.toml'))
+    $NativeLibrary = Join-Path $env:CARGO_TARGET_DIR 'release\codex_timezone_core.dll'
+}
 $fixtureRoot = Join-Path $projectRoot ('environment\native-acceptance-' + [guid]::NewGuid().ToString('N'))
 $clientRoot = Join-Path $fixtureRoot '模拟 客户端'
 New-Item -ItemType Directory -Path $clientRoot -Force | Out-Null
@@ -29,7 +36,7 @@ Invoke-Checked 'rustc' @('--edition=2021', '--crate-name', 'codex_fixture', (Joi
 Push-Location (Join-Path $projectRoot 'flutter_app')
 try {
     Invoke-Checked $dart @('compile', 'exe', 'tool/native_acceptance.dart', '-o', (Join-Path $fixtureRoot 'acceptance.exe'))
-    $env:CODEX_TZ_NATIVE_LIBRARY = Join-Path $env:CARGO_TARGET_DIR 'release\codex_timezone_core.dll'
+    $env:CODEX_TZ_NATIVE_LIBRARY = $NativeLibrary
     $previousTimezone = $env:TZ
     $previousElectron = $env:ELECTRON_RUN_AS_NODE
     try {

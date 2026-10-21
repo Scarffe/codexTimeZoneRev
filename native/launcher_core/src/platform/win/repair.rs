@@ -75,23 +75,36 @@ pub(super) fn run(dir: &Path, selected: &str, timezone: &str, expected: &str) ->
 mod tests {
     use super::*;
     #[test]
-    fn missing_identity_returns_a_repair_offer_without_running_the_child() {
+    fn preflight_cleans_suspended_child_in_packaged_and_unpacked_hosts() {
         let temp = tempfile::tempdir().unwrap();
         let target = target::LaunchTarget {
             executable: std::env::current_exe().unwrap(),
             package: Some(target::PackageIdentity {
-                full_name: "OpenAI.Codex_1.2.3.4_x64__2p2nqsd0c76g0".into(),
+                // Intentionally impossible version: an inherited real package
+                // must be rejected rather than treated as missing identity.
+                full_name: "OpenAI.Codex_TEST_FIXTURE_x64__2p2nqsd0c76g0".into(),
                 app_user_model_id: "OpenAI.Codex_2p2nqsd0c76g0!App".into(),
             }),
         };
         let mut log = LaunchLog::new(temp.path()).unwrap();
-        let result = check(&target, "Etc/UTC", &mut log).unwrap();
-        assert_eq!(result["repairRequired"], true);
-        assert_eq!(result["launched"], false);
+        let result = check(&target, "Etc/UTC", &mut log);
         assert!(!temp.path().join("settings.json").exists());
         assert!(!temp.path().join("repairs").exists());
         let text = fs::read_to_string(log.path).unwrap();
-        assert!(text.contains("\"cleaned\":true"));
+        let event: Value = serde_json::from_str(text.trim()).unwrap();
+        assert_eq!(event["stage"], "preflight");
+        assert_eq!(event["detail"]["cleaned"], true);
+        let identity = &event["detail"]["identity"];
+        if identity["packageError"] == 15700 && identity["appIdError"] == 15703 {
+            let offer = result.unwrap();
+            assert_eq!(offer["repairRequired"], true);
+            assert_eq!(offer["launched"], false);
+        } else {
+            // A packaged test runner can legitimately pass identity to its
+            // suspended child. Do not offer ACL repair for that mismatch.
+            assert_ne!(identity["packageFullName"], target.package.as_ref().unwrap().full_name);
+            assert!(result.unwrap_err().contains("已阻止客户端启动"));
+        }
     }
     #[test]
     fn only_exact_missing_identity_can_offer_repair() {
