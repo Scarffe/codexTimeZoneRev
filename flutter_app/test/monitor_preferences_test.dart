@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:codex_timezone/services/desktop_monitor.dart';
 import 'package:codex_timezone/services/monitor_preferences.dart';
 import 'package:codex_timezone/services/pet_alerts.dart';
 import 'package:codex_timezone/services/account_usage.dart';
@@ -180,6 +181,42 @@ void main() {
     expect(c.nextRefreshAt, deadline);
     c.dispose();
   });
+  testWidgets(
+    'desktop monitor honors saved intervals and explicit test overrides',
+    (tester) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopMonitor.channel, (_) async => null);
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(DesktopMonitor.channel, null),
+      );
+      final normal = AccountUsageController(
+        SampleService(sample()),
+        now: () => now,
+      );
+      normal.setInterval(const Duration(minutes: 5));
+      final monitor = DesktopMonitor(normal, () => 'fixture')..start();
+      await tester.pump();
+      expect(normal.interval.inSeconds, 300);
+      monitor.dispose();
+      normal.dispose();
+      final fast = AccountUsageController(
+        SampleService(sample()),
+        now: () => now,
+      );
+      final testMonitor = DesktopMonitor(
+        fast,
+        () => 'fixture',
+        interval: const Duration(seconds: 5),
+      )..start();
+      await tester.pump();
+      expect(fast.attempts, 1);
+      await tester.pump(const Duration(seconds: 5));
+      expect(fast.attempts, 2);
+      testMonitor.dispose();
+      fast.dispose();
+    },
+  );
   test(
     'custom threshold escalates once and cycle keys survive window reordering',
     () {

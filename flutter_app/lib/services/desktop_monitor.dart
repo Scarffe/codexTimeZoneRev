@@ -58,7 +58,12 @@ class DesktopMonitor {
       }
     });
     if (usage.savedMonitoring) {
-      usage.startMonitoring(path, every: usage.interval);
+      usage.startMonitoring(
+        path,
+        every: interval == const Duration(minutes: 2)
+            ? usage.interval
+            : interval,
+      );
     }
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => _publish());
     _publish();
