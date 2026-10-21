@@ -1,11 +1,11 @@
-param([Parameter(Mandatory)][string]$Archive)
+param([Parameter(Mandatory)][string]$Archive, [ValidateSet('D','E')][string]$Stage='D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $Archive = (Resolve-Path -LiteralPath $Archive).Path
 $checksum = (Get-Content -LiteralPath "$Archive.sha256" -Raw).Trim() -split '\s+',2
 if ($checksum.Count -ne 2 -or $checksum[1] -ne [IO.Path]::GetFileName($Archive) -or
     (Get-FileHash -LiteralPath $Archive).Hash -ne $checksum[0]) { throw 'Archive SHA256 mismatch.' }
-$output = Join-Path $root "environment\stage-d-smoke-$([Guid]::NewGuid().ToString('N'))"
+$output = Join-Path $root "environment\stage-$($Stage.ToLowerInvariant())-smoke-$([Guid]::NewGuid().ToString('N'))"
 $prefix = [IO.Path]::GetFullPath($output)+[IO.Path]::DirectorySeparatorChar
 $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
 try {
@@ -17,7 +17,7 @@ try {
             !$target.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or !$names.Add($name)) {
             throw "Unsafe or duplicate ZIP entry: $name"
         }
-        if ([IO.Path]::GetFileName($name) -match '^(settings\.json|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
+        if ([IO.Path]::GetFileName($name) -match '^(settings\.json|monitor-preferences.*|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
             throw "Unexpected private/runtime entry: $name"
         }
     }
@@ -39,6 +39,7 @@ foreach ($required in @('codex_timezone.exe','codex_timezone_core.dll','flutter_
     if (!$covered.Contains($required)) { throw "Missing runtime input: $required" }
 }
 $build=Get-Content -LiteralPath (Join-Path $output 'BUILD-INFO.json') -Raw | ConvertFrom-Json
+if ($build.stage -ne $Stage) { throw 'Candidate stage mismatch.' }
 if ($build.exeSha256 -ne (Get-FileHash (Join-Path $output 'codex_timezone.exe')).Hash -or
     $build.coreSha256 -ne (Get-FileHash (Join-Path $output 'codex_timezone_core.dll')).Hash) { throw 'Build identity mismatch.' }
 Write-Output "PASS: ZIP checksum, safe paths and $($manifest.Count) file hashes"

@@ -63,6 +63,9 @@ bool FlutterWindow::OnCreate() {
           int length=MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),nullptr,0);
           std::wstring w(length,L'\0'); MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),w.data(),length); return w;
         };
+        auto visible=value("petVisible");
+        if(auto flag=std::get_if<bool>(&visible)) desktop_prototype::ConfigureMonitor(
+          static_cast<int>(number("petMode")),*flag,number("preferencesSerial"));
         desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"));
         result->Success(); return;
       }

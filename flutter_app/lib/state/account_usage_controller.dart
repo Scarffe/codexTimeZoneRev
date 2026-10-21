@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/account_usage.dart';
 import '../services/pet_alerts.dart';
+import '../services/monitor_preferences.dart';
 
 /// One query owner for main window, tray and pet. Cache is session-only.
 class AccountUsageController extends ChangeNotifier {
@@ -26,6 +27,95 @@ class AccountUsageController extends ChangeNotifier {
   final _petAlerts = PetAlerts();
   String _alert = '';
   int _alertSerial = 0;
+  MonitorPreferencesStore? _preferencesStore;
+  Future<void> _pendingSave = Future<void>.value();
+  String? preferencesError;
+  bool preferencesReady = true;
+  bool alertsEnabled = true, petVisible = true, savedMonitoring = true;
+  int alertThreshold = 20, petMode = 1, preferencesSerial = 1;
+
+  Future<void> loadPreferences(MonitorPreferencesStore store) async {
+    _preferencesStore = store;
+    preferencesReady = false;
+    try {
+      final value = await store.read();
+      if (_disposed) return;
+      final saved = MonitorPreferences.fromJson(value);
+      interval = Duration(seconds: saved.seconds);
+      alertThreshold = saved.threshold;
+      alertsEnabled = saved.alerts;
+      petMode = saved.mode;
+      petVisible = saved.visible;
+      savedMonitoring = saved.enabled;
+      useLocalTime = saved.localTime;
+      _petAlerts.restore(value['cycles'], _now());
+    } catch (_) {
+      preferencesError = '监控设置读取失败，已使用默认值；原文件未改动。';
+    }
+    preferencesReady = true;
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> get settingsSaved => _pendingSave;
+  void _savePreferences() {
+    final store = _preferencesStore;
+    if (store == null || _disposed) return;
+    final snapshot = <String, Object?>{
+      ...MonitorPreferences(
+        seconds: interval.inSeconds,
+        threshold: alertThreshold,
+        alerts: alertsEnabled,
+        mode: petMode,
+        visible: petVisible,
+        enabled: savedMonitoring,
+        localTime: useLocalTime,
+      ).toJson(),
+      'cycles': _petAlerts.records(_now()),
+    };
+    _pendingSave = _pendingSave.then((_) async {
+      try {
+        await store.write(snapshot);
+        preferencesError = null;
+      } catch (_) {
+        preferencesError = '监控偏好已生效，但保存失败；请检查文件夹写入权限。';
+      }
+      if (!_disposed) notifyListeners();
+    });
+  }
+
+  void configurePet({int? mode, bool? visible}) {
+    if (mode != null && mode >= 0 && mode <= 2) petMode = mode;
+    if (visible != null) petVisible = visible;
+    preferencesSerial++;
+    _savePreferences();
+    if (!_disposed) notifyListeners();
+  }
+
+  void configureAlerts({bool? enabled, int? threshold}) {
+    if (enabled != null) alertsEnabled = enabled;
+    if ([10, 20, 30].contains(threshold)) alertThreshold = threshold!;
+    _alert = '';
+    _savePreferences();
+    if (!_disposed) notifyListeners();
+  }
+
+  bool get canMuteCurrentCycle =>
+      data != null &&
+      !stale &&
+      error == null &&
+      !busy &&
+      data!.buckets.any(
+        (b) => b.windows.any((w) => w.resetsAt?.isAfter(_now()) == true),
+      );
+  bool get cycleMuted => data != null && _petAlerts.isMuted(data!, _now());
+  void muteCurrentCycle() {
+    if (!canMuteCurrentCycle) return;
+    _petAlerts.mute(data!, _now());
+    _alert = '';
+    _savePreferences();
+    notifyListeners();
+  }
+
   bool _systemSuspended = false,
       _refreshAfterResume = false,
       _resumeHandled = false;
@@ -74,6 +164,7 @@ class AccountUsageController extends ChangeNotifier {
   void setLocalTime(bool value) {
     if (_disposed || useLocalTime == value) return;
     useLocalTime = value;
+    _savePreferences();
     notifyListeners();
   }
 
@@ -81,7 +172,8 @@ class AccountUsageController extends ChangeNotifier {
     interval = value < const Duration(seconds: 1)
         ? const Duration(seconds: 1)
         : value;
-    if (!busy && monitoring) _schedule();
+    if (!busy && monitoring && failures == 0) _schedule();
+    _savePreferences();
     if (!_disposed) notifyListeners();
   }
 
@@ -94,6 +186,8 @@ class AccountUsageController extends ChangeNotifier {
           : every;
     }
     monitoring = true;
+    savedMonitoring = true;
+    _savePreferences();
     if (!busy) {
       _timer?.cancel();
       unawaited(query(path(), details: false));
@@ -103,8 +197,12 @@ class AccountUsageController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void pause() {
+  void pause({bool persist = true}) {
     monitoring = false;
+    if (persist) {
+      savedMonitoring = false;
+      _savePreferences();
+    }
     _refreshAfterResume = false;
     _timer?.cancel();
     _timer = null;
@@ -175,9 +273,14 @@ class AccountUsageController extends ChangeNotifier {
       data = retainUsageDetails(result, data);
       failures = 0;
       revision++;
-      final alert = stale ? null : _petAlerts.observe(result, _now());
+      final alert = stale || !alertsEnabled
+          ? null
+          : _petAlerts.observe(result, _now(), threshold: alertThreshold);
       _alert = alert ?? '';
-      if (alert != null) _alertSerial++;
+      if (alert != null) {
+        _alertSerial++;
+        _savePreferences();
+      }
     } catch (e) {
       if (!_disposed && generation == _generation) {
         error = e.toString().replaceFirst(RegExp(r'^Bad state: '), '');
@@ -226,6 +329,12 @@ class AccountUsageController extends ChangeNotifier {
         : '$label · 剩余 ${remaining.toStringAsFixed(0)}% · $status';
     return {
       'text': text,
+      'preferencesSerial': preferencesSerial,
+      'petMode': petMode,
+      'petVisible': petVisible,
+      'alertsEnabled': alertsEnabled,
+      'alertThreshold': alertThreshold,
+      'intervalSeconds': interval.inSeconds,
       'detail': windows
           .map((w) {
             final left = w.usedPercent == null

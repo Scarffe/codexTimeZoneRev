@@ -23,6 +23,7 @@ constexpr int kWidth = 240, kHeight = 160;
 constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
+constexpr UINT kMuteCycle=119;
 constexpr UINT kAlertTest=113;
 constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
 struct State {
@@ -37,6 +38,8 @@ struct State {
   HPOWERNOTIFY powerRegistration=nullptr;
   std::filesystem::path settings;
   std::wstring detail;
+  bool preferredVisible=true;
+  int64_t preferencesSerial=0;
   int64_t alertSerial=0;
   bool testControls=false;
   HWND bubble=nullptr;
@@ -359,7 +362,7 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       }
       const bool clicked=s.dragging && !s.moved;
       s.dragging=false; ReleaseCapture();
-      if(clicked) s.mode=(s.mode+1)%3;
+      if(clicked) { s.mode=(s.mode+1)%3; if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); }
       Place(true); DrawPet(); SavePosition(); Report(); return 0;
     }
     case WM_DISPLAYCHANGE: case WM_SETTINGCHANGE:
@@ -394,7 +397,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   auto& s=*current;
   if (msg == s.taskbarCreated && s.taskbarCreated) { InstallTray(); return 0; }
   if (msg == kRestore) {
-    ++s.restores; ShowPet();
+    ++s.restores; if(!s.live || s.preferredVisible) ShowPet();
     if(s.live) { ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); }
     return 0;
   }
@@ -417,13 +420,14 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if(wp==2 && GetTickCount64()>=s.bubbleUntil) { ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2); }
       Report(); return 0;
     case kTray:
-      if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); return 0; }
+      if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); if(s.live && s.action) s.action("showPet"); return 0; }
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
         HMENU menu=CreatePopupMenu();
         if (s.live) {
           AppendMenuW(menu,MF_STRING,kMain,L"打开主窗口");
           AppendMenuW(menu,MF_STRING,kRefresh,L"立即刷新额度");
           AppendMenuW(menu,MF_STRING,kPause,s.paused ? L"恢复自动刷新" : L"暂停自动刷新");
+          AppendMenuW(menu,MF_STRING,kMuteCycle,L"本轮额度周期不再提醒");
           AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         }
         AppendMenuW(menu,MF_STRING|(s.mode==0?MF_CHECKED:0),kEdge,L"边缘形态");
@@ -452,13 +456,14 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       } return 0;
     case WM_COMMAND:
       switch (LOWORD(wp)) {
-        case kShow: ShowPet(); break;
-        case kHide: ShowWindow(s.pet,SW_HIDE); Report(); break;
-        case kReset: ResetPosition(); Place(false); DrawPet(); SavePosition(); ShowPet(); break;
+        case kShow: ShowPet(); if(s.live && s.action) s.action("showPet"); break;
+        case kHide: s.preferredVisible=false; ShowWindow(s.pet,SW_HIDE); if(s.live && s.action) s.action("hidePet"); Report(); break;
+        case kReset: ResetPosition(); Place(false); DrawPet(); SavePosition(); ShowPet(); if(s.live && s.action) s.action("showPet"); break;
         case kEdge: case kCompact: case kExpanded:
-          s.mode=static_cast<int>(LOWORD(wp)-kEdge); Place(true); DrawPet(); SavePosition(); ShowPet(); break;
+          s.mode=static_cast<int>(LOWORD(wp)-kEdge); Place(true); DrawPet(); SavePosition(); ShowPet(); if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); break;
         case kMain:
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
+        case kMuteCycle: if(s.live && s.action) s.action("muteCycle"); break;
         case kRefresh: if(s.action) s.action("refresh"); break;
         case kAlertTest:
           TriggerTestAlert(); break;
@@ -545,7 +550,7 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   current->dpi=GetDpiForWindow(current->pet); if(!current->dpi) current->dpi=96;
   ResetPosition(); LoadPosition();
   if(!DrawPet()) { DetachMonitor(); return false; }
-  ShowPet(); return true;
+  Report(); return true;
 }
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
@@ -556,6 +561,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   current->stale=stale; current->paused=paused; current->revision=revision;
   current->attempts=attempts; current->failures=failures;
   current->detail=detail;
+  if(alert.empty() || stale) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
     if(ShowAlert(alert)) current->alertSerial=alert_serial;
   }
@@ -563,6 +569,16 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   icon.uID=1; icon.uFlags=NIF_TIP; wcsncpy_s(icon.szTip,text.c_str(),_TRUNCATE);
   Shell_NotifyIconW(NIM_MODIFY,&icon);
   SetWindowTextW(current->pet,text.c_str()); DrawPet();
+  Report();
+}
+
+void ConfigureMonitor(int mode, bool visible, int64_t serial) {
+  if(!current || !current->live || serial<=current->preferencesSerial) return;
+  current->preferencesSerial=serial;
+  current->preferredVisible=visible;
+  current->mode=std::clamp(mode,0,2);
+  Place(false); DrawPet(); SavePosition();
+  if(visible) ShowPet(); else ShowWindow(current->pet,SW_HIDE);
   Report();
 }
 

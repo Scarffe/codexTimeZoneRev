@@ -24,6 +24,18 @@ class DesktopMonitor {
     usage.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'mode0':
+          usage.configurePet(mode: 0, visible: true);
+        case 'mode1':
+          usage.configurePet(mode: 1, visible: true);
+        case 'mode2':
+          usage.configurePet(mode: 2, visible: true);
+        case 'showPet':
+          usage.configurePet(visible: true);
+        case 'hidePet':
+          usage.configurePet(visible: false);
+        case 'muteCycle':
+          usage.muteCurrentCycle();
         case 'systemSuspend':
           usage.systemSuspending();
         case 'systemResume':
@@ -35,15 +47,19 @@ class DesktopMonitor {
         case 'resume':
           usage.startMonitoring(path);
         case 'exit':
-          usage.pause();
+          usage.pause(persist: false);
+          await usage.settingsSaved;
           // Query owns its short-lived app-server. Let Rust Drop clean it first.
           while (usage.busy && !_closed) {
             await Future<void>.delayed(const Duration(milliseconds: 100));
           }
+          await usage.settingsSaved;
           if (!_closed) await channel.invokeMethod<void>('exit');
       }
     });
-    usage.startMonitoring(path, every: interval);
+    if (usage.savedMonitoring) {
+      usage.startMonitoring(path, every: usage.interval);
+    }
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => _publish());
     _publish();
   }

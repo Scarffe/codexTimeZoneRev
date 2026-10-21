@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import 'monitor_settings_dialog.dart';
+
 import '../domain/settings.dart';
 import '../services/account_usage.dart';
 import '../services/clocks.dart';
@@ -233,6 +235,21 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                         },
                   child: Text(controller.monitoring ? '暂停自动刷新' : '开启自动刷新'),
                 ),
+                FButton(
+                  key: const ValueKey('monitor-settings'),
+                  mainAxisSize: MainAxisSize.min,
+                  variant: FButtonVariant.outline,
+                  onPress: !controller.preferencesReady
+                      ? null
+                      : () => showGeneralDialog<void>(
+                          context: context,
+                          barrierDismissible: true,
+                          barrierLabel: '关闭监控设置',
+                          pageBuilder: (context, _, _) =>
+                              MonitorSettingsDialog(controller: controller),
+                        ),
+                  child: const Text('监控设置'),
+                ),
                 SizedBox(
                   width: 160,
                   child: FSelect<int>(
@@ -262,6 +279,8 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                 ),
               ],
             ),
+            if (controller.preferencesError != null)
+              Text(controller.preferencesError!, style: muted),
             if (controller.failures > 0 && controller.nextRefreshAt != null)
               Text(
                 '失败退避中，最早重试：${ClockReading.fromDate(controller.nextRefreshAt!.toLocal()).time}',

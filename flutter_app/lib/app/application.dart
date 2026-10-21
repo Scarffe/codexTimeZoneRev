@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/backend.dart';
 import '../services/account_usage.dart';
 import '../services/desktop_monitor.dart';
+import '../services/monitor_preferences.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../services/window_material.dart';
@@ -77,7 +78,10 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   void initState() {
     super.initState();
     launcher.addListener(_sourceChanged);
-    launcher.initialize().then((_) {
+    launcher.initialize().then((_) async {
+      if (!widget.preview && widget.backend == null) {
+        await usage.loadPreferences(MonitorPreferencesStore.portable());
+      }
       if (mounted && widget.monitorEnabled && !widget.preview) {
         monitor = DesktopMonitor(
           usage,

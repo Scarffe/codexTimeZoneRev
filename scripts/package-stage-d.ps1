@@ -1,11 +1,12 @@
-param([string]$Name = '')
+param([string]$Name = '', [ValidateSet('D','E')][string]$Stage = 'D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $gitArguments = @('-c', "safe.directory=$($root.Replace('\','/'))", '-C', $root)
 $commit = & git @gitArguments rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify source commit.' }
 if (& git @gitArguments status --porcelain) { throw 'Commit changes before packaging a candidate.' }
-if (!$Name) { $Name = "CodexTimeZone-DesktopMonitor-windows-x64-rc-$($commit.Substring(0,7))" }
+$stageSuffix = if ($Stage -eq 'E') { '-E' } else { '' }
+if (!$Name) { $Name = "CodexTimeZone-DesktopMonitor$stageSuffix-windows-x64-rc-$($commit.Substring(0,7))" }
 if ($Name -notmatch '^[a-zA-Z0-9][a-zA-Z0-9-]{0,100}$') { throw 'Use a simple artifact name.' }
 $artifacts = Join-Path $root 'environment\artifacts'
 $output = Join-Path $artifacts $Name
@@ -27,11 +28,11 @@ foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File) {
     }
 }
 Copy-Item -LiteralPath $library -Destination (Join-Path $output 'codex_timezone_core.dll') -Force
-foreach ($document in @('LICENSE','STAGE-D.md')) { Copy-Item -LiteralPath (Join-Path $root $document) -Destination $output }
-Copy-Item -LiteralPath (Join-Path $root 'release-notes\desktop-monitor-rc.md') -Destination (Join-Path $output 'README.md')
+foreach ($document in @('LICENSE',"STAGE-$Stage.md")) { Copy-Item -LiteralPath (Join-Path $root $document) -Destination $output }
+Copy-Item -LiteralPath (Join-Path $root "release-notes\desktop-monitor$(if($Stage -eq 'E') { '-e' })-rc.md") -Destination (Join-Path $output 'README.md')
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
-@{stage='D';kind='local-release-candidate';sourceCommit=$commit;platform='windows-x64';monitorIntervalSeconds=120;
+@{stage=$Stage;kind='local-release-candidate';sourceCommit=$commit;platform='windows-x64';monitorIntervalSeconds=120;
     exeSha256=(Get-FileHash (Join-Path $output 'codex_timezone.exe')).Hash;
     coreSha256=(Get-FileHash (Join-Path $output 'codex_timezone_core.dll')).Hash;
     systemReplacementPerformed=$false;published=$false} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'BUILD-INFO.json') -Encoding utf8
@@ -40,7 +41,7 @@ $manifest = @(Get-ChildItem -LiteralPath $output -Recurse -File | Sort-Object Fu
 })
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'FILES-SHA256.json') -Encoding utf8
 # Explicit inputs exclude settings, account data, logs and UI-test launchers.
-if (Get-ChildItem -LiteralPath $output -Recurse -File | Where-Object Name -match '^(settings\.json|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
+if (Get-ChildItem -LiteralPath $output -Recurse -File | Where-Object Name -match '^(settings\.json|monitor-preferences.*|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
     throw 'Private/runtime data appeared in candidate.'
 }
 [IO.Compression.ZipFile]::CreateFromDirectory($output,$zip)
