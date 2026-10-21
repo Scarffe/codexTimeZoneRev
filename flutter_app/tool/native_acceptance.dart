@@ -75,6 +75,19 @@ Future<void> main() async {
   );
 
   final report = File(p.join(p.dirname(executable), 'observed.txt'));
+  Future<void> releaseFixture(Map<String, dynamic> started) async {
+    final id = started['pid'] as int;
+    final directory = p.dirname(executable);
+    File(p.join(directory, 'release-$id')).writeAsStringSync('release');
+    final exited = File(p.join(directory, 'exited-$id'));
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    while (!exited.existsSync() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    check(exited.existsSync(), 'Fixture did not acknowledge shutdown');
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
   final launch = await backend.call('launch', {'settings': settings});
   check(launch['launched'] == true, 'Fixture did not launch');
   check(
@@ -122,15 +135,15 @@ Future<void> main() async {
     Platform.environment['ELECTRON_RUN_AS_NODE'] == 'fixture-parent',
     'Parent environment was modified',
   );
-  await Future<void>.delayed(const Duration(milliseconds: 3300));
+  await releaseFixture(launch);
 
   settings = {...settings, 'mode': 'offset', 'offset': -12};
-  await backend.call('launch', {'settings': settings});
+  final offsetLaunch = await backend.call('launch', {'settings': settings});
   check(
     report.readAsStringSync().contains('TZ=Etc/GMT+12'),
     'Fixed-offset POSIX sign mismatch',
   );
-  await Future<void>.delayed(const Duration(milliseconds: 3300));
+  await releaseFixture(offsetLaunch);
   final persisted = settingsFile.readAsStringSync();
   await fails(
     backend.call('launch', {

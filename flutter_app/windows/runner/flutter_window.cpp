@@ -38,6 +38,7 @@ bool FlutterWindow::OnCreate() {
       monitor_channel_->InvokeMethod(action,nullptr);
     })) return false;
     monitor_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+      if(call.method_name()=="mainVisible") { result->Success(flutter::EncodableValue(IsWindowVisible(GetHandle()) && !IsIconic(GetHandle()))); return; }
       if(call.method_name()=="exit") {
         exiting_=true; result->Success(); PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
       }
@@ -118,6 +119,12 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if(monitor_channel_ && (message==WM_SHOWWINDOW || message==WM_SIZE)) {
+    bool visible=IsWindowVisible(hwnd) && !IsIconic(hwnd);
+    if(message==WM_SHOWWINDOW) visible=wparam!=0 && !IsIconic(hwnd);
+    if(message==WM_SIZE && wparam==SIZE_MINIMIZED) visible=false;
+    monitor_channel_->InvokeMethod(visible ? "mainShown" : "mainHidden",nullptr);
+  }
   if(message==WM_CLOSE && monitor_ && !exiting_) { ShowWindow(hwnd,SW_HIDE); return 0; }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {

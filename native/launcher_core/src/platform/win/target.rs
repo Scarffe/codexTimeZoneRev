@@ -32,11 +32,13 @@ struct RegisteredPackage {
     family_name: String,
 }
 
-fn registered_packages() -> Result<Vec<RegisteredPackage>, String> {
+fn registered_packages(family: Option<&str>) -> Result<Vec<RegisteredPackage>, String> {
     let manager = PackageManager::new().map_err(|e| format!("无法查询客户端程序包：{e}"))?;
-    let packages = manager
-        .FindPackagesByUserSecurityId(&HSTRING::new())
-        .map_err(|e| format!("无法查询当前用户的客户端程序包：{e}"))?;
+    let packages = match family {
+        Some(name) => manager.FindPackagesByUserSecurityIdPackageFamilyName(
+            &HSTRING::new(), &HSTRING::from(name)),
+        None => manager.FindPackagesByUserSecurityId(&HSTRING::new()),
+    }.map_err(|e| format!("无法查询当前用户的客户端程序包：{e}"))?;
     let mut result = Vec::new();
     for package in packages {
         let read = || -> ::windows::core::Result<RegisteredPackage> {
@@ -136,7 +138,7 @@ fn looks_packaged(executable: &Path) -> bool {
 /// Manual selection is subject to the same registered identity checks as discovery.
 pub(super) fn resolve(path: &str) -> Result<LaunchTarget, String> {
     let executable = validate(path)?;
-    let packages = match registered_packages() {
+    let packages = match registered_packages(None) {
         Ok(packages) => packages,
         Err(error) if looks_packaged(&executable) => return Err(error),
         Err(_) => Vec::new(),
@@ -161,8 +163,7 @@ pub(super) fn resolve(path: &str) -> Result<LaunchTarget, String> {
     })
 }
 
-pub(super) fn discover() -> Option<LaunchTarget> {
-    let mut packages = registered_packages().unwrap_or_default();
+fn newest_registered_target(mut packages: Vec<RegisteredPackage>) -> Option<LaunchTarget> {
     packages.retain(|package| package.name.eq_ignore_ascii_case("OpenAI.Codex"));
     packages.sort_by(|a, b| b.version.cmp(&a.version));
     for package in packages {
@@ -179,6 +180,13 @@ pub(super) fn discover() -> Option<LaunchTarget> {
                 return Some(target);
             }
         }
+    }
+    None
+}
+
+pub(super) fn discover() -> Option<LaunchTarget> {
+    if let Some(target) = newest_registered_target(registered_packages(None).unwrap_or_default()) {
+        return Some(target);
     }
     if let Ok(local) = known_folder(&FOLDERID_LocalAppData) {
         for relative in [
@@ -222,6 +230,21 @@ pub(super) fn for_launch(path: &str) -> Result<LaunchTarget, String> {
     }
 }
 
+/// Usage reads do not need to enumerate unrelated applications on every poll.
+/// Only the already-recognized official Store path uses the narrow lookup.
+/// Fresh registration and manifest validation still run, so updates are followed.
+pub(super) fn for_usage(path: &str) -> Result<LaunchTarget, String> {
+    if store_codex_path(path) {
+        if let Ok(packages) = registered_packages(Some("OpenAI.Codex_2p2nqsd0c76g0")) {
+            if let Some(target) = newest_registered_target(packages) {
+                return Ok(target);
+            }
+        }
+    }
+    // Unsupported API, absent family, empty/manual paths retain the old checks.
+    for_launch(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +281,29 @@ mod tests {
             targets[0].package.as_ref().unwrap().full_name,
             package.full_name
         );
+    }
+
+    #[test]
+    fn usage_selection_uses_latest_valid_manifest_and_preserves_identity() {
+        let old = tempfile::tempdir().unwrap();
+        let new = tempfile::tempdir().unwrap();
+        for root in [old.path(), new.path()] {
+            fs::write(root.join("ChatGPT.exe"), b"fixture").unwrap();
+            fs::write(root.join("icudtl.dat"), b"").unwrap();
+            fs::write(root.join("AppxManifest.xml"), r#"<Package><Applications><Application Id="App" Executable="ChatGPT.exe" /></Applications></Package>"#).unwrap();
+        }
+        let package = |root: &Path, version: u16| RegisteredPackage {
+            name: "OpenAI.Codex".into(), version: (version,0,0,0), root:root.into(),
+            full_name:format!("OpenAI.Codex_{version}.0.0.0_x64__2p2nqsd0c76g0"),
+            family_name:"OpenAI.Codex_2p2nqsd0c76g0".into(),
+        };
+        let latest = newest_registered_target(vec![package(old.path(),1),package(new.path(),2)]).unwrap();
+        assert!(contains(new.path(), &latest.executable));
+        assert_eq!(latest.package.unwrap().app_user_model_id,"OpenAI.Codex_2p2nqsd0c76g0!App");
+        fs::remove_file(new.path().join("ChatGPT.exe")).unwrap();
+        let fallback = newest_registered_target(vec![package(new.path(),2),package(old.path(),1)]).unwrap();
+        assert!(contains(old.path(), &fallback.executable));
+        assert!(newest_registered_target(vec![]).is_none());
     }
 
     #[test]

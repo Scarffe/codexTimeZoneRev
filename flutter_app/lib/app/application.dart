@@ -156,13 +156,19 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       settings: settings,
       pageBuilder: (context, animation, secondary) => ListenableBuilder(
         listenable: Listenable.merge([launcher, network, usage, appearance]),
-        builder: (context, _) => LauncherPage(
-          desktop: widget.desktop,
-          launcher: launcher,
-          network: network,
-          usage: usage,
-          appearance: appearance.value,
-          onAppearance: _setAppearance,
+        builder: (context, _) => TickerMode(
+          enabled: !widget.monitorEnabled || usage.mainWindowVisible,
+          child: Offstage(
+            offstage: widget.monitorEnabled && !usage.mainWindowVisible,
+            child: LauncherPage(
+              desktop: widget.desktop,
+              launcher: launcher,
+              network: network,
+              usage: usage,
+              appearance: appearance.value,
+              onAppearance: _setAppearance,
+            ),
+          ),
         ),
       ),
     ),

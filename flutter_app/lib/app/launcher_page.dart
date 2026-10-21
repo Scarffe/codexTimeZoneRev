@@ -552,6 +552,7 @@ class ClockPanel extends StatefulWidget {
 
 class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
   Timer? _timer;
+  bool _active = true, _resumed = true;
   late DateTime _now = widget.preview
       ? DateTime.utc(2026, 9, 22, 1, 24, 8)
       : DateTime.now();
@@ -562,9 +563,17 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     _start();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _active = TickerMode.valuesOf(context).enabled;
+    if (_active && !widget.preview) _now = DateTime.now();
+    _start();
+  }
+
   void _start() {
     _timer?.cancel();
-    if (!widget.preview) {
+    if (!widget.preview && _active && _resumed) {
       _timer = Timer.periodic(
         const Duration(seconds: 1),
         (_) => setState(() => _now = DateTime.now()),
@@ -577,8 +586,10 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
+      _resumed = false;
       _timer?.cancel();
     } else if (state == AppLifecycleState.resumed) {
+      _resumed = true;
       setState(() => _now = DateTime.now());
       _start();
     }

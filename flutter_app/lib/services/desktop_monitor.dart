@@ -21,9 +21,14 @@ class DesktopMonitor {
   Map<String, Object?>? _lastSnapshot;
 
   void start() {
+    usage.setMainWindowVisible(false);
     usage.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'mainShown':
+          await _syncMainVisibility();
+        case 'mainHidden':
+          await _syncMainVisibility();
         case 'mode0':
           usage.configurePet(mode: 0, visible: true);
         case 'mode1':
@@ -57,6 +62,7 @@ class DesktopMonitor {
           if (!_closed) await channel.invokeMethod<void>('exit');
       }
     });
+    unawaited(_syncMainVisibility());
     if (usage.savedMonitoring) {
       usage.startMonitoring(
         path,
@@ -67,6 +73,15 @@ class DesktopMonitor {
     }
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => _publish());
     _publish();
+  }
+
+  Future<void> _syncMainVisibility() async {
+    try {
+      final visible = await channel.invokeMethod<bool>('mainVisible') ?? false;
+      if (!_closed) usage.setMainWindowVisible(visible);
+    } catch (_) {
+      if (!_closed) usage.setMainWindowVisible(false);
+    }
   }
 
   void _publish() {

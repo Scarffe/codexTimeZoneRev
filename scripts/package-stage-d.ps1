@@ -13,7 +13,8 @@ $output = Join-Path $artifacts $Name
 $zip = "$output.zip"
 if ((Test-Path -LiteralPath $output) -or (Test-Path -LiteralPath $zip)) { throw 'Candidate already exists; do not overwrite it.' }
 $source = Join-Path $root 'flutter_app\build\windows\x64\runner\Release'
-$library = Join-Path $root 'environment\stage-b-cargo\release\codex_timezone_core.dll'
+$coreTarget = if ($Stage -eq 'E34') { 'stage-e34-cargo' } else { 'stage-b-cargo' }
+$library = Join-Path $root "environment\$coreTarget\release\codex_timezone_core.dll"
 foreach ($required in @((Join-Path $source 'codex_timezone.exe'),(Join-Path $source 'flutter_windows.dll'),(Join-Path $source 'data\app.so'),$library)) {
     if (!(Test-Path -LiteralPath $required)) { throw "Missing release input: $required" }
 }

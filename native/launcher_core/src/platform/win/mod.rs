@@ -71,7 +71,7 @@ pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
     let desktop = if selected.is_empty() {
         target::discover().map(|t| t.executable)
     } else {
-        Some(target::for_launch(selected)?.executable)
+        Some(target::for_usage(selected)?.executable)
     };
     crate::account_usage::query(desktop.as_deref(), payload["details"].as_bool().unwrap_or(true))
 }

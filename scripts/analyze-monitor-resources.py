@@ -41,6 +41,7 @@ checks={
     'duration':bool(rows) and number(rows[-1],'elapsedSeconds')>=710 and len(rows)>=140,
     'threeModes':set(r['mode'] for r in warm)=={'0','1','2'},
     'allPhases':set(int(r['soakStep'])%8 for r in warm)==set(range(8)),
+    'mainWindowStayedHidden':not any(flag(r,'mainVisible') for r in rows),
     'noDrawFailures':all(number(r,'drawFailures')==0 for r in rows),
     'noForegroundPet':not any(flag(r,'petForeground') for r in rows),
     'stoppedFramesFrozen':not violations,

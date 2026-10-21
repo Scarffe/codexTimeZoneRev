@@ -33,6 +33,13 @@ class AccountUsageController extends ChangeNotifier {
   bool preferencesReady = true;
   bool alertsEnabled = true, petVisible = true, savedMonitoring = true;
   bool reducedMotion = false;
+  bool mainWindowVisible = true;
+  void setMainWindowVisible(bool value) {
+    if (_disposed || mainWindowVisible == value) return;
+    mainWindowVisible = value;
+    notifyListeners();
+  }
+
   int alertThreshold = 20, petMode = 1, preferencesSerial = 1;
 
   Future<void> loadPreferences(MonitorPreferencesStore store) async {
