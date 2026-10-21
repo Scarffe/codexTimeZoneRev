@@ -39,10 +39,14 @@ class SessionMetricsPanel extends StatelessWidget {
                           s['path'] as String,
                   },
                   control: FSelectControl.lifted(
-                    value: controller.selected,
+                    value: controller.selectorValue,
                     onChange: controller.select,
                   ),
                 ),
+              if (controller.selected != null &&
+                  controller.sessions.isNotEmpty &&
+                  controller.selectorValue == null)
+                const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
               const SizedBox(height: 12),
               Text(
                 controller.selected == null

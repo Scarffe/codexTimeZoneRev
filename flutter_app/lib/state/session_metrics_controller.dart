@@ -17,6 +17,32 @@ class SessionMetricsController extends ChangeNotifier {
   bool _closed = false;
   int _generation = 0;
   Timer? _timer;
+
+  // Windows canonical paths returned by Rust use the extended-length prefix.
+  // Startup selection may name the same file using a regular Windows path.
+  String? get selectorValue {
+    final path = selected;
+    if (path == null) return null;
+    String identity(String value) {
+      if (value.startsWith(r'\\?\UNC\')) {
+        value = r'\\' + value.substring(8);
+      } else if (value.startsWith(r'\\?\')) {
+        value = value.substring(4);
+      }
+      if (RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(value) ||
+          value.startsWith(r'\\')) {
+        return value.replaceAll('/', r'\').toLowerCase();
+      }
+      return value;
+    }
+
+    for (final session in sessions) {
+      final candidate = session['path'] as String;
+      if (identity(candidate) == identity(path)) return candidate;
+    }
+    return null;
+  }
+
   Future<void> list() async {
     if (listing || _closed) return;
     listing = true;

@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 class Backend implements LauncherBackend {
   final calls = <Map<String, dynamic>>[];
+  String listedPath = 'a';
   Completer<Map<String, dynamic>>? pending;
   @override
   Future<Map<String, dynamic>> call(
@@ -27,7 +28,7 @@ class Backend implements LauncherBackend {
       return {
         'sessions': [
           {
-            'path': 'a',
+            'path': listedPath,
             'id': 'main',
             'cwd': 'fixture',
             'timestamp': '2026-10-21',
@@ -49,33 +50,71 @@ class NoUsage implements AccountUsageService {
       throw StateError('quota must not be queried');
 }
 
+Widget panelApp(SessionMetricsController c) => WidgetsApp(
+  color: const Color(0xff000000),
+  localizationsDelegates: FLocalizations.localizationsDelegates,
+  supportedLocales: FLocalizations.supportedLocales,
+  builder: (context, child) => FTheme(
+    data: lightLauncherTheme,
+    child: FToaster(
+      child: FTooltipGroup(
+        child: DefaultTextStyle(
+          style: const TextStyle(fontSize: 14),
+          child: child!,
+        ),
+      ),
+    ),
+  ),
+  onGenerateRoute: (_) => PageRouteBuilder<void>(
+    pageBuilder: (_, _, _) =>
+        SingleChildScrollView(child: SessionMetricsPanel(controller: c)),
+  ),
+);
+
 void main() {
+  for (final outsideList in [false, true]) {
+    testWidgets('refresh after startup selection, outside list=$outsideList', (
+      tester,
+    ) async {
+      final backend = Backend()
+        ..listedPath = r'\\?\C:\Users\fixture\sessions\main.jsonl';
+      final c = SessionMetricsController(backend);
+      c.select(
+        outsideList
+            ? r'C:\Users\fixture\sessions\older.jsonl'
+            : r'c:/Users/fixture/sessions/main.jsonl',
+      );
+      await tester.pumpWidget(panelApp(c));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('刷新本机会话列表'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(c.selectorValue, outsideList ? null : backend.listedPath);
+      expect(find.textContaining('回合平均吞吐 10.00 tokens/s'), findsOneWidget);
+      if (outsideList) {
+        expect(find.textContaining('当前采集会话不在最近列表中'), findsOneWidget);
+      }
+      await tester.tap(find.byKey(const ValueKey('session-selector')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('2026-10-21 · fixture · main').last);
+      await tester.pumpAndSettle();
+      expect(
+        c.selected,
+        outsideList
+            ? backend.listedPath
+            : r'c:/Users/fixture/sessions/main.jsonl',
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+    });
+  }
+
   testWidgets('session selector chooses by identity, renders rate, and stops', (
     tester,
   ) async {
     final c = SessionMetricsController(Backend());
-    await tester.pumpWidget(
-      WidgetsApp(
-        color: const Color(0xff000000),
-        localizationsDelegates: FLocalizations.localizationsDelegates,
-        supportedLocales: FLocalizations.supportedLocales,
-        builder: (context, child) => FTheme(
-          data: lightLauncherTheme,
-          child: FToaster(
-            child: FTooltipGroup(
-              child: DefaultTextStyle(
-                style: const TextStyle(fontSize: 14),
-                child: child!,
-              ),
-            ),
-          ),
-        ),
-        onGenerateRoute: (_) => PageRouteBuilder<void>(
-          pageBuilder: (_, _, _) =>
-              SingleChildScrollView(child: SessionMetricsPanel(controller: c)),
-        ),
-      ),
-    );
+    await tester.pumpWidget(panelApp(c));
     await tester.tap(find.text('刷新本机会话列表'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('session-selector')));
