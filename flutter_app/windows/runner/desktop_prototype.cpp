@@ -1,5 +1,6 @@
 #include "desktop_prototype.h"
 #include "pet_geometry.h"
+#include "app_instance.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -106,7 +107,7 @@ std::wstring Suffix() {
     hash ^= static_cast<std::uint64_t>(towlower(ch)); hash *= 1099511628211ULL;
   }
   DWORD session = 0; ProcessIdToSessionId(GetCurrentProcessId(), &session);
-  return std::to_wstring(session) + L"." + std::to_wstring(hash);
+  return std::to_wstring(session) + L"." + std::to_wstring(hash) + (app_instance::IsolatedProcess()?L".isolated":L"");
 }
 
 void Report() {

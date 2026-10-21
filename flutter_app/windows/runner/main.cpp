@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "package_context.h"
 #include "desktop_prototype.h"
+#include "app_instance.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -25,6 +26,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   const bool monitor = std::find(arguments.begin(),arguments.end(),L"--desktop-monitor") != arguments.end();
   const bool monitor_exit = std::find(arguments.begin(),arguments.end(),L"--monitor-exit") != arguments.end();
+  app_instance::Lease application;
+  if(!monitor_exit) {
+    app_instance::Options options; options.isolated=app_instance::Has(arguments,L"--isolated-instance");
+    const auto decision=application.Claim(options);
+    if(decision!=app_instance::Decision::start) return decision==app_instance::Decision::reused ? 0 : 1;
+  }
   if(monitor && !desktop_prototype::ClaimMonitorInstance(monitor_exit)) return 0;
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
@@ -52,6 +59,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"Codex 时区启动器", origin, size)) {
     return EXIT_FAILURE;
   }
+  app_instance::Mark(window.GetHandle(),app_instance::IsolatedProcess());
   window.SetQuitOnClose(true);
 
   ::MSG msg;

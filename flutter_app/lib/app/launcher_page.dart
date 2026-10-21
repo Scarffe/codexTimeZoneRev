@@ -213,7 +213,7 @@ class LauncherPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '独立时区 · 本地启动',
+                    '独立时区 · 本地启动 · v${const String.fromEnvironment('FLUTTER_BUILD_NAME', defaultValue: 'dev')}',
                     style: context.theme.typography.body.sm.copyWith(
                       color: context.theme.colors.mutedForeground,
                     ),

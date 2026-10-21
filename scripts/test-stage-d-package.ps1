@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Archive, [ValidateSet('D','E','E34','F')][string]$Stage='D')
+param([Parameter(Mandatory)][string]$Archive, [ValidateSet('D','E','E34','F','G')][string]$Stage='D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $Archive = (Resolve-Path -LiteralPath $Archive).Path
