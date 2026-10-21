@@ -27,7 +27,7 @@ foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File) {
     }
 }
 Copy-Item -LiteralPath $library -Destination (Join-Path $output 'codex_timezone_core.dll') -Force
-foreach ($name in @('LICENSE','STAGE-D.md')) { Copy-Item -LiteralPath (Join-Path $root $name) -Destination $output }
+foreach ($document in @('LICENSE','STAGE-D.md')) { Copy-Item -LiteralPath (Join-Path $root $document) -Destination $output }
 Copy-Item -LiteralPath (Join-Path $root 'release-notes\desktop-monitor-rc.md') -Destination (Join-Path $output 'README.md')
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
