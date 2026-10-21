@@ -24,6 +24,10 @@ class DesktopMonitor {
     usage.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'systemSuspend':
+          usage.systemSuspending();
+        case 'systemResume':
+          usage.systemResumed();
         case 'refresh':
           await usage.query(path(), details: false);
         case 'pause':

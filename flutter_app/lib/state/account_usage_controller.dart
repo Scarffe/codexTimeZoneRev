@@ -26,6 +26,43 @@ class AccountUsageController extends ChangeNotifier {
   final _petAlerts = PetAlerts();
   String _alert = '';
   int _alertSerial = 0;
+  bool _systemSuspended = false,
+      _refreshAfterResume = false,
+      _resumeHandled = false;
+
+  void systemSuspending() {
+    if (_disposed) return;
+    _systemSuspended = true;
+    _resumeHandled = false;
+    _timer?.cancel();
+  }
+
+  void systemResumed() {
+    if (_disposed || _resumeHandled) return;
+    _resumeHandled = true;
+    _systemSuspended = false;
+    if (!monitoring) return;
+    if (busy) {
+      _refreshAfterResume = true;
+    } else {
+      _refreshOnWake();
+    }
+  }
+
+  void _refreshOnWake() {
+    _timer?.cancel();
+    // A wake event does not grant permission to bypass failure cooldown.
+    final pending = nextRefreshAt?.difference(_now());
+    if (failures > 0 && pending != null && pending > Duration.zero) {
+      _timer = Timer(pending, () {
+        if (!_disposed && monitoring && !_systemSuspended) {
+          unawaited(query(_path?.call() ?? _source, details: false));
+        }
+      });
+    } else {
+      unawaited(query(_path?.call() ?? _source, details: false));
+    }
+  }
 
   bool get stale =>
       data != null &&
@@ -68,6 +105,7 @@ class AccountUsageController extends ChangeNotifier {
 
   void pause() {
     monitoring = false;
+    _refreshAfterResume = false;
     _timer?.cancel();
     _timer = null;
     if (!_disposed) notifyListeners();
@@ -95,7 +133,7 @@ class AccountUsageController extends ChangeNotifier {
             math.min(1800, 30 * (1 << math.min(failures - 1, 6))),
           );
     nextRefreshAt = _now().add(Duration(seconds: seconds));
-    if (!monitoring) return;
+    if (!monitoring || _systemSuspended) return;
     _timer = Timer(Duration(seconds: seconds), () {
       if (!_disposed && monitoring) {
         unawaited(query(_path?.call() ?? _source, details: false));
@@ -104,7 +142,7 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   Future<void> query(String desktopPath, {bool details = true}) async {
-    if (_disposed || busy) return;
+    if (_disposed || busy || _systemSuspended) return;
     sourceChanged(desktopPath, notify: false);
     // Manual refresh bypasses the normal interval, never failure cooldown.
     if (failures > 0 &&
@@ -150,6 +188,10 @@ class AccountUsageController extends ChangeNotifier {
       if (!_disposed) {
         busy = false;
         _schedule();
+        if (_refreshAfterResume && monitoring && !_systemSuspended) {
+          _refreshAfterResume = false;
+          _refreshOnWake();
+        }
         notifyListeners();
       }
     }

@@ -35,6 +35,109 @@ class MonitorService implements LimitsUsageService {
 }
 
 void main() {
+  testWidgets('resume without a delivered suspend still refreshes once', (
+    tester,
+  ) async {
+    final service = MonitorService();
+    final monitor = AccountUsageController(service);
+    monitor.startMonitoring(() => 'desktop');
+    await tester.pump();
+    monitor.systemResumed();
+    monitor.systemResumed();
+    await tester.pump();
+    expect(service.light, 2);
+    monitor.dispose();
+  });
+  testWidgets(
+    'system resume catches up once without enabling a paused monitor',
+    (tester) async {
+      final service = MonitorService();
+      final monitor = AccountUsageController(service);
+      monitor.startMonitoring(
+        () => 'desktop',
+        every: const Duration(minutes: 10),
+      );
+      await tester.pump();
+      monitor.systemSuspending();
+      await tester.pump(const Duration(minutes: 25));
+      expect(service.light, 1);
+      monitor.systemResumed();
+      monitor.systemResumed();
+      await tester.pump();
+      expect(service.light, 2);
+      monitor.pause();
+      monitor.systemSuspending();
+      monitor.systemResumed();
+      await tester.pump(const Duration(minutes: 25));
+      expect(service.light, 2);
+      monitor.dispose();
+    },
+  );
+
+  testWidgets(
+    'resume during an in-flight query queues one non-overlapping catchup',
+    (tester) async {
+      final service = MonitorService()..pending = Completer<AccountUsage>();
+      final monitor = AccountUsageController(service);
+      monitor.startMonitoring(() => 'desktop');
+      monitor.systemSuspending();
+      monitor.systemResumed();
+      monitor.systemResumed();
+      expect(service.light, 1);
+      final pending = service.pending!;
+      service.pending = null;
+      pending.complete(AccountUsage.fromJson(usageResponse()));
+      await tester.pump();
+      await tester.pump();
+      expect(service.light, 2);
+      expect(monitor.busy, isFalse);
+      monitor.dispose();
+    },
+  );
+
+  testWidgets('resume preserves remaining failure cooldown', (tester) async {
+    var now = DateTime(2026);
+    final service = MonitorService()..failure = StateError('network');
+    final monitor = AccountUsageController(service, now: () => now);
+    monitor.startMonitoring(() => 'desktop', every: const Duration(seconds: 1));
+    await tester.pump();
+    expect(monitor.failures, 1);
+    monitor.systemSuspending();
+    now = now.add(const Duration(seconds: 20));
+    await tester.pump(const Duration(seconds: 20));
+    service.failure = null;
+    monitor.systemResumed();
+    expect(service.light, 1);
+    now = now.add(const Duration(seconds: 9));
+    await tester.pump(const Duration(seconds: 9));
+    expect(service.light, 1);
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(service.light, 2);
+    expect(monitor.failures, 0);
+    monitor.dispose();
+  });
+
+  testWidgets('a suspended in-flight completion cannot restart its timer', (
+    tester,
+  ) async {
+    final service = MonitorService()..pending = Completer<AccountUsage>();
+    final monitor = AccountUsageController(service);
+    monitor.startMonitoring(() => 'desktop', every: const Duration(seconds: 1));
+    monitor.systemSuspending();
+    final pending = service.pending!;
+    service.pending = null;
+    pending.complete(AccountUsage.fromJson(usageResponse()));
+    await tester.pump();
+    await tester.pump(const Duration(minutes: 5));
+    expect(service.light, 1);
+    monitor.systemResumed();
+    await tester.pump();
+    expect(service.light, 2);
+    monitor.dispose();
+  });
+
   testWidgets(
     'one automatic owner survives absent views; pause stops polling',
     (tester) async {

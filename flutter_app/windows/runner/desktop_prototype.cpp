@@ -1,4 +1,5 @@
 #include "desktop_prototype.h"
+#include "pet_geometry.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -23,18 +24,24 @@ constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
 constexpr UINT kAlertTest=113;
+constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
 struct State {
   HWND owner = nullptr, pet = nullptr, host = nullptr;
   bool tray = false, dragging = false;
   POINT drag{}, origin{};
   bool moved=false;
   int mode=1;
+  UINT dpi=96;
+  bool resumeSent=false;
+  int suspendMessages=0,resumeMessages=0,resumeActions=0,powerTestInjections=0;
+  HPOWERNOTIFY powerRegistration=nullptr;
   std::filesystem::path settings;
   std::wstring detail;
   int64_t alertSerial=0;
   bool testControls=false;
   HWND bubble=nullptr;
   ULONGLONG bubbleUntil=0;
+  std::wstring bubbleText;
   int alertsShown=0, alertTests=0, bubbleDismissals=0;
   int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0;
   std::filesystem::path report;
@@ -48,6 +55,29 @@ struct State {
 };
 State* current = nullptr;  // All callbacks execute on this UI thread.
 HANDLE monitorMutex = nullptr;
+
+struct DisplayProbe { std::ofstream* out; int count=0; };
+BOOL CALLBACK ProbeMonitor(HMONITOR monitor,HDC,LPRECT,LPARAM parameter) {
+  auto& probe=*reinterpret_cast<DisplayProbe*>(parameter);
+  MONITORINFO info{}; info.cbSize=sizeof(info);
+  if(!GetMonitorInfoW(monitor,&info)) return TRUE;
+  HWND window=CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"STATIC",L"DPI probe",WS_POPUP,
+      info.rcWork.left,info.rcWork.top,1,1,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+  const UINT dpi=window ? GetDpiForWindow(window) : 0;
+  if(window) DestroyWindow(window);
+  if(probe.count++) *probe.out<<',';
+  *probe.out<<"{\"primary\":"<<((info.dwFlags&MONITORINFOF_PRIMARY)?"true":"false")
+      <<",\"dpi\":"<<dpi<<",\"rect\":["<<info.rcMonitor.left<<','<<info.rcMonitor.top<<','<<info.rcMonitor.right<<','<<info.rcMonitor.bottom
+      <<"],\"workArea\":["<<info.rcWork.left<<','<<info.rcWork.top<<','<<info.rcWork.right<<','<<info.rcWork.bottom<<"]}";
+  return TRUE;
+}
+
+bool WriteDisplayProbe(const std::filesystem::path& path) {
+  std::ofstream out(path); if(!out) return false;
+  DisplayProbe probe{&out}; out<<"{\"displays\":[";
+  if(!EnumDisplayMonitors(nullptr,nullptr,ProbeMonitor,reinterpret_cast<LPARAM>(&probe))) return false;
+  out<<"],\"displayCount\":"<<probe.count<<"}"; return out.good();
+}
 
 std::wstring Suffix() {
   wchar_t path[32768]{};
@@ -79,6 +109,11 @@ void Report() {
         << ",\"hostForeground\":" << (GetForegroundWindow() == s.host ? "true" : "false")
         << ",\"petForeground\":" << (GetForegroundWindow() == s.pet ? "true" : "false")
         << ",\"mode\":" << s.mode
+        << ",\"dpi\":" << s.dpi << ",\"actualWindowDpi\":" << GetDpiForWindow(s.pet)
+        << ",\"displayCount\":" << GetSystemMetrics(SM_CMONITORS)
+        << ",\"suspendMessages\":" << s.suspendMessages << ",\"resumeMessages\":" << s.resumeMessages
+        << ",\"powerSubscribed\":" << (s.powerRegistration ? "true" : "false")
+        << ",\"resumeActions\":" << s.resumeActions << ",\"powerTestInjections\":" << s.powerTestInjections
         << ",\"alertsShown\":" << s.alertsShown << ",\"alertTests\":" << s.alertTests
         << ",\"bubbleDismissals\":" << s.bubbleDismissals
         << ",\"bubbleVisible\":" << (IsWindowVisible(s.bubble) ? "true" : "false")
@@ -101,8 +136,11 @@ bool InstallTray() {
   return current->tray;
 }
 
-int Width() { return current->mode==0 ? 88 : (current->mode==2 ? 320 : 240); }
-int Height() { return current->mode==0 ? 72 : (current->mode==2 ? 310 : 160); }
+int BaseWidth() { return current->mode==0 ? 88 : (current->mode==2 ? 320 : 240); }
+int BaseHeight() { return current->mode==0 ? 72 : (current->mode==2 ? 310 : 160); }
+int Px(int value) { return pet_geometry::Scale(value,current->dpi); }
+int Width() { return Px(BaseWidth()); }
+int Height() { return Px(BaseHeight()); }
 
 void SavePosition() {
   if(current->settings.empty()) return;
@@ -116,18 +154,8 @@ void Place(bool snap) {
   RECT r{}; GetWindowRect(current->pet,&r);
   MONITORINFO info{}; info.cbSize=sizeof(info);
   if(!GetMonitorInfoW(MonitorFromRect(&r,MONITOR_DEFAULTTONEAREST),&info)) return;
-  auto a=info.rcWork;
-  int x=r.left,y=r.top,w=Width(),h=Height();
-  if(current->mode==0) x=abs(x-a.left)<=abs(x+w-a.right) ? a.left : a.right-w;
-  if(snap) {
-    if(abs(x-a.left)<24) x=a.left;
-    if(abs(x+w-a.right)<24) x=a.right-w;
-    if(abs(y-a.top)<24) y=a.top;
-    if(abs(y+h-a.bottom)<24) y=a.bottom-h;
-  }
-  x=std::clamp(x,static_cast<int>(a.left),std::max(static_cast<int>(a.left),static_cast<int>(a.right)-w));
-  y=std::clamp(y,static_cast<int>(a.top),std::max(static_cast<int>(a.top),static_cast<int>(a.bottom)-h));
-  SetWindowPos(current->pet,HWND_TOPMOST,x,y,w,h,SWP_NOACTIVATE);
+  const auto fitted=pet_geometry::Fit(r,info.rcWork,Width(),Height(),current->mode==0,snap ? Px(24) : 0);
+  SetWindowPos(current->pet,HWND_TOPMOST,fitted.left,fitted.top,Width(),Height(),SWP_NOACTIVATE);
 }
 
 void ReadPosition() {
@@ -149,7 +177,7 @@ void LoadPosition() {
 
 void ResetPosition() {
   RECT area{}; SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0);
-  int x = area.right - kWidth - 32, y = area.bottom - kHeight - 48;
+  int x = area.right - Width() - Px(32), y = area.bottom - Height() - Px(48);
   if (current->host) {
     RECT host{}; GetWindowRect(current->host, &host); x = host.left + 100; y = host.top + 100;
   }
@@ -172,13 +200,14 @@ bool DrawPet() {
     return false;
   }
   auto data = static_cast<std::uint32_t*>(pixels);
-  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+  for (int pixelY = 0; pixelY < height; ++pixelY) for (int pixelX = 0; pixelX < width; ++pixelX) {
+    const int x=MulDiv(pixelX,96,static_cast<int>(current->dpi)),y=MulDiv(pixelY,96,static_cast<int>(current->dpi));
     const auto ellipse = [](int px, int py, int cx, int cy, int rx, int ry) {
       const double dx = static_cast<double>(px - cx) / rx;
       const double dy = static_cast<double>(py - cy) / ry; return dx * dx + dy * dy <= 1;
     };
     std::uint32_t color = 0;
-    if(current->mode==2 && x>=8 && x<width-8 && y>=3 && y<height-8) color=0xff202b40;
+    if(current->mode==2 && x>=8 && x<BaseWidth()-8 && y>=3 && y<BaseHeight()-8) color=0xff202b40;
     if(current->live && x>=8 && x<kWidth-8 && y>=3 && y<49) color=0xff202b40;
     if (ellipse(x,y,118,94,66,43) || ellipse(x,y,54,74,24,14) || ellipse(x,y,53,103,21,13)) color = current->live && current->stale ? 0xff89919a : 0xff66bfe8;
     if (ellipse(x,y,131,112,41,17)) color = 0xffcbeaf4;
@@ -188,19 +217,19 @@ bool DrawPet() {
     if(current->mode==0) {
       color=ellipse(x,y,44,36,40,30) ? (current->stale ? 0xff89919a : 0xff202b40) : 0;
     }
-    data[y * width + x] = color;
+    data[pixelY * width + pixelX] = color;
   }
   auto old = SelectObject(dc, bitmap);
   if(current->live) {
-    HFONT font=CreateFontW(current->mode==0 ? -22 : -16,0,0,0,current->mode==0 ? FW_BOLD : FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
+    HFONT font=CreateFontW(-Px(current->mode==0 ? 22 : 16),0,0,0,current->mode==0 ? FW_BOLD : FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
     auto previousFont=SelectObject(dc,font);
     SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
-    RECT label{8,3,width-8,current->mode==0 ? height-8 : 49};
+    RECT label{Px(8),Px(3),width-Px(8),current->mode==0 ? height-Px(8) : Px(49)};
     auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : current->caption;
     DrawTextW(dc,caption.c_str(),-1,&label,current->mode==0 ? DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX : DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
     if(current->mode==2) {
-      RECT detail{16,160,width-16,height-12};
+      RECT detail{Px(16),Px(160),width-Px(16),height-Px(12)};
       DrawTextW(dc,current->detail.c_str(),-1,&detail,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
     }
     // GDI batches text writes. Flush before restoring alpha in the DIB.
@@ -228,6 +257,7 @@ bool Register(const wchar_t* name,WNDPROC proc);
 
 LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
   if(msg==WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+  if(msg==WM_DPICHANGED) return 0; // The owning pet renders and positions this surface.
   if(msg==WM_LBUTTONUP || msg==WM_CLOSE) {
     ++current->bubbleDismissals;
     ShowWindow(hwnd,SW_HIDE); KillTimer(current->owner,2); Report(); return 0;
@@ -235,7 +265,7 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
   return DefWindowProcW(hwnd,msg,wp,lp);
 }
 
-bool ShowAlert(const std::wstring& text) {
+bool ShowAlert(const std::wstring& text,bool renew=true) {
   auto& s=*current;
   if(!s.bubble) {
     if(!Register(kBubbleClass,BubbleProc)) return false;
@@ -243,7 +273,7 @@ bool ShowAlert(const std::wstring& text) {
         kBubbleClass,L"Codex 桌宠额度气泡",WS_POPUP,0,0,320,110,s.pet,nullptr,GetModuleHandleW(nullptr),nullptr);
   }
   if(!s.bubble) return false;
-  constexpr int width=320,height=110;
+  const int width=Px(320),height=Px(110);
   BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
   info.bmiHeader.biWidth=width; info.bmiHeader.biHeight=-height;
   info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32;
@@ -254,14 +284,14 @@ bool ShowAlert(const std::wstring& text) {
   }
   auto data=static_cast<std::uint32_t*>(pixels);
   for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
-    const int dx=x-std::clamp(x,12,width-13),dy=y-std::clamp(y,12,height-13);
-    data[y*width+x]=dx*dx+dy*dy<=144 ? 0xff344663 : 0;
+    const int radius=Px(12),dx=x-std::clamp(x,radius,width-radius-1),dy=y-std::clamp(y,radius,height-radius-1);
+    data[y*width+x]=dx*dx+dy*dy<=radius*radius ? 0xff344663 : 0;
   }
   auto old=SelectObject(dc,bitmap);
-  HFONT font=CreateFontW(-18,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
+  HFONT font=CreateFontW(-Px(18),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
       OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   auto previousFont=SelectObject(dc,font); SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
-  RECT label{14,10,width-14,height-8};
+  RECT label{Px(14),Px(10),width-Px(14),height-Px(8)};
   const auto message=L"低额度提醒 · 点击关闭\n"+text;
   DrawTextW(dc,message.c_str(),-1,&label,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
   GdiFlush();
@@ -270,16 +300,20 @@ bool ShowAlert(const std::wstring& text) {
   GetMonitorInfoW(MonitorFromRect(&pet,MONITOR_DEFAULTTONEAREST),&monitor);
   const auto a=monitor.rcWork;
   POINT destination{std::clamp(pet.left,a.left,std::max(a.left,a.right-width)),
-      std::clamp(pet.top-height-4>=a.top ? pet.top-height-4 : pet.bottom+4,a.top,std::max(a.top,a.bottom-height))};
+      std::clamp(pet.top-height-Px(4)>=a.top ? pet.top-height-Px(4) : pet.bottom+Px(4),a.top,std::max(a.top,a.bottom-height))};
   POINT source{}; SIZE size{width,height}; BLENDFUNCTION blend{AC_SRC_OVER,0,255,AC_SRC_ALPHA};
   const bool ok=UpdateLayeredWindow(s.bubble,screen,&destination,&size,dc,&source,0,&blend,ULW_ALPHA)!=FALSE;
   SelectObject(dc,previousFont); DeleteObject(font); SelectObject(dc,old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(nullptr,screen);
   if(ok) {
     // Extra inspection time only in explicitly opted-in UI test mode.
-    s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
+    if(renew) {
+      s.bubbleText=text;
+      s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
+      ++s.alertsShown;
+    }
     ShowWindow(s.bubble,SW_SHOWNOACTIVATE);
     SetWindowPos(s.bubble,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-    SetTimer(s.owner,2,250,nullptr); ++s.alertsShown;
+    SetTimer(s.owner,2,250,nullptr);
   }
   Report(); return ok;
 }
@@ -287,6 +321,19 @@ bool ShowAlert(const std::wstring& text) {
 LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   auto& s = *current;
   switch (msg) {
+    case WM_DPICHANGED: {
+      if(!s.pet) return 0;
+      const auto dpi=LOWORD(wp);
+      if(dpi<48 || dpi>768) return 0;
+      s.dpi=dpi;
+      if(lp) {
+        const auto& suggested=*reinterpret_cast<const RECT*>(lp);
+        SetWindowPos(hwnd,HWND_TOPMOST,suggested.left,suggested.top,Width(),Height(),SWP_NOACTIVATE);
+      }
+      Place(false); DrawPet();
+      if(IsWindowVisible(s.bubble)) ShowAlert(s.bubbleText,false);
+      SavePosition(); Report(); return 0;
+    }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_LBUTTONDOWN: {
       ++s.petClicks; s.dragging = true; s.moved=false; GetCursorPos(&s.drag); s.origin=s.drag; SetCapture(hwnd); Report(); return 0;
@@ -352,6 +399,20 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
   }
   switch (msg) {
+    case WM_POWERBROADCAST:
+      if(wp==PBT_APMSUSPEND) {
+        ++s.suspendMessages; s.resumeSent=false;
+        if(s.action) s.action("systemSuspend");
+      } else if(wp==PBT_APMRESUMEAUTOMATIC || wp==PBT_APMRESUMESUSPEND || wp==PBT_APMRESUMECRITICAL) {
+        ++s.resumeMessages;
+        if(!s.resumeSent) {
+          s.resumeSent=true; ++s.resumeActions;
+          ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2);
+          Place(false); DrawPet(); SavePosition();
+          if(s.action) s.action("systemResume");
+        }
+      }
+      Report(); return TRUE;
     case WM_TIMER:
       if(wp==2 && GetTickCount64()>=s.bubbleUntil) { ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2); }
       Report(); return 0;
@@ -371,7 +432,14 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         AppendMenuW(menu,MF_STRING,kShow,s.live ? L"显示桌宠" : L"Show pet (DEMO)");
         AppendMenuW(menu,MF_STRING,kHide,s.live ? L"隐藏桌宠" : L"Hide pet");
         AppendMenuW(menu,MF_STRING,kReset,s.live ? L"复位桌宠位置" : L"Reset position");
-        if(s.testControls) AppendMenuW(menu,MF_STRING,kAlertTest,L"测试低额度气泡（模拟 10%）");
+        if(s.testControls) {
+          AppendMenuW(menu,MF_STRING,kAlertTest,L"测试低额度气泡（模拟 10%）");
+          AppendMenuW(menu,MF_STRING,kSuspendTest,L"模拟系统挂起（测试）");
+          AppendMenuW(menu,MF_STRING,kResumeTest,L"模拟系统恢复（测试）");
+          AppendMenuW(menu,MF_STRING,kDpi100,L"模拟 DPI 100%（测试）");
+          AppendMenuW(menu,MF_STRING,kDpi150,L"模拟 DPI 150%（测试）");
+          AppendMenuW(menu,MF_STRING,kDpi200,L"模拟 DPI 200%（测试）");
+        }
         AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         AppendMenuW(menu,MF_STRING,kExit,s.live ? L"退出监控" : L"Exit Stage A prototype");
         POINT p{}; GetCursorPos(&p);
@@ -394,11 +462,23 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kRefresh: if(s.action) s.action("refresh"); break;
         case kAlertTest:
           TriggerTestAlert(); break;
+        case kSuspendTest: case kResumeTest:
+          if(s.testControls) {
+            ++s.powerTestInjections;
+            SendMessageW(hwnd,WM_POWERBROADCAST,LOWORD(wp)==kSuspendTest ? PBT_APMSUSPEND : PBT_APMRESUMEAUTOMATIC,0);
+          } break;
+        case kDpi100: case kDpi150: case kDpi200:
+          if(s.testControls) {
+            const UINT dpi=LOWORD(wp)==kDpi100 ? 96u : (LOWORD(wp)==kDpi150 ? 144u : 192u);
+            RECT r{}; GetWindowRect(s.pet,&r);
+            SendMessageW(s.pet,WM_DPICHANGED,MAKELONG(dpi,dpi),reinterpret_cast<LPARAM>(&r));
+          } break;
         case kPause: if(s.action) s.action(s.paused ? "resume" : "pause"); break;
         case kExit: if(s.live && s.action) s.action("exit"); else DestroyWindow(hwnd); break;
       } return 0;
     case WM_CLOSE: DestroyWindow(hwnd); return 0;
     case WM_DESTROY: {
+      if(s.powerRegistration) { UnregisterSuspendResumeNotification(s.powerRegistration); s.powerRegistration=nullptr; }
       NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=hwnd; icon.uID=1;
       if (s.tray) Shell_NotifyIconW(NIM_DELETE,&icon);
       KillTimer(hwnd,1); KillTimer(hwnd,2); if(!s.live) PostQuitMessage(0); return 0;
@@ -461,6 +541,8 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   current->pet=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
       kPetClass,L"Codex 用量桌宠",WS_POPUP,0,0,kWidth,kHeight,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   if(!current->owner || !current->pet || !InstallTray()) { DetachMonitor(); return false; }
+  current->powerRegistration=RegisterSuspendResumeNotification(current->owner,DEVICE_NOTIFY_WINDOW_HANDLE);
+  current->dpi=GetDpiForWindow(current->pet); if(!current->dpi) current->dpi=96;
   ResetPosition(); LoadPosition();
   if(!DrawPet()) { DetachMonitor(); return false; }
   ShowPet(); return true;
@@ -496,6 +578,10 @@ void DetachMonitor() {
 }
 
 int Run(const std::vector<std::wstring>& args) {
+  for(const auto& arg:args) {
+    constexpr wchar_t prefix[]=L"--probe-displays=";
+    if(arg.rfind(prefix,0)==0) return WriteDisplayProbe(arg.substr(std::size(prefix)-1)) ? 0 : 9;
+  }
   const auto identity=Suffix();
   const auto ownerTitle=L"CodexTimeZone.StageA."+identity;
   HANDLE mutex=CreateMutexW(nullptr,FALSE,(L"Local\\CodexTimeZone.StageA."+identity).c_str());
@@ -529,13 +615,15 @@ int Run(const std::vector<std::wstring>& args) {
       kPetClass,L"Stage A Whale - DEMO 72%",WS_POPUP,0,0,kWidth,kHeight,
       nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
   int result=0;
+  if(state.owner) state.powerRegistration=RegisterSuspendResumeNotification(state.owner,DEVICE_NOTIFY_WINDOW_HANDLE);
   if (!state.owner || !state.pet || (testHost && !state.host) || !InstallTray()) result=5;
-  if(!result) { ResetPosition(); if(!DrawPet()) result=6; }
+  if(!result) { state.dpi=GetDpiForWindow(state.pet); if(!state.dpi) state.dpi=96; ResetPosition(); if(!DrawPet()) result=6; }
   if(!result) {
     ShowPet(); SetTimer(state.owner,1,200,nullptr);
     if(std::find(args.begin(),args.end(),L"--prototype-self-test")!=args.end()) {
       const auto foreground=GetForegroundWindow();
       const auto check=[&](bool condition) { if(condition) ++state.selfChecks; else result=8; };
+      check(state.powerRegistration!=nullptr);
       for(UINT command : {kEdge,kCompact,kExpanded}) {
         SendMessageW(state.owner,WM_COMMAND,command,0);
         RECT r{}; GetWindowRect(state.pet,&r);
@@ -543,6 +631,37 @@ int Run(const std::vector<std::wstring>& args) {
         check(GetForegroundWindow()==foreground);
         check(WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
       }
+      // Synthetic topology cases do not claim that physical monitors exist.
+      for(const RECT area : {RECT{-1440,-400,0,1480},RECT{0,0,2560,1400},RECT{2560,-1080,4480,0}}) {
+        for(UINT dpi : {96u,144u,192u}) for(int mode : {0,1,2}) {
+          const int w=pet_geometry::Scale(mode==0 ? 88 : (mode==1 ? 240 : 320),dpi);
+          const int h=pet_geometry::Scale(mode==0 ? 72 : (mode==1 ? 160 : 310),dpi);
+          RECT position{area.right-w+4,area.bottom-h+4,0,0};
+          const auto fitted=pet_geometry::Fit(position,area,w,h,mode==0,pet_geometry::Scale(24,dpi));
+          check(fitted.right==area.right && fitted.bottom==area.bottom && fitted.left>=area.left && fitted.top>=area.top);
+        }
+      }
+      for(UINT dpi : {96u,144u,192u}) for(UINT command : {kEdge,kCompact,kExpanded}) {
+        SendMessageW(state.owner,WM_COMMAND,command,0);
+        RECT r{}; GetWindowRect(state.pet,&r);
+        SendMessageW(state.pet,WM_DPICHANGED,MAKELONG(dpi,dpi),reinterpret_cast<LPARAM>(&r));
+        GetWindowRect(state.pet,&r);
+        check(r.right-r.left==Width() && r.bottom-r.top==Height() && state.dpi==dpi && GetForegroundWindow()==foreground && WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
+      }
+      RECT original{}; GetWindowRect(state.pet,&original);
+      const UINT actualDpi=GetDpiForWindow(state.pet);
+      SendMessageW(state.pet,WM_DPICHANGED,MAKELONG(actualDpi,actualDpi),reinterpret_cast<LPARAM>(&original));
+      int suspends=0,resumes=0;
+      state.action=[&](const std::string& action) { if(action=="systemSuspend") ++suspends; if(action=="systemResume") ++resumes; };
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMESUSPEND,0);
+      check(suspends==1 && resumes==1 && state.resumeActions==1);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMESUSPEND,0);
+      check(suspends==2 && resumes==2 && state.resumeActions==2);
+      check(GetForegroundWindow()==foreground);
+      state.action=nullptr;
       check((GetWindowLongPtrW(state.pet,GWL_EXSTYLE)&(WS_EX_NOACTIVATE|WS_EX_LAYERED))==(WS_EX_NOACTIVATE|WS_EX_LAYERED));
       check(ShowAlert(L"自检模拟 10%，非真实用量"));
       check(IsWindowVisible(state.bubble)!=FALSE);
