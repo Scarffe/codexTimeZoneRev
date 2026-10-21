@@ -39,7 +39,7 @@ bool FlutterWindow::OnCreate() {
     })) return false;
     monitor_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
       if(call.method_name()=="roleEditor") { const auto* flag=std::get_if<bool>(call.arguments()); if(flag) desktop_prototype::SetRoleEditorOpen(*flag); result->Success(); return; }
-      if(call.method_name()=="mainVisible") { result->Success(flutter::EncodableValue(IsWindowVisible(GetHandle()) && !IsIconic(GetHandle()))); return; }
+      if(call.method_name()=="mainVisible") { desktop_prototype::ReportMonitorState(); result->Success(flutter::EncodableValue(IsWindowVisible(GetHandle()) && !IsIconic(GetHandle()))); return; }
       if(call.method_name()=="exit") {
         exiting_=true; result->Success(); PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
       }

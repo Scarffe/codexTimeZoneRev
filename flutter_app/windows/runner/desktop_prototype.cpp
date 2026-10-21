@@ -723,6 +723,8 @@ void ConfigureRole(const std::wstring& path,const std::wstring& name) {
   Place(true); DrawPet(); SyncAnimation(); Report();
 }
 
+void ReportMonitorState() { if(current) Report(); }
+
 void ConfigureSessionSummary(const std::wstring& summary, double rate) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; } }
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,

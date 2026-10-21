@@ -13,6 +13,7 @@ int Run(const std::vector<std::wstring>& arguments);
 // Stage B: shares the Flutter engine's UI thread and receives normalized state.
 bool ClaimMonitorInstance(bool request_exit = false);
 bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action);
+void ReportMonitorState();
 void ConfigureSessionSummary(const std::wstring& summary, double rate);
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
