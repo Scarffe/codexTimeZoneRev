@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 
 import '../state/account_usage_controller.dart';
+import '../state/session_metrics_controller.dart';
 
 /// Only publishes display data; native surfaces never query the account.
 class DesktopMonitor {
@@ -11,9 +12,11 @@ class DesktopMonitor {
     this.usage,
     this.path, {
     this.onRoles,
+    this.metrics,
     this.interval = const Duration(minutes: 2),
   });
   final AccountUsageController usage;
+  final SessionMetricsController? metrics;
   final String Function() path;
   final Duration interval;
   final VoidCallback? onRoles;
@@ -25,6 +28,7 @@ class DesktopMonitor {
   void start() {
     usage.setMainWindowVisible(false);
     usage.addListener(_publish);
+    metrics?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'roles':
@@ -94,6 +98,14 @@ class DesktopMonitor {
   void _publish() {
     if (_closed) return;
     final snapshot = usage.desktopSnapshot;
+    snapshot['sessionRate'] =
+        (metrics?.last?['tokensPerSecond'] as num?)?.toDouble() ?? -1.0;
+    snapshot['sessionSummary'] = metrics?.petSummary ?? '';
+    final summary = metrics?.summary ?? '';
+    if (summary.isNotEmpty) {
+      snapshot['text'] = '${snapshot['text']} · $summary';
+      snapshot['detail'] = '$summary\n${snapshot['detail']}';
+    }
     if (mapEquals(snapshot, _lastSnapshot)) return;
     _lastSnapshot = snapshot;
     unawaited(
@@ -108,6 +120,7 @@ class DesktopMonitor {
     _closed = true;
     _clock?.cancel();
     usage.removeListener(_publish);
+    metrics?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }
 }

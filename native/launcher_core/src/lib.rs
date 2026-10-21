@@ -7,6 +7,7 @@ use std::sync::Mutex;
 #[path = "platform/common.rs"]
 mod common;
 mod account_usage;
+mod session_metrics;
 #[cfg(target_os = "macos")]
 #[path = "platform/mac/mod.rs"]
 mod macos;
@@ -38,6 +39,7 @@ fn dispatch(request: &str) -> Result<Value, String> {
         return proxy::resolve(request.payload["url"].as_str().unwrap_or_default())
             .map(|proxy| json!({"proxy": proxy}));
     }
+    if request.command == "session_metrics" { return session_metrics::execute(request.payload); }
     // Account reads can wait on the network. Never hold the settings/launch lock.
     if request.command == "account_usage" {
         #[cfg(windows)]

@@ -10,6 +10,8 @@ import '../services/network_info.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import 'account_usage_panel.dart';
+import 'session_metrics_panel.dart';
+import '../state/session_metrics_controller.dart';
 
 class LauncherPage extends StatelessWidget {
   const LauncherPage({
@@ -19,11 +21,13 @@ class LauncherPage extends StatelessWidget {
     required this.usage,
     required this.appearance,
     required this.onAppearance,
+    this.metrics,
     this.desktop = const SystemDesktopServices(),
   });
   final LauncherController launcher;
   final NetworkController network;
   final AccountUsageController usage;
+  final SessionMetricsController? metrics;
   final String appearance;
   final ValueChanged<String> onAppearance;
   final DesktopServices desktop;
@@ -412,6 +416,10 @@ class LauncherPage extends StatelessWidget {
                   },
                 ),
                 const SizedBox(height: 20),
+                if (metrics != null) ...[
+                  SessionMetricsPanel(controller: metrics!),
+                  const SizedBox(height: 20),
+                ],
                 _section(
                   context,
                   '网络位置参考',

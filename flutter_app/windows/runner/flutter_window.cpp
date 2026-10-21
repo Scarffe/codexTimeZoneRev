@@ -65,6 +65,9 @@ bool FlutterWindow::OnCreate() {
           int length=MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),nullptr,0);
           std::wstring w(length,L'\0'); MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),w.data(),length); return w;
         };
+        auto sessionRate=value("sessionRate");
+        const auto* rate=std::get_if<double>(&sessionRate);
+        desktop_prototype::ConfigureSessionSummary(wideField("sessionSummary"),rate ? *rate : -1.0);
         desktop_prototype::ConfigureRole(wideField("roleImage"),wideField("roleName"));
         auto visible=value("petVisible");
         if(auto flag=std::get_if<bool>(&visible)) desktop_prototype::ConfigureMonitor(

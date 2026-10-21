@@ -44,6 +44,8 @@ struct State {
   HPOWERNOTIFY powerRegistration=nullptr;
   std::filesystem::path settings;
   std::wstring detail;
+  std::wstring sessionSummary;
+  double sessionRate=-1;
   std::wstring rolePath,roleName;
   UINT roleWidth=0,roleHeight=0;
   std::vector<std::uint32_t> rolePixels;
@@ -152,6 +154,8 @@ void Report() {
         << ",\"alertsShown\":" << s.alertsShown << ",\"alertTests\":" << s.alertTests
         << ",\"bubbleDismissals\":" << s.bubbleDismissals
         << ",\"bubbleVisible\":" << (IsWindowVisible(s.bubble) ? "true" : "false")
+        << ",\"sessionRate\":" << s.sessionRate
+        << ",\"sessionSummaryPresent\":" << (!s.sessionSummary.empty()?"true":"false")
         << ",\"revision\":" << s.revision << ",\"attempts\":" << s.attempts
         << ",\"failures\":" << s.failures << ",\"remaining\":" << s.remaining
         << ",\"paused\":" << (s.paused ? "true" : "false")
@@ -317,7 +321,7 @@ bool DrawPet() {
     auto previousFont=SelectObject(dc,font);
     SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
     RECT label{Px(8),Px(3),width-Px(8),current->mode==0 ? height-Px(8) : Px(49)};
-    auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : current->caption;
+    auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : (current->sessionSummary.empty() ? current->caption : current->sessionSummary);
     if(current->visualTest>=0 && current->mode!=0) {
       const wchar_t* labels[]={L"待机",L"刷新",L"低额度",L"不可用"};
       caption=std::wstring(L"动画预览（模拟）· ")+labels[visual];
@@ -718,6 +722,8 @@ void ConfigureRole(const std::wstring& path,const std::wstring& name) {
   }
   Place(true); DrawPet(); SyncAnimation(); Report();
 }
+
+void ConfigureSessionSummary(const std::wstring& summary, double rate) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; } }
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,

@@ -14,6 +14,7 @@ import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
 import 'pet_role_dialog.dart';
 import 'theme.dart';
+import '../state/session_metrics_controller.dart';
 
 class LauncherApplication extends StatefulWidget {
   const LauncherApplication({
@@ -26,6 +27,7 @@ class LauncherApplication extends StatefulWidget {
     this.acrylicEnabled = false,
     this.usageService,
     this.monitorEnabled = false,
+    this.selectedSessionPath,
     this.monitorInterval = const Duration(minutes: 2),
   });
   final bool preview;
@@ -36,6 +38,7 @@ class LauncherApplication extends StatefulWidget {
   final bool acrylicEnabled;
   final AccountUsageService? usageService;
   final bool monitorEnabled;
+  final String? selectedSessionPath;
   final Duration monitorInterval;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
@@ -53,6 +56,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late final usage = AccountUsageController(
     widget.usageService ?? NativeAccountUsageService(launcher.backend),
   );
+  late final metrics = SessionMetricsController(launcher.backend);
   late final appearance = ValueNotifier(widget.initialAppearance);
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
@@ -102,12 +106,16 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
         await usage.roles.load();
       }
+      if (mounted && !widget.preview && widget.selectedSessionPath != null) {
+        metrics.select(widget.selectedSessionPath);
+      }
       if (mounted && widget.monitorEnabled && !widget.preview) {
         monitor = DesktopMonitor(
           usage,
           () => launcher.effectivePath,
           interval: widget.monitorInterval,
           onRoles: _openRoles,
+          metrics: metrics,
         )..start();
       }
     });
@@ -187,6 +195,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               launcher: launcher,
               network: network,
               usage: usage,
+              metrics: widget.preview ? null : metrics,
               appearance: appearance.value,
               onAppearance: _setAppearance,
             ),
@@ -203,6 +212,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     launcher.dispose();
     network.dispose();
     usage.dispose();
+    metrics.dispose();
     appearance.dispose();
     super.dispose();
   }
