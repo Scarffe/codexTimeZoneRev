@@ -66,7 +66,8 @@ bool FlutterWindow::OnCreate() {
         auto visible=value("petVisible");
         if(auto flag=std::get_if<bool>(&visible)) desktop_prototype::ConfigureMonitor(
           static_cast<int>(number("petMode")),*flag,number("preferencesSerial"));
-        desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"));
+        desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"),
+          value("reducedMotion")==flutter::EncodableValue(true),static_cast<int>(number("animationState")));
         result->Success(); return;
       }
       result->NotImplemented();

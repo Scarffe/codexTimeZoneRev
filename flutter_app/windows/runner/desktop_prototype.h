@@ -15,7 +15,8 @@ bool ClaimMonitorInstance(bool request_exit = false);
 bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action);
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
-                    const std::wstring& detail, const std::wstring& alert, int64_t alert_serial);
+                    const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,
+                    bool reduced_motion=false, int animation_state=3);
 void ConfigureMonitor(int mode, bool visible, int64_t serial);
 void DetachMonitor();
 // Available only with the explicit --monitor-test-controls launch flag.

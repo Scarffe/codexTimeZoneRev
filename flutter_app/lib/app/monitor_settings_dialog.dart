@@ -68,6 +68,19 @@ class MonitorSettingsDialog extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    FButton(
+                      key: const ValueKey('reduced-motion'),
+                      variant: FButtonVariant.outline,
+                      onPress: () => controller.setReducedMotion(
+                        !controller.reducedMotion,
+                      ),
+                      child: Text(
+                        '减少动画：${controller.reducedMotion ? '开启' : '关闭'}',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('开启后保留静态状态与额度，不播放浮动或气泡动画。'),
+                    const SizedBox(height: 12),
                     const Text('桌宠形态（记住最后一次选择）'),
                     FSelect<int>(
                       items: const {'边缘': 0, '紧凑': 1, '展开': 2},

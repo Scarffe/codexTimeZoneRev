@@ -32,6 +32,7 @@ class AccountUsageController extends ChangeNotifier {
   String? preferencesError;
   bool preferencesReady = true;
   bool alertsEnabled = true, petVisible = true, savedMonitoring = true;
+  bool reducedMotion = false;
   int alertThreshold = 20, petMode = 1, preferencesSerial = 1;
 
   Future<void> loadPreferences(MonitorPreferencesStore store) async {
@@ -48,6 +49,7 @@ class AccountUsageController extends ChangeNotifier {
       petVisible = saved.visible;
       savedMonitoring = saved.enabled;
       useLocalTime = saved.localTime;
+      reducedMotion = saved.reducedMotion;
       _petAlerts.restore(value['cycles'], _now());
     } catch (_) {
       preferencesError = '监控设置读取失败，已使用默认值；原文件未改动。';
@@ -69,6 +71,7 @@ class AccountUsageController extends ChangeNotifier {
         visible: petVisible,
         enabled: savedMonitoring,
         localTime: useLocalTime,
+        reducedMotion: reducedMotion,
       ).toJson(),
       'cycles': _petAlerts.records(_now()),
     };
@@ -89,6 +92,13 @@ class AccountUsageController extends ChangeNotifier {
     preferencesSerial++;
     _savePreferences();
     if (!_disposed) notifyListeners();
+  }
+
+  void setReducedMotion(bool value) {
+    if (_disposed || reducedMotion == value) return;
+    reducedMotion = value;
+    _savePreferences();
+    notifyListeners();
   }
 
   void configureAlerts({bool? enabled, int? threshold}) {
@@ -329,6 +339,12 @@ class AccountUsageController extends ChangeNotifier {
         : '$label · 剩余 ${remaining.toStringAsFixed(0)}% · $status';
     return {
       'text': text,
+      'reducedMotion': reducedMotion,
+      'animationState': busy
+          ? 1
+          : (stale || error != null || remaining == null
+                ? 3
+                : (remaining <= alertThreshold ? 2 : 0)),
       'preferencesSerial': preferencesSerial,
       'petMode': petMode,
       'petVisible': petVisible,

@@ -11,9 +11,10 @@ class MonitorPreferences {
     this.visible = true,
     this.enabled = true,
     this.localTime = true,
+    this.reducedMotion = false,
   });
   final int seconds, threshold, mode;
-  final bool alerts, visible, enabled, localTime;
+  final bool alerts, visible, enabled, localTime, reducedMotion;
   factory MonitorPreferences.fromJson(Map<String, dynamic> value) {
     int choice(String key, List<int> choices, int fallback) =>
         value[key] is int && choices.contains(value[key])
@@ -29,6 +30,7 @@ class MonitorPreferences {
       visible: flag('visible', true),
       enabled: flag('enabled', true),
       localTime: flag('localTime', true),
+      reducedMotion: flag('reducedMotion', false),
     );
   }
   Map<String, Object> toJson() => {
@@ -39,6 +41,7 @@ class MonitorPreferences {
     'visible': visible,
     'enabled': enabled,
     'localTime': localTime,
+    'reducedMotion': reducedMotion,
   };
 }
 

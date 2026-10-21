@@ -24,6 +24,7 @@ constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
 constexpr UINT kMuteCycle=119;
+constexpr UINT kPreviewIdle=120,kPreviewRefresh=121,kPreviewLow=122,kPreviewReal=123,kPreviewReduced=124;
 constexpr UINT kAlertTest=113;
 constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
 struct State {
@@ -38,6 +39,12 @@ struct State {
   HPOWERNOTIFY powerRegistration=nullptr;
   std::filesystem::path settings;
   std::wstring detail;
+  bool reducedMotion=false,powerSuspended=false,animationTimer=false;
+  UINT animationInterval=0;
+  int animationState=3,animationFrame=0,visualTest=-1,soakStep=-1;
+  bool animationSoak=false,testReduced=false,testHidden=false,testSuspended=false;
+  uint64_t animationFrames=0,renderCount=0,drawFailures=0;
+  ULONGLONG lastAnimationReport=0;
   bool preferredVisible=true;
   int64_t preferencesSerial=0;
   int64_t alertSerial=0;
@@ -98,6 +105,7 @@ void Report() {
   auto& s = *current;
   if (s.report.empty()) return;
   RECT r{}; GetWindowRect(s.pet, &r);
+  DWORD processHandles=0; GetProcessHandleCount(GetCurrentProcess(),&processHandles);
   DWORD foregroundPid = 0;
   GetWindowThreadProcessId(GetForegroundWindow(), &foregroundPid);
   const auto temporary = s.report.wstring() + L".tmp";
@@ -111,6 +119,19 @@ void Report() {
         << ",\"foregroundPid\":" << foregroundPid
         << ",\"hostForeground\":" << (GetForegroundWindow() == s.host ? "true" : "false")
         << ",\"petForeground\":" << (GetForegroundWindow() == s.pet ? "true" : "false")
+        << ",\"animationState\":" << (s.visualTest>=0 ? s.visualTest : s.animationState)
+        << ",\"animationFrame\":" << s.animationFrame
+        << ",\"animationFrames\":" << s.animationFrames
+        << ",\"animationTimer\":" << (s.animationTimer ? "true" : "false")
+        << ",\"reducedMotion\":" << ((s.reducedMotion || s.testReduced) ? "true" : "false")
+        << ",\"animationTest\":" << (s.visualTest>=0 ? "true" : "false")
+        << ",\"animationSuspended\":" << ((s.powerSuspended || s.testSuspended) ? "true" : "false")
+        << ",\"soakStep\":" << s.soakStep
+        << ",\"gdiObjects\":" << GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)
+        << ",\"userObjects\":" << GetGuiResources(GetCurrentProcess(),GR_USEROBJECTS)
+        << ",\"handles\":" << processHandles
+        << ",\"renders\":" << s.renderCount
+        << ",\"drawFailures\":" << s.drawFailures
         << ",\"mode\":" << s.mode
         << ",\"dpi\":" << s.dpi << ",\"actualWindowDpi\":" << GetDpiForWindow(s.pet)
         << ",\"displayCount\":" << GetSystemMetrics(SM_CMONITORS)
@@ -188,8 +209,33 @@ void ResetPosition() {
                SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
+int VisualState() { return current->visualTest>=0 ? current->visualTest : current->animationState; }
+bool AnimationAllowed() {
+  const auto& s=*current;
+  return s.live && !s.reducedMotion && !s.testReduced && !s.powerSuspended &&
+    !s.testSuspended && !s.paused && !s.stale && !s.dragging &&
+    IsWindowVisible(s.pet) && VisualState()<3;
+}
+void SyncAnimation() {
+  auto& s=*current;
+  const UINT interval=VisualState()==1 ? 200u : 500u;
+  if(AnimationAllowed()) {
+    if(!s.animationTimer || s.animationInterval!=interval) {
+      s.animationTimer=SetTimer(s.owner,3,interval,nullptr)!=0;
+      s.animationInterval=interval;
+    }
+  } else {
+    KillTimer(s.owner,3); s.animationTimer=false; s.animationInterval=0; s.animationFrame=0;
+  }
+}
+
 bool DrawPet() {
+  ++current->renderCount;
   const int width=Width(),height=Height();
+  const int visual=VisualState(),frame=current->animationFrame;
+  const bool motion=AnimationAllowed();
+  constexpr int bobbing[]={0,1,2,1,0,-1,-2,-1};
+  const int bob=motion && visual==0 ? bobbing[frame%8] : 0;
   // A real premultiplied-alpha DIB: zero-alpha pixels are not mouse targets.
   // Original geometric placeholder; no downloaded character assets.
   BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -200,11 +246,15 @@ bool DrawPet() {
   HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
   if (!screen || !dc || !bitmap || !pixels) {
     if (bitmap) DeleteObject(bitmap); if (dc) DeleteDC(dc); if (screen) ReleaseDC(nullptr, screen);
-    return false;
+    ++current->drawFailures; return false;
   }
   auto data = static_cast<std::uint32_t*>(pixels);
-  for (int pixelY = 0; pixelY < height; ++pixelY) for (int pixelX = 0; pixelX < width; ++pixelX) {
-    const int x=MulDiv(pixelX,96,static_cast<int>(current->dpi)),y=MulDiv(pixelY,96,static_cast<int>(current->dpi));
+  std::vector<int> logicalX(width);
+  for(int i=0;i<width;++i) logicalX[i]=MulDiv(i,96,static_cast<int>(current->dpi));
+  for (int pixelY = 0; pixelY < height; ++pixelY) {
+    const int y=MulDiv(pixelY,96,static_cast<int>(current->dpi));
+    for (int pixelX = 0; pixelX < width; ++pixelX) {
+    const int x=logicalX[pixelX];
     const auto ellipse = [](int px, int py, int cx, int cy, int rx, int ry) {
       const double dx = static_cast<double>(px - cx) / rx;
       const double dy = static_cast<double>(py - cy) / ry; return dx * dx + dy * dy <= 1;
@@ -212,15 +262,27 @@ bool DrawPet() {
     std::uint32_t color = 0;
     if(current->mode==2 && x>=8 && x<BaseWidth()-8 && y>=3 && y<BaseHeight()-8) color=0xff202b40;
     if(current->live && x>=8 && x<kWidth-8 && y>=3 && y<49) color=0xff202b40;
-    if (ellipse(x,y,118,94,66,43) || ellipse(x,y,54,74,24,14) || ellipse(x,y,53,103,21,13)) color = current->live && current->stale ? 0xff89919a : 0xff66bfe8;
-    if (ellipse(x,y,131,112,41,17)) color = 0xffcbeaf4;
-    if (ellipse(x,y,150,85,5,7)) color = 0xff182d49;
+    const int whaleY=y-bob;
+    const std::uint32_t lowColors[]={0xffe4b778,0xffe6bb7e,0xffe8bf84,0xffe6bb7e};
+    const auto body=current->live && (current->stale || visual==3) ? 0xff89919au :
+      (visual==2 ? lowColors[motion ? (frame/2)%4 : 0] : 0xff66bfe8u);
+    if (ellipse(x,whaleY,118,94,66,43) || ellipse(x,whaleY,54,74,24,14) || ellipse(x,whaleY,53,103,21,13)) color=body;
+    if (ellipse(x,whaleY,131,112,41,17)) color=0xffcbeaf4;
+    if (ellipse(x,whaleY,150,85,5,7)) color=0xff182d49;
+    if(visual==1) {
+      const int step=motion ? frame%8 : 0;
+      if(ellipse(x,y,183+step*3,66-step*3,3,3)) color=0xffcbeaf4;
+      if(ellipse(x,y,198-step*2,60-step*2,2,2)) color=0xff66bfe8;
+    }
     const double remaining = current->live ? current->remaining : 72;
     if (x >= 77 && x <= 174 && y >= 141 && y <= 147) color = remaining >= 0 && x < 77 + remaining * .98 ? (current->stale ? 0xff89919a : 0xff6bd4ad) : 0xff43526b;
     if(current->mode==0) {
       color=ellipse(x,y,44,36,40,30) ? (current->stale ? 0xff89919a : 0xff202b40) : 0;
+      if(ellipse(x,y,68,18+(motion ? bobbing[frame%8] : 0),3,3))
+        color=visual==3 ? 0xff89919a : (visual==2 ? 0xffe4b778 : (visual==1 ? 0xff66bfe8 : 0xff6bd4ad));
     }
     data[pixelY * width + pixelX] = color;
+    }
   }
   auto old = SelectObject(dc, bitmap);
   if(current->live) {
@@ -230,6 +292,10 @@ bool DrawPet() {
     SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
     RECT label{Px(8),Px(3),width-Px(8),current->mode==0 ? height-Px(8) : Px(49)};
     auto caption=current->mode==0 ? (current->remaining<0 ? L"--" : std::to_wstring(static_cast<int>(current->remaining))+L"%") : current->caption;
+    if(current->visualTest>=0 && current->mode!=0) {
+      const wchar_t* labels[]={L"待机",L"刷新",L"低额度",L"不可用"};
+      caption=std::wstring(L"动画预览（模拟）· ")+labels[visual];
+    }
     DrawTextW(dc,caption.c_str(),-1,&label,current->mode==0 ? DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX : DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
     if(current->mode==2) {
       RECT detail{Px(16),Px(160),width-Px(16),height-Px(12)};
@@ -247,13 +313,14 @@ bool DrawPet() {
   const bool ok = UpdateLayeredWindow(current->pet, screen, &destination, &size, dc,
                                       &source, 0, &blend, ULW_ALPHA) != FALSE;
   SelectObject(dc, old); DeleteObject(bitmap); DeleteDC(dc); ReleaseDC(nullptr, screen);
+  if(!ok) ++current->drawFailures;
   return ok;
 }
 
 void ShowPet() {
   ShowWindow(current->pet, SW_SHOWNOACTIVATE);
   SetWindowPos(current->pet, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-  Report();
+  SyncAnimation(); Report();
 }
 
 bool Register(const wchar_t* name,WNDPROC proc);
@@ -361,13 +428,14 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
       }
       const bool clicked=s.dragging && !s.moved;
-      s.dragging=false; ReleaseCapture();
+      s.dragging=false; ReleaseCapture(); SyncAnimation();
       if(clicked) { s.mode=(s.mode+1)%3; if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); }
       Place(true); DrawPet(); SavePosition(); Report(); return 0;
     }
     case WM_DISPLAYCHANGE: case WM_SETTINGCHANGE:
       Place(false); DrawPet(); SavePosition(); return 0;
-    case WM_CAPTURECHANGED: s.dragging=false; return 0;
+    case WM_CAPTURECHANGED: s.dragging=false; SyncAnimation(); return 0;
+    case WM_SHOWWINDOW: SyncAnimation(); return 0;
     case WM_RBUTTONUP: PostMessageW(s.owner,kTray,0,WM_RBUTTONUP); return 0;
     case WM_CLOSE: ShowWindow(hwnd,SW_HIDE); Report(); return 0;
   }
@@ -404,10 +472,10 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_POWERBROADCAST:
       if(wp==PBT_APMSUSPEND) {
-        ++s.suspendMessages; s.resumeSent=false;
+        ++s.suspendMessages; s.resumeSent=false; s.powerSuspended=true; SyncAnimation();
         if(s.action) s.action("systemSuspend");
       } else if(wp==PBT_APMRESUMEAUTOMATIC || wp==PBT_APMRESUMESUSPEND || wp==PBT_APMRESUMECRITICAL) {
-        ++s.resumeMessages;
+        ++s.resumeMessages; s.powerSuspended=false; SyncAnimation();
         if(!s.resumeSent) {
           s.resumeSent=true; ++s.resumeActions;
           ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2);
@@ -417,6 +485,22 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       }
       Report(); return TRUE;
     case WM_TIMER:
+      if(wp==3) {
+        SyncAnimation();
+        if(s.animationTimer) { s.animationFrame=(s.animationFrame+1)%8; ++s.animationFrames; DrawPet(); }
+        if(!s.report.empty() && GetTickCount64()-s.lastAnimationReport>=5000) {
+          s.lastAnimationReport=GetTickCount64(); Report();
+        }
+        return 0;
+      }
+      if(wp==4 && s.animationSoak && s.testControls) {
+        ++s.soakStep; const int step=s.soakStep%8;
+        s.visualTest=step<3 ? step : (step==5 ? 3 : 0);
+        s.testReduced=step==3; s.testHidden=step==4; s.testSuspended=step==6;
+        s.mode=(s.soakStep/8)%3; Place(false);
+        ShowWindow(s.pet,s.testHidden ? SW_HIDE : SW_SHOWNOACTIVATE);
+        SyncAnimation(); DrawPet(); Report(); return 0;
+      }
       if(wp==2 && GetTickCount64()>=s.bubbleUntil) { ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2); }
       Report(); return 0;
     case kTray:
@@ -437,6 +521,11 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         AppendMenuW(menu,MF_STRING,kHide,s.live ? L"隐藏桌宠" : L"Hide pet");
         AppendMenuW(menu,MF_STRING,kReset,s.live ? L"复位桌宠位置" : L"Reset position");
         if(s.testControls) {
+          AppendMenuW(menu,MF_STRING,kPreviewIdle,L"动画预览：待机（模拟）");
+          AppendMenuW(menu,MF_STRING,kPreviewRefresh,L"动画预览：刷新（模拟）");
+          AppendMenuW(menu,MF_STRING,kPreviewLow,L"动画预览：低额度（模拟）");
+          AppendMenuW(menu,MF_STRING,kPreviewReduced,L"预览减少动画（测试）");
+          AppendMenuW(menu,MF_STRING,kPreviewReal,L"退出动画预览");
           AppendMenuW(menu,MF_STRING,kAlertTest,L"测试低额度气泡（模拟 10%）");
           AppendMenuW(menu,MF_STRING,kSuspendTest,L"模拟系统挂起（测试）");
           AppendMenuW(menu,MF_STRING,kResumeTest,L"模拟系统恢复（测试）");
@@ -465,6 +554,12 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
         case kMuteCycle: if(s.live && s.action) s.action("muteCycle"); break;
         case kRefresh: if(s.action) s.action("refresh"); break;
+        case kPreviewIdle: case kPreviewRefresh: case kPreviewLow: case kPreviewReal: case kPreviewReduced:
+          if(s.testControls) {
+            if(LOWORD(wp)==kPreviewReduced) s.testReduced=!s.testReduced;
+            else { s.visualTest=LOWORD(wp)==kPreviewReal ? -1 : static_cast<int>(LOWORD(wp)-kPreviewIdle); s.testReduced=false; }
+            SyncAnimation(); DrawPet(); Report();
+          } break;
         case kAlertTest:
           TriggerTestAlert(); break;
         case kSuspendTest: case kResumeTest:
@@ -486,7 +581,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if(s.powerRegistration) { UnregisterSuspendResumeNotification(s.powerRegistration); s.powerRegistration=nullptr; }
       NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=hwnd; icon.uID=1;
       if (s.tray) Shell_NotifyIconW(NIM_DELETE,&icon);
-      KillTimer(hwnd,1); KillTimer(hwnd,2); if(!s.live) PostQuitMessage(0); return 0;
+      KillTimer(hwnd,1); KillTimer(hwnd,2); KillTimer(hwnd,3); KillTimer(hwnd,4); if(!s.live) PostQuitMessage(0); return 0;
     }
   }
   return DefWindowProcW(hwnd,msg,wp,lp);
@@ -535,6 +630,7 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
     for(int i=1;i<argc;++i) { std::wstring arg(argv[i]); constexpr wchar_t prefix[]=L"--monitor-report=";
       if(arg.rfind(prefix,0)==0) current->report=arg.substr(std::size(prefix)-1);
       if(arg==L"--monitor-test-controls") current->testControls=true;
+      if(arg==L"--monitor-animation-soak") current->animationSoak=true;
     }
     LocalFree(argv);
   }
@@ -550,17 +646,20 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   current->dpi=GetDpiForWindow(current->pet); if(!current->dpi) current->dpi=96;
   ResetPosition(); LoadPosition();
   if(!DrawPet()) { DetachMonitor(); return false; }
+  if(current->animationSoak && current->testControls) SetTimer(current->owner,4,10000,nullptr);
   Report(); return true;
 }
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
-                    const std::wstring& detail, const std::wstring& alert, int64_t alert_serial) {
+                    const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,
+                    bool reduced_motion, int animation_state) {
   if(!current || !current->live) return;
   current->caption=text; current->remaining=std::clamp(remaining,-1.0,100.0);
   current->stale=stale; current->paused=paused; current->revision=revision;
   current->attempts=attempts; current->failures=failures;
   current->detail=detail;
+  current->reducedMotion=reduced_motion; current->animationState=std::clamp(animation_state,0,3);
   if(alert.empty() || stale) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
     if(ShowAlert(alert)) current->alertSerial=alert_serial;
@@ -568,7 +667,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=current->owner;
   icon.uID=1; icon.uFlags=NIF_TIP; wcsncpy_s(icon.szTip,text.c_str(),_TRUNCATE);
   Shell_NotifyIconW(NIM_MODIFY,&icon);
-  SetWindowTextW(current->pet,text.c_str()); DrawPet();
+  SetWindowTextW(current->pet,text.c_str()); SyncAnimation(); DrawPet();
   Report();
 }
 
@@ -578,7 +677,8 @@ void ConfigureMonitor(int mode, bool visible, int64_t serial) {
   current->preferredVisible=visible;
   current->mode=std::clamp(mode,0,2);
   Place(false); DrawPet(); SavePosition();
-  if(visible) ShowPet(); else ShowWindow(current->pet,SW_HIDE);
+  if(visible) ShowPet(); else { ShowWindow(current->pet,SW_HIDE); if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
+  SyncAnimation();
   Report();
 }
 
@@ -710,6 +810,42 @@ int Run(const std::vector<std::wstring>& args) {
         ReadPosition(); check(state.mode==2);
         SavePosition();
       }
+      // Exercise the live renderer without a Flutter engine or account queries.
+      state.live=true; state.mode=1; state.stale=false; state.paused=false;
+      state.powerSuspended=false; state.animationState=0; Place(false); DrawPet(); ShowPet(); SyncAnimation();
+      check(state.animationTimer);
+      for(int visual : {0,1,2}) {
+        state.animationState=visual;
+        for(int frame=0;frame<8;++frame) {
+          state.animationFrame=frame; RECT before{}; GetWindowRect(state.pet,&before);
+          const bool drawn=DrawPet(); RECT after{}; GetWindowRect(state.pet,&after);
+          check(drawn && EqualRect(&before,&after) && GetForegroundWindow()==foreground &&
+            WindowFromPoint(POINT{after.left+1,after.top+1})!=state.pet);
+        }
+      }
+      state.reducedMotion=true; SyncAnimation(); check(!state.animationTimer);
+      const auto frozen=state.animationFrames;
+      SendMessageW(state.owner,WM_TIMER,3,0); check(state.animationFrames==frozen);
+      state.reducedMotion=false; ShowWindow(state.pet,SW_HIDE); SyncAnimation(); check(!state.animationTimer);
+      ShowPet(); check(state.animationTimer);
+      state.paused=true; SyncAnimation(); check(!state.animationTimer);
+      state.paused=false; SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0); check(!state.animationTimer);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0); check(state.animationTimer);
+      state.stale=true; SyncAnimation(); check(!state.animationTimer);
+      state.stale=false; state.dragging=true; SyncAnimation(); check(!state.animationTimer);
+      state.dragging=false;
+      const DWORD gdiBefore=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+      DWORD handlesBefore=0; GetProcessHandleCount(GetCurrentProcess(),&handlesBefore);
+      for(int i=0;i<300;++i) {
+        state.mode=i%3; state.animationState=(i/3)%3; state.animationFrame=i%8;
+        Place(false); DrawPet();
+      }
+      DWORD handlesAfter=0; GetProcessHandleCount(GetCurrentProcess(),&handlesAfter);
+      check(GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdiBefore);
+      check(handlesAfter<=handlesBefore+1);
+      check(state.drawFailures==0);
+      check(GetForegroundWindow()==foreground);
+      state.live=false; SyncAnimation();
       Report();
       DestroyWindow(state.owner);
     }
