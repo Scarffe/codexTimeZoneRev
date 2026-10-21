@@ -22,12 +22,14 @@ class LauncherPage extends StatelessWidget {
     required this.appearance,
     required this.onAppearance,
     this.metrics,
+    this.sessionPanelKey,
     this.desktop = const SystemDesktopServices(),
   });
   final LauncherController launcher;
   final NetworkController network;
   final AccountUsageController usage;
   final SessionMetricsController? metrics;
+  final Key? sessionPanelKey;
   final String appearance;
   final ValueChanged<String> onAppearance;
   final DesktopServices desktop;
@@ -417,7 +419,10 @@ class LauncherPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 if (metrics != null) ...[
-                  SessionMetricsPanel(controller: metrics!),
+                  SessionMetricsPanel(
+                    key: sessionPanelKey,
+                    controller: metrics!,
+                  ),
                   const SizedBox(height: 20),
                 ],
                 _section(

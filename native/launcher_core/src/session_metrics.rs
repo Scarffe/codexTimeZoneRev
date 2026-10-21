@@ -6,7 +6,10 @@ use std::{
     fs::{self, File},
     io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 // This collector only opens session files for reading. No runtime RPC or prompt content leaves it.
@@ -14,6 +17,7 @@ const MAX_LINE: u64 = 8 * 1024 * 1024;
 #[derive(Default)]
 struct Turn {
     timing: session_timing::Timing,
+    state: String,
     output: Option<u64>,
     reasoning: Option<u64>,
     duration: Option<u64>,
@@ -21,15 +25,18 @@ struct Turn {
     complete: bool,
     ended: bool,
     order: u64,
+    started_order: u64,
 }
 #[derive(Default)]
 struct Reader {
     path: PathBuf,
+    epoch: u64,
     offset: u64,
     turns: BTreeMap<String, Turn>,
     serial: u64,
     stamp: Option<std::time::SystemTime>,
 }
+static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 static READER: Mutex<Option<Reader>> = Mutex::new(None);
 fn root() -> Result<PathBuf, String> {
     let home = std::env::var_os("CODEX_HOME")
@@ -101,6 +108,7 @@ impl Reader {
         {
             *self = Reader {
                 path,
+                epoch: NEXT_EPOCH.fetch_add(1, Ordering::Relaxed),
                 ..Default::default()
             };
         }
@@ -146,18 +154,32 @@ impl Reader {
             self.serial += 1;
             let t = self.turns.entry(id.to_owned()).or_default();
             t.timing.accept(kind, p, self.serial);
-            if kind == "task_started" {
-                t.order = self.serial;
+            // Replayed lifecycle records must not resurrect a terminal turn or
+            // reorder an old turn ahead of newer activity. First terminal wins.
+            if kind == "task_started" && !t.ended {
+                if t.order == 0 {
+                    t.order = self.serial;
+                    t.started_order = self.serial;
+                }
+                t.state = "running".into();
             }
-            if kind == "task_complete" {
+            if kind == "task_complete" && !t.ended {
+                if t.started_order == 0 {
+                    t.started_order = self.serial;
+                }
                 t.complete = true;
                 t.ended = true;
+                t.state = "completed".into();
                 t.duration = p["duration_ms"].as_u64();
                 t.first = p["time_to_first_token_ms"].as_u64();
                 t.order = self.serial;
             }
-            if kind == "turn_aborted" {
+            if kind == "turn_aborted" && !t.ended {
+                if t.started_order == 0 {
+                    t.started_order = self.serial;
+                }
                 t.ended = true;
+                t.state = "cancelled".into();
                 t.order = self.serial;
             }
             if kind == "token_usage_record" {
@@ -174,14 +196,24 @@ impl Reader {
             .iter()
             .filter(|(_, t)| t.complete)
             .max_by_key(|(_, t)| t.order);
-        let active = self
+        let latest_state = self
             .turns
-            .values()
-            .max_by_key(|t| t.order)
-            .is_some_and(|t| !t.ended);
+            .iter()
+            .filter(|(_, t)| t.started_order > 0)
+            .max_by_key(|(_, t)| t.started_order);
+        let active = latest_state.is_some_and(|(_, t)| t.state == "running");
+        let current = latest_state.map(|(id, t)| json!({"turnId":id,"status":t.state}));
+        let mut ended: Vec<_> = self.turns.iter().filter(|(_, t)| t.ended).collect();
+        ended.sort_by_key(|(_, t)| t.order);
+        let terminals: Vec<_> = ended
+            .iter()
+            .rev()
+            .take(64)
+            .map(|(id, t)| json!({"turnId":id,"status":t.state,"durationMs":t.duration}))
+            .collect();
         let last = latest.map(|(id,t)| json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond": t.output.zip(t.duration).filter(|(_,d)| *d>0).map(|(n,d)| n as f64*1000.0/d as f64)}));
         Ok(
-            json!({"active":active,"catchingUp":self.offset<meta.len(),"last":last,"completedTurns":self.turns.values().filter(|t|t.complete).count()}),
+            json!({"logEpoch":self.epoch,"current":current,"terminals":terminals,"active":active,"catchingUp":self.offset<meta.len(),"last":last,"completedTurns":self.turns.values().filter(|t|t.complete).count()}),
         )
     }
 }
@@ -217,6 +249,40 @@ pub fn execute(payload: Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn lifecycle_replay_cancel_and_log_reset_are_explicit() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        let record = |kind: &str, id: &str| json!({"type":"event_msg","payload":{"type":kind,"turn_id":id,"duration_ms":2000}});
+        for v in [
+            record("task_started", "old"),
+            record("task_complete", "old"),
+            record("task_started", "live"),
+            record("task_complete", "old"),
+        ] {
+            writeln!(f, "{}", v).unwrap();
+        }
+        let mut reader = Reader::default();
+        let path = f.path().to_path_buf();
+        let a = reader.poll(path.clone()).unwrap();
+        assert_eq!(a["current"]["turnId"], "live");
+        assert_eq!(a["current"]["status"], "running");
+        assert_eq!(a["terminals"].as_array().unwrap().len(), 1);
+        for v in [
+            record("turn_aborted", "live"),
+            record("task_complete", "live"),
+            record("task_started", "live"),
+        ] {
+            writeln!(f, "{}", v).unwrap();
+        }
+        let b = reader.poll(path.clone()).unwrap();
+        assert_eq!(b["current"]["status"], "cancelled");
+        assert_eq!(b["last"]["turnId"], "old");
+        assert_eq!(b["active"], false);
+        f.as_file().set_len(0).unwrap();
+        let c = reader.poll(path).unwrap();
+        assert_ne!(a["logEpoch"], c["logEpoch"]);
+        assert!(c["current"].is_null());
+    }
     #[test]
     fn item_events_are_scoped_to_completed_turn_and_exclude_content() {
         let mut f = tempfile::NamedTempFile::new().unwrap();

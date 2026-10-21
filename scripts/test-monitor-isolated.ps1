@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Archive, [ValidateSet('G','H1','H2')][string]$Stage='G', [string]$SessionPath='', [double]$ExpectedSessionRate=-1)
+param([Parameter(Mandatory)][string]$Archive, [ValidateSet('G','H1','H2','I')][string]$Stage='G', [string]$SessionPath='', [double]$ExpectedSessionRate=-1)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 $audit=& (Join-Path $PSScriptRoot 'test-stage-d-package.ps1') -Stage $Stage -Archive $Archive

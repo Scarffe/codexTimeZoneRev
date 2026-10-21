@@ -23,6 +23,10 @@ class SessionMetricsPanel extends StatelessWidget {
             children: [
               Text('会话回合统计', style: context.theme.typography.display.lg),
               const SizedBox(height: 8),
+              Text(
+                '会话状态：${controller.stateLabel}',
+                key: const ValueKey('session-state'),
+              ),
               const Text('只读本地日志；回合平均吞吐包含工具执行与等待，不代表模型解码速度。'),
               const SizedBox(height: 12),
               FButton(

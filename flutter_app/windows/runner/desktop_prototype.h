@@ -14,7 +14,8 @@ int Run(const std::vector<std::wstring>& arguments);
 bool ClaimMonitorInstance(bool request_exit = false);
 bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action);
 void ReportMonitorState();
-void ConfigureSessionSummary(const std::wstring& summary, double rate);
+void ConfigureSessionSummary(const std::wstring& summary, double rate, int status=0);
+void ConfigureSessionAlert(const std::wstring& text, int64_t serial);
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
                     const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,

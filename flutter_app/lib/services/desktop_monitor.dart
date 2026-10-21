@@ -12,6 +12,7 @@ class DesktopMonitor {
     this.usage,
     this.path, {
     this.onRoles,
+    this.onSessionDetails,
     this.metrics,
     this.interval = const Duration(minutes: 2),
   });
@@ -19,7 +20,7 @@ class DesktopMonitor {
   final SessionMetricsController? metrics;
   final String Function() path;
   final Duration interval;
-  final VoidCallback? onRoles;
+  final VoidCallback? onRoles, onSessionDetails;
   static const channel = MethodChannel('codex_timezone/monitor');
   bool _closed = false;
   Timer? _clock;
@@ -31,6 +32,9 @@ class DesktopMonitor {
     metrics?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'sessionDetails':
+          await _syncMainVisibility();
+          onSessionDetails?.call();
         case 'roles':
           onRoles?.call();
         case 'reduceMotion':
@@ -52,6 +56,7 @@ class DesktopMonitor {
         case 'muteCycle':
           usage.muteCurrentCycle();
         case 'systemSuspend':
+          metrics?.resetObservation();
           usage.systemSuspending();
         case 'systemResume':
           usage.systemResumed();
@@ -97,14 +102,30 @@ class DesktopMonitor {
 
   void _publish() {
     if (_closed) return;
+    metrics?.configureReminders(
+      enabled: usage.sessionAlertsEnabled,
+      muteUntil: usage.sessionMutedUntil,
+    );
     final snapshot = usage.desktopSnapshot;
+    snapshot['sessionAlert'] = metrics?.alert ?? '';
+    snapshot['sessionAlertSerial'] = metrics?.alertSerial ?? 0;
+    snapshot['sessionStatus'] = metrics?.selected == null
+        ? 0
+        : switch (metrics?.stateLabel) {
+            '回合进行中' => 1,
+            '回合已结束' => 2,
+            '已取消' => 3,
+            _ => 4,
+          };
     snapshot['sessionRate'] =
         (metrics?.last?['tokensPerSecond'] as num?)?.toDouble() ?? -1.0;
     snapshot['sessionSummary'] = metrics?.petSummary ?? '';
     final summary = metrics?.summary ?? '';
     if (summary.isNotEmpty) {
-      snapshot['text'] = '${snapshot['text']} · $summary';
-      snapshot['detail'] = '$summary\n${snapshot['detail']}';
+      snapshot['text'] =
+          '${metrics?.stateLabel} · ${snapshot['text']} · $summary';
+      snapshot['detail'] =
+          '${metrics?.stateLabel}\n$summary\n${snapshot['detail']}';
     }
     if (mapEquals(snapshot, _lastSnapshot)) return;
     _lastSnapshot = snapshot;

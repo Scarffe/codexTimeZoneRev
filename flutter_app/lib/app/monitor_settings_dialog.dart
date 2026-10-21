@@ -70,6 +70,32 @@ class MonitorSettingsDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     FButton(
+                      key: const ValueKey('session-alerts-toggle'),
+                      variant: FButtonVariant.outline,
+                      onPress: () => controller.configureSessionAlerts(
+                        enabled: !controller.sessionAlertsEnabled,
+                      ),
+                      child: Text(
+                        '回合结束提醒：${controller.sessionAlertsEnabled ? '开启' : '关闭'}',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FButton(
+                      key: const ValueKey('session-alerts-mute'),
+                      variant: FButtonVariant.outline,
+                      onPress: !controller.sessionAlertsEnabled
+                          ? null
+                          : () => controller.configureSessionAlerts(
+                              mute: !controller.sessionMuted,
+                              unmute: controller.sessionMuted,
+                            ),
+                      child: Text(
+                        controller.sessionMuted ? '取消回合提醒静音' : '回合提醒静音 15 分钟',
+                      ),
+                    ),
+                    const Text('仅提醒所选会话观察期间的新结束事件；取消不弹气泡。回合结束不代表任务成功。'),
+                    const SizedBox(height: 12),
+                    FButton(
                       key: const ValueKey('reduced-motion'),
                       variant: FButtonVariant.outline,
                       onPress: () => controller.setReducedMotion(

@@ -46,6 +46,10 @@ struct State {
   std::wstring detail;
   std::wstring sessionSummary;
   double sessionRate=-1;
+  int sessionStatus=0, sessionAlertsShown=0, sessionAlertsSuppressed=0;
+  int64_t sessionAlertSerial=0;
+  bool sessionBubble=false, sessionAlertKeptFocus=true;
+  int sessionFocusChecks=0;
   std::wstring rolePath,roleName;
   UINT roleWidth=0,roleHeight=0;
   std::vector<std::uint32_t> rolePixels;
@@ -64,7 +68,7 @@ struct State {
   std::wstring bubbleText;
   bool companionBubble=false;
   int alertsShown=0, alertTests=0, bubbleDismissals=0;
-  int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0;
+  int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0, selfFailedLine = 0;
   std::filesystem::path report;
   UINT taskbarCreated = 0;
   bool live = false, stale = false, paused = false;
@@ -124,6 +128,7 @@ void Report() {
     std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
     out << "{\"pid\":" << GetCurrentProcessId()
         << ",\"selfChecks\":" << s.selfChecks
+        << ",\"selfFailedLine\":" << s.selfFailedLine
         << ",\"roleLoaded\":" << (!s.rolePixels.empty()?"true":"false")
         << ",\"roleWidth\":" << s.roleWidth << ",\"roleHeight\":" << s.roleHeight
         << ",\"petClicks\":" << s.petClicks << ",\"hostClicks\":" << s.hostClicks
@@ -154,6 +159,13 @@ void Report() {
         << ",\"alertsShown\":" << s.alertsShown << ",\"alertTests\":" << s.alertTests
         << ",\"bubbleDismissals\":" << s.bubbleDismissals
         << ",\"bubbleVisible\":" << (IsWindowVisible(s.bubble) ? "true" : "false")
+        << ",\"sessionStatus\":" << s.sessionStatus
+        << ",\"sessionFocusChecks\":" << s.sessionFocusChecks
+        << ",\"sessionAlertKeptFocus\":" << (s.sessionAlertKeptFocus?"true":"false")
+        << ",\"bubbleForeground\":" << (GetForegroundWindow()==s.bubble?"true":"false")
+        << ",\"sessionAlertsShown\":" << s.sessionAlertsShown
+        << ",\"sessionAlertsSuppressed\":" << s.sessionAlertsSuppressed
+        << ",\"sessionBubble\":" << (s.sessionBubble && IsWindowVisible(s.bubble)?"true":"false")
         << ",\"sessionRate\":" << s.sessionRate
         << ",\"sessionSummaryPresent\":" << (!s.sessionSummary.empty()?"true":"false")
         << ",\"revision\":" << s.revision << ",\"attempts\":" << s.attempts
@@ -361,17 +373,23 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
   if(msg==WM_DPICHANGED) return 0; // The owning pet renders and positions this surface.
   if(msg==WM_LBUTTONUP || msg==WM_CLOSE) {
     ++current->bubbleDismissals;
-    ShowWindow(hwnd,SW_HIDE); KillTimer(current->owner,2); Report(); return 0;
+    const bool openSession=msg==WM_LBUTTONUP && current->sessionBubble;
+    ShowWindow(hwnd,SW_HIDE); KillTimer(current->owner,2);
+    if(openSession && current->live) {
+      ShowWindow(current->mainWindow,SW_RESTORE); SetForegroundWindow(current->mainWindow);
+      if(current->action) current->action("sessionDetails");
+    }
+    Report(); return 0;
   }
   return DefWindowProcW(hwnd,msg,wp,lp);
 }
 
-bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false) {
+bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false,bool session=false) {
   auto& s=*current;
   if(!s.bubble) {
     if(!Register(kBubbleClass,BubbleProc)) return false;
     s.bubble=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
-        kBubbleClass,L"Codex 桌宠额度气泡",WS_POPUP,0,0,320,110,s.pet,nullptr,GetModuleHandleW(nullptr),nullptr);
+        kBubbleClass,L"Codex 桌宠提醒",WS_POPUP,0,0,320,110,s.pet,nullptr,GetModuleHandleW(nullptr),nullptr);
   }
   if(!s.bubble) return false;
   const int width=Px(320),height=Px(110);
@@ -393,7 +411,7 @@ bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false) {
       OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   auto previousFont=SelectObject(dc,font); SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
   RECT label{Px(14),Px(10),width-Px(14),height-Px(8)};
-  const auto message=std::wstring(companion ? L"桌宠回应 · 点击关闭\n" : L"低额度提醒 · 点击关闭\n")+text;
+  const auto message=std::wstring(session ? L"回合提醒 · 点击查看\n" : (companion ? L"桌宠回应 · 点击关闭\n" : L"低额度提醒 · 点击关闭\n"))+text;
   DrawTextW(dc,message.c_str(),-1,&label,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
   GdiFlush();
   for(int i=0;i<width*height;++i) if(data[i]&0x00ffffff) data[i]|=0xff000000;
@@ -409,9 +427,11 @@ bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false) {
     // Extra inspection time only in explicitly opted-in UI test mode.
     if(renew) {
       s.companionBubble=companion;
+      s.sessionBubble=session;
       s.bubbleText=text;
       s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
-      if(!companion) ++s.alertsShown;
+      if(session) ++s.sessionAlertsShown;
+      else if(!companion) ++s.alertsShown;
     }
     ShowWindow(s.bubble,SW_SHOWNOACTIVATE);
     SetWindowPos(s.bubble,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
@@ -433,7 +453,7 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         SetWindowPos(hwnd,HWND_TOPMOST,suggested.left,suggested.top,Width(),Height(),SWP_NOACTIVATE);
       }
       Place(false); DrawPet();
-      if(IsWindowVisible(s.bubble)) ShowAlert(s.bubbleText,false,s.companionBubble);
+      if(IsWindowVisible(s.bubble)) ShowAlert(s.bubbleText,false,s.companionBubble,s.sessionBubble);
       SavePosition(); Report(); return 0;
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
@@ -725,7 +745,24 @@ void ConfigureRole(const std::wstring& path,const std::wstring& name) {
 
 void ReportMonitorState() { if(current) Report(); }
 
-void ConfigureSessionSummary(const std::wstring& summary, double rate) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; } }
+void ConfigureSessionSummary(const std::wstring& summary, double rate, int status) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; current->sessionStatus=status; } }
+
+void ConfigureSessionAlert(const std::wstring& text, int64_t serial) {
+  if(!current || !current->live) return;
+  auto& s=*current;
+  if(text.empty()) {
+    if(s.sessionBubble) { ShowWindow(s.bubble,SW_HIDE); KillTimer(s.owner,2); }
+    Report(); return;
+  }
+  if(serial<=s.sessionAlertSerial) return;
+  s.sessionAlertSerial=serial;
+  // Quota alerts take priority. Never defer a stale session event until later.
+  if(!s.preferredVisible || s.roleEditorOpen || s.powerSuspended ||
+      (IsWindowVisible(s.bubble) && !s.sessionBubble)) { ++s.sessionAlertsSuppressed; Report(); return; }
+  const HWND foreground=GetForegroundWindow();
+  if(ShowAlert(text,true,false,true)) { ++s.sessionFocusChecks; s.sessionAlertKeptFocus=s.sessionAlertKeptFocus && GetForegroundWindow()==foreground; }
+  Report();
+}
 
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
@@ -737,7 +774,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   current->attempts=attempts; current->failures=failures;
   current->detail=detail;
   current->reducedMotion=reduced_motion; current->animationState=std::clamp(animation_state,0,3);
-  if((alert.empty() || stale) && !current->companionBubble) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
+  if((alert.empty() || stale) && !current->companionBubble && !current->sessionBubble) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
     if(ShowAlert(alert)) current->alertSerial=alert_serial;
   }
@@ -815,14 +852,14 @@ int Run(const std::vector<std::wstring>& args) {
     ShowPet(); SetTimer(state.owner,1,200,nullptr);
     if(std::find(args.begin(),args.end(),L"--prototype-self-test")!=args.end()) {
       const auto foreground=GetForegroundWindow();
-      const auto check=[&](bool condition) { if(condition) ++state.selfChecks; else result=8; };
-      check(state.powerRegistration!=nullptr);
+      const auto check=[&](int line, bool condition) { if(condition) ++state.selfChecks; else { result=8; if(!state.selfFailedLine) state.selfFailedLine=line; } };
+      check(__LINE__,state.powerRegistration!=nullptr);
       for(UINT command : {kEdge,kCompact,kExpanded}) {
         SendMessageW(state.owner,WM_COMMAND,command,0);
         RECT r{}; GetWindowRect(state.pet,&r);
-        check(r.right-r.left==Width() && r.bottom-r.top==Height());
-        check(GetForegroundWindow()==foreground);
-        check(WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
+        check(__LINE__,r.right-r.left==Width() && r.bottom-r.top==Height());
+        check(__LINE__,GetForegroundWindow()==foreground);
+        check(__LINE__,WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
       }
       // Synthetic topology cases do not claim that physical monitors exist.
       for(const RECT area : {RECT{-1440,-400,0,1480},RECT{0,0,2560,1400},RECT{2560,-1080,4480,0}}) {
@@ -831,7 +868,7 @@ int Run(const std::vector<std::wstring>& args) {
           const int h=pet_geometry::Scale(mode==0 ? 72 : (mode==1 ? 160 : 310),dpi);
           RECT position{area.right-w+4,area.bottom-h+4,0,0};
           const auto fitted=pet_geometry::Fit(position,area,w,h,mode==0,pet_geometry::Scale(24,dpi));
-          check(fitted.right==area.right && fitted.bottom==area.bottom && fitted.left>=area.left && fitted.top>=area.top);
+          check(__LINE__,fitted.right==area.right && fitted.bottom==area.bottom && fitted.left>=area.left && fitted.top>=area.top);
         }
       }
       for(UINT dpi : {96u,144u,192u}) for(UINT command : {kEdge,kCompact,kExpanded}) {
@@ -839,7 +876,7 @@ int Run(const std::vector<std::wstring>& args) {
         RECT r{}; GetWindowRect(state.pet,&r);
         SendMessageW(state.pet,WM_DPICHANGED,MAKELONG(dpi,dpi),reinterpret_cast<LPARAM>(&r));
         GetWindowRect(state.pet,&r);
-        check(r.right-r.left==Width() && r.bottom-r.top==Height() && state.dpi==dpi && GetForegroundWindow()==foreground && WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
+        check(__LINE__,r.right-r.left==Width() && r.bottom-r.top==Height() && state.dpi==dpi && GetForegroundWindow()==foreground && WindowFromPoint(POINT{r.left+1,r.top+1})!=state.pet);
       }
       RECT original{}; GetWindowRect(state.pet,&original);
       const UINT actualDpi=GetDpiForWindow(state.pet);
@@ -849,30 +886,46 @@ int Run(const std::vector<std::wstring>& args) {
       SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0);
       SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0);
       SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMESUSPEND,0);
-      check(suspends==1 && resumes==1 && state.resumeActions==1);
+      check(__LINE__,suspends==1 && resumes==1 && state.resumeActions==1);
       SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0);
       SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMESUSPEND,0);
-      check(suspends==2 && resumes==2 && state.resumeActions==2);
-      check(GetForegroundWindow()==foreground);
+      check(__LINE__,suspends==2 && resumes==2 && state.resumeActions==2);
+      check(__LINE__,GetForegroundWindow()==foreground);
       state.action=nullptr;
-      check((GetWindowLongPtrW(state.pet,GWL_EXSTYLE)&(WS_EX_NOACTIVATE|WS_EX_LAYERED))==(WS_EX_NOACTIVATE|WS_EX_LAYERED));
-      check(ShowAlert(L"自检模拟 10%，非真实用量"));
-      check(IsWindowVisible(state.bubble)!=FALSE);
-      check(GetForegroundWindow()==foreground);
+      check(__LINE__,(GetWindowLongPtrW(state.pet,GWL_EXSTYLE)&(WS_EX_NOACTIVATE|WS_EX_LAYERED))==(WS_EX_NOACTIVATE|WS_EX_LAYERED));
+      check(__LINE__,ShowAlert(L"自检模拟 10%，非真实用量"));
+      check(__LINE__,IsWindowVisible(state.bubble)!=FALSE);
+      check(__LINE__,GetForegroundWindow()==foreground);
       SendMessageW(state.bubble,WM_LBUTTONUP,0,0);
-      check(!IsWindowVisible(state.bubble) && state.bubbleDismissals==1);
-      check(ShowAlert(L"自检自动消失") && IsWindowVisible(state.bubble));
+      check(__LINE__,!IsWindowVisible(state.bubble) && state.bubbleDismissals==1);
+      check(__LINE__,ShowAlert(L"自检自动消失") && IsWindowVisible(state.bubble));
       state.bubbleUntil=0; SendMessageW(state.owner,WM_TIMER,2,0);
-      check(!IsWindowVisible(state.bubble));
+      check(__LINE__,!IsWindowVisible(state.bubble));
+      state.live=true;
+      const auto shown=state.sessionAlertsShown;
+      ConfigureSessionAlert(L"自检回合已结束",1);
+      check(__LINE__,state.sessionAlertsShown==shown+1 && state.sessionBubble && state.sessionAlertKeptFocus);
+      check(__LINE__,(GetWindowLongPtrW(state.bubble,GWL_EXSTYLE)&WS_EX_NOACTIVATE)!=0);
+      check(__LINE__,SendMessageW(state.bubble,WM_MOUSEACTIVATE,0,0)==MA_NOACTIVATE);
+      ConfigureSessionAlert(L"重复事件",1); check(__LINE__,state.sessionAlertsShown==shown+1);
+      PublishMonitor(L"自检",-1,true,true,0,0,0,L"",L"",0,true,3);
+      check(__LINE__,IsWindowVisible(state.bubble)!=FALSE);
+      ConfigureSessionAlert(L"",1); check(__LINE__,!IsWindowVisible(state.bubble));
+      check(__LINE__,ShowAlert(L"优先级自检"));
+      ConfigureSessionAlert(L"本条不延迟弹出",2);
+      check(__LINE__,state.sessionAlertsShown==shown+1 && state.sessionAlertsSuppressed==1);
+      SendMessageW(state.bubble,WM_CLOSE,0,0);
+      state.live=false; state.reducedMotion=false; state.stale=false; state.paused=false;
+      check(__LINE__,GetForegroundWindow()==foreground);
       SetWindowPos(state.pet,nullptr,-90000,-90000,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
       Place(false);
       RECT r{}; GetWindowRect(state.pet,&r);
       MONITORINFO info{}; info.cbSize=sizeof(info);
       GetMonitorInfoW(MonitorFromRect(&r,MONITOR_DEFAULTTONEAREST),&info);
-      check(r.left>=info.rcWork.left && r.top>=info.rcWork.top && r.right<=info.rcWork.right && r.bottom<=info.rcWork.bottom);
+      check(__LINE__,r.left>=info.rcWork.left && r.top>=info.rcWork.top && r.right<=info.rcWork.right && r.bottom<=info.rcWork.bottom);
       SetWindowPos(state.pet,nullptr,info.rcWork.left+12,info.rcWork.top+12,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
       Place(true); GetWindowRect(state.pet,&r);
-      check(r.left==info.rcWork.left && r.top==info.rcWork.top);
+      check(__LINE__,r.left==info.rcWork.left && r.top==info.rcWork.top);
       if(!state.report.empty()) {
         state.settings=state.report.parent_path()/L"fixture-position.txt";
         SavePosition();
@@ -880,36 +933,36 @@ int Run(const std::vector<std::wstring>& args) {
         SetWindowPos(state.pet,nullptr,r.left+50,r.top+50,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
         ReadPosition();
         RECT restored{}; GetWindowRect(state.pet,&restored);
-        check(state.mode==2 && EqualRect(&r,&restored));
+        check(__LINE__,state.mode==2 && EqualRect(&r,&restored));
         { std::ofstream bad(state.settings); bad<<"1 999 9000000000 -9000000000"; }
-        ReadPosition(); check(state.mode==2);
+        ReadPosition(); check(__LINE__,state.mode==2);
         { std::ofstream bad(state.settings); bad<<"broken"; }
-        ReadPosition(); check(state.mode==2);
+        ReadPosition(); check(__LINE__,state.mode==2);
         SavePosition();
       }
       // Exercise the live renderer without a Flutter engine or account queries.
       state.live=true; state.mode=1; state.stale=false; state.paused=false;
       state.powerSuspended=false; state.animationState=0; Place(false); DrawPet(); ShowPet(); SyncAnimation();
-      check(state.animationTimer);
+      check(__LINE__,state.animationTimer);
       for(int visual : {0,1,2}) {
         state.animationState=visual;
         for(int frame=0;frame<8;++frame) {
           state.animationFrame=frame; RECT before{}; GetWindowRect(state.pet,&before);
           const bool drawn=DrawPet(); RECT after{}; GetWindowRect(state.pet,&after);
-          check(drawn && EqualRect(&before,&after) && GetForegroundWindow()==foreground &&
+          check(__LINE__,drawn && EqualRect(&before,&after) && GetForegroundWindow()==foreground &&
             WindowFromPoint(POINT{after.left+1,after.top+1})!=state.pet);
         }
       }
-      state.reducedMotion=true; SyncAnimation(); check(!state.animationTimer);
+      state.reducedMotion=true; SyncAnimation(); check(__LINE__,!state.animationTimer);
       const auto frozen=state.animationFrames;
-      SendMessageW(state.owner,WM_TIMER,3,0); check(state.animationFrames==frozen);
-      state.reducedMotion=false; ShowWindow(state.pet,SW_HIDE); SyncAnimation(); check(!state.animationTimer);
-      ShowPet(); check(state.animationTimer);
-      state.paused=true; SyncAnimation(); check(!state.animationTimer);
-      state.paused=false; SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0); check(!state.animationTimer);
-      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0); check(state.animationTimer);
-      state.stale=true; SyncAnimation(); check(!state.animationTimer);
-      state.stale=false; state.dragging=true; SyncAnimation(); check(!state.animationTimer);
+      SendMessageW(state.owner,WM_TIMER,3,0); check(__LINE__,state.animationFrames==frozen);
+      state.reducedMotion=false; ShowWindow(state.pet,SW_HIDE); SyncAnimation(); check(__LINE__,!state.animationTimer);
+      ShowPet(); check(__LINE__,state.animationTimer);
+      state.paused=true; SyncAnimation(); check(__LINE__,!state.animationTimer);
+      state.paused=false; SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMSUSPEND,0); check(__LINE__,!state.animationTimer);
+      SendMessageW(state.owner,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0); check(__LINE__,state.animationTimer);
+      state.stale=true; SyncAnimation(); check(__LINE__,!state.animationTimer);
+      state.stale=false; state.dragging=true; SyncAnimation(); check(__LINE__,!state.animationTimer);
       state.dragging=false;
       const DWORD gdiBefore=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
       DWORD handlesBefore=0; GetProcessHandleCount(GetCurrentProcess(),&handlesBefore);
@@ -918,25 +971,25 @@ int Run(const std::vector<std::wstring>& args) {
         Place(false); DrawPet();
       }
       DWORD handlesAfter=0; GetProcessHandleCount(GetCurrentProcess(),&handlesAfter);
-      check(GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdiBefore);
-      check(handlesAfter<=handlesBefore+1);
-      check(state.drawFailures==0);
-      check(GetForegroundWindow()==foreground);
+      check(__LINE__,GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS)==gdiBefore);
+      check(__LINE__,handlesAfter<=handlesBefore+1);
+      check(__LINE__,state.drawFailures==0);
+      check(__LINE__,GetForegroundWindow()==foreground);
       const HRESULT roleCom=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
       ConfigureRole((std::filesystem::current_path()/L"flutter_app"/L"assets"/L"app_icon.png").wstring(),L"Owned icon fixture");
-      check(!state.rolePixels.empty());
-      state.mode=1; check(BaseHeight()==320); check(!AnimationAllowed()); check(DrawPet());
-      state.mode=2; check(BaseHeight()==470);
-      state.mode=0; check(BaseHeight()==72);
-      ConfigureRole(L"missing-role-test.png",L"Missing"); check(state.rolePixels.empty());
-      state.mode=1; check(BaseHeight()==160);
+      check(__LINE__,!state.rolePixels.empty());
+      state.mode=1; check(__LINE__,BaseHeight()==320); check(__LINE__,!AnimationAllowed()); check(__LINE__,DrawPet());
+      state.mode=2; check(__LINE__,BaseHeight()==470);
+      state.mode=0; check(__LINE__,BaseHeight()==72);
+      ConfigureRole(L"missing-role-test.png",L"Missing"); check(__LINE__,state.rolePixels.empty());
+      state.mode=1; check(__LINE__,BaseHeight()==160);
       const int quotaAlerts=state.alertsShown;
       SendMessageW(state.owner,WM_COMMAND,kPetTouch,0);
-      check(state.companionBubble && IsWindowVisible(state.bubble));
-      check(state.alertsShown==quotaAlerts);
+      check(__LINE__,state.companionBubble && IsWindowVisible(state.bubble));
+      check(__LINE__,state.alertsShown==quotaAlerts);
       SendMessageW(state.bubble,WM_LBUTTONUP,0,0);
-      SetRoleEditorOpen(true); check(!IsWindowVisible(state.pet));
-      SetRoleEditorOpen(false); check(IsWindowVisible(state.pet));
+      SetRoleEditorOpen(true); check(__LINE__,!IsWindowVisible(state.pet));
+      SetRoleEditorOpen(false); check(__LINE__,IsWindowVisible(state.pet));
       if(SUCCEEDED(roleCom)) CoUninitialize();
       state.live=false; SyncAnimation();
       Report();

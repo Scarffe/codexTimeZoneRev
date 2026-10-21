@@ -12,9 +12,12 @@ class MonitorPreferences {
     this.enabled = true,
     this.localTime = true,
     this.reducedMotion = false,
+    this.sessionAlerts = false,
+    this.sessionMutedUntil,
   });
   final int seconds, threshold, mode;
-  final bool alerts, visible, enabled, localTime, reducedMotion;
+  final int? sessionMutedUntil;
+  final bool alerts, visible, enabled, localTime, reducedMotion, sessionAlerts;
   factory MonitorPreferences.fromJson(Map<String, dynamic> value) {
     int choice(String key, List<int> choices, int fallback) =>
         value[key] is int && choices.contains(value[key])
@@ -31,6 +34,13 @@ class MonitorPreferences {
       enabled: flag('enabled', true),
       localTime: flag('localTime', true),
       reducedMotion: flag('reducedMotion', false),
+      sessionAlerts: flag('sessionAlerts', false),
+      sessionMutedUntil:
+          value['sessionMutedUntil'] is int &&
+              (value['sessionMutedUntil'] as int) >= 0 &&
+              (value['sessionMutedUntil'] as int) <= 8640000000000000
+          ? value['sessionMutedUntil'] as int
+          : null,
     );
   }
   Map<String, Object> toJson() => {
@@ -42,6 +52,8 @@ class MonitorPreferences {
     'enabled': enabled,
     'localTime': localTime,
     'reducedMotion': reducedMotion,
+    'sessionAlerts': sessionAlerts,
+    'sessionMutedUntil': ?sessionMutedUntil,
   };
 }
 

@@ -67,13 +67,14 @@ bool FlutterWindow::OnCreate() {
         };
         auto sessionRate=value("sessionRate");
         const auto* rate=std::get_if<double>(&sessionRate);
-        desktop_prototype::ConfigureSessionSummary(wideField("sessionSummary"),rate ? *rate : -1.0);
+        desktop_prototype::ConfigureSessionSummary(wideField("sessionSummary"),rate ? *rate : -1.0, static_cast<int>(number("sessionStatus")));
         desktop_prototype::ConfigureRole(wideField("roleImage"),wideField("roleName"));
         auto visible=value("petVisible");
         if(auto flag=std::get_if<bool>(&visible)) desktop_prototype::ConfigureMonitor(
           static_cast<int>(number("petMode")),*flag,number("preferencesSerial"));
         desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"),
           value("reducedMotion")==flutter::EncodableValue(true),static_cast<int>(number("animationState")));
+        desktop_prototype::ConfigureSessionAlert(wideField("sessionAlert"),number("sessionAlertSerial"));
         result->Success(); return;
       }
       result->NotImplemented();

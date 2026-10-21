@@ -45,6 +45,8 @@ class AccountUsageController extends ChangeNotifier {
   bool preferencesReady = true;
   bool alertsEnabled = true, petVisible = true, savedMonitoring = true;
   bool reducedMotion = false;
+  bool sessionAlertsEnabled = false;
+  DateTime? sessionMutedUntil;
   bool mainWindowVisible = true;
   void setMainWindowVisible(bool value) {
     if (_disposed || mainWindowVisible == value) return;
@@ -69,6 +71,10 @@ class AccountUsageController extends ChangeNotifier {
       savedMonitoring = saved.enabled;
       useLocalTime = saved.localTime;
       reducedMotion = saved.reducedMotion;
+      sessionAlertsEnabled = saved.sessionAlerts;
+      sessionMutedUntil = saved.sessionMutedUntil == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(saved.sessionMutedUntil!);
       _petAlerts.restore(value['cycles'], _now());
     } catch (_) {
       preferencesError = '监控设置读取失败，已使用默认值；原文件未改动。';
@@ -91,6 +97,8 @@ class AccountUsageController extends ChangeNotifier {
         enabled: savedMonitoring,
         localTime: useLocalTime,
         reducedMotion: reducedMotion,
+        sessionAlerts: sessionAlertsEnabled,
+        sessionMutedUntil: sessionMutedUntil?.millisecondsSinceEpoch,
       ).toJson(),
       'cycles': _petAlerts.records(_now()),
     };
@@ -119,6 +127,21 @@ class AccountUsageController extends ChangeNotifier {
     _savePreferences();
     notifyListeners();
   }
+
+  void configureSessionAlerts({
+    bool? enabled,
+    bool mute = false,
+    bool unmute = false,
+  }) {
+    if (_disposed) return;
+    if (enabled != null) sessionAlertsEnabled = enabled;
+    if (mute) sessionMutedUntil = _now().add(const Duration(minutes: 15));
+    if (unmute) sessionMutedUntil = null;
+    _savePreferences();
+    notifyListeners();
+  }
+
+  bool get sessionMuted => sessionMutedUntil?.isAfter(_now()) == true;
 
   void configureAlerts({bool? enabled, int? threshold}) {
     if (enabled != null) alertsEnabled = enabled;

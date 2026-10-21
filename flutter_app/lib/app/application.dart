@@ -80,6 +80,17 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   }
 
   final _navigator = GlobalKey<NavigatorState>();
+  final _sessionPanel = GlobalKey();
+  void _showSessionDetails() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _sessionPanel.currentContext;
+      if (mounted && context != null) {
+        Scrollable.ensureVisible(context, alignment: .1);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
   bool _rolesOpen = false;
   Future<void> _openRoles() async {
     final context = _navigator.currentState?.overlay?.context;
@@ -115,6 +126,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           () => launcher.effectivePath,
           interval: widget.monitorInterval,
           onRoles: _openRoles,
+          onSessionDetails: _showSessionDetails,
           metrics: metrics,
         )..start();
       }
@@ -196,6 +208,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               network: network,
               usage: usage,
               metrics: widget.preview ? null : metrics,
+              sessionPanelKey: _sessionPanel,
               appearance: appearance.value,
               onAppearance: _setAppearance,
             ),
