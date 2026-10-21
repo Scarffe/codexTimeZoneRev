@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../state/session_metrics_controller.dart';
+import 'session_timing_panel.dart';
 
 class SessionMetricsPanel extends StatelessWidget {
   const SessionMetricsPanel({super.key, required this.controller});
@@ -64,6 +65,10 @@ class SessionMetricsPanel extends StatelessWidget {
                 const Text(
                   '首模型 token 可能属于推理；推理 token 单列，不与输出重复相加。统计为日志尽力提供的观测值。',
                 ),
+                if (controller.data?['catchingUp'] != true)
+                  SessionTimingPanel(
+                    analysis: last?['analysis'] as Map<String, dynamic>?,
+                  ),
                 FButton(
                   variant: FButtonVariant.outline,
                   onPress: () => controller.select(null),

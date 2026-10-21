@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 class Backend implements LauncherBackend {
   final calls = <Map<String, dynamic>>[];
   String listedPath = 'a';
+  Map<String, dynamic>? analysis;
   Completer<Map<String, dynamic>>? pending;
   @override
   Future<Map<String, dynamic>> call(
@@ -39,7 +40,11 @@ class Backend implements LauncherBackend {
     if (pending != null) return pending!.future;
     return {
       'active': true,
-      'last': {'tokensPerSecond': 10.0, 'outputTokens': 20},
+      'last': {
+        'tokensPerSecond': 10.0,
+        'outputTokens': 20,
+        'analysis': analysis,
+      },
     };
   }
 }
@@ -72,6 +77,60 @@ Widget panelApp(SessionMetricsController c) => WidgetsApp(
 );
 
 void main() {
+  testWidgets(
+    'timing analysis labels observed intervals and expands numeric usage',
+    (tester) async {
+      final b = Backend()
+        ..analysis = {
+          'responseCount': 2,
+          'responseOutputTokens': 20,
+          'usageMatchesTurn': true,
+          'messageMs': 1000,
+          'reasoningMs': 2000,
+          'toolMs': 5000,
+          'otherMs': null,
+          'observedMs': 7000,
+          'overlapMs': 1000,
+          'unclassifiedMs': 3000,
+          'partial': false,
+          'recentResponses': [
+            {
+              'responseId': 'response-fixture',
+              'outputTokens': 20,
+              'reasoningTokens': 5,
+            },
+          ],
+        };
+      final c = SessionMetricsController(b)..select('a');
+      await tester.pumpWidget(panelApp(c));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('与回合总数：一致'), findsOneWidget);
+      expect(find.text('未归类时间：3.000 s'), findsOneWidget);
+      expect(find.textContaining('模型生成速度不可用'), findsOneWidget);
+      expect(find.textContaining('response-fixture'), findsNothing);
+      await tester.ensureVisible(find.text('查看最近响应用量（最多 12 条）'));
+      await tester.tap(find.text('查看最近响应用量（最多 12 条）'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('response-fixture'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      c.dispose();
+    },
+  );
+  testWidgets('old logs show unavailable timing rather than invented zero', (
+    tester,
+  ) async {
+    final c = SessionMetricsController(Backend())..select('a');
+    await tester.pumpWidget(panelApp(c));
+    await tester.pumpAndSettle();
+    expect(find.text('未归类时间：不可用'), findsOneWidget);
+    expect(find.textContaining('计时数据不完整'), findsOneWidget);
+    expect(find.textContaining('未归类时间：0.000'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    c.dispose();
+  });
+
   for (final outsideList in [false, true]) {
     testWidgets('refresh after startup selection, outside list=$outsideList', (
       tester,

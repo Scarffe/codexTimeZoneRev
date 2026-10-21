@@ -1,3 +1,5 @@
+#[path = "session_timing.rs"]
+mod session_timing;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -11,6 +13,7 @@ use std::{
 const MAX_LINE: u64 = 8 * 1024 * 1024;
 #[derive(Default)]
 struct Turn {
+    timing: session_timing::Timing,
     output: Option<u64>,
     reasoning: Option<u64>,
     duration: Option<u64>,
@@ -134,6 +137,7 @@ impl Reader {
                 "task_complete",
                 "turn_aborted",
                 "token_usage_record",
+                "item_completed",
             ]
             .contains(&kind)
             {
@@ -141,6 +145,7 @@ impl Reader {
             }
             self.serial += 1;
             let t = self.turns.entry(id.to_owned()).or_default();
+            t.timing.accept(kind, p, self.serial);
             if kind == "task_started" {
                 t.order = self.serial;
             }
@@ -174,7 +179,7 @@ impl Reader {
             .values()
             .max_by_key(|t| t.order)
             .is_some_and(|t| !t.ended);
-        let last = latest.map(|(id,t)| json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"tokensPerSecond": t.output.zip(t.duration).filter(|(_,d)| *d>0).map(|(n,d)| n as f64*1000.0/d as f64)}));
+        let last = latest.map(|(id,t)| json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond": t.output.zip(t.duration).filter(|(_,d)| *d>0).map(|(n,d)| n as f64*1000.0/d as f64)}));
         Ok(
             json!({"active":active,"catchingUp":self.offset<meta.len(),"last":last,"completedTurns":self.turns.values().filter(|t|t.complete).count()}),
         )
@@ -212,6 +217,25 @@ pub fn execute(payload: Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn item_events_are_scoped_to_completed_turn_and_exclude_content() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        let records = [
+            json!({"type":"token_usage_record","payload":{"turn_id":"a","response_id":"r","usage":{"output_tokens":20},"turn_token_usage":{"output_tokens":20}}}),
+            json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"a","started_at_ms":1000,"completed_at_ms":2000,"item":{"id":"i","type":"CommandExecution","command":"PRIVATE"}}}),
+            json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"a","started_at":1,"completed_at":3,"duration_ms":2000}}),
+            json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"b","started_at_ms":1000,"completed_at_ms":3000,"item":{"id":"other","type":"AgentMessage"}}}),
+        ];
+        for value in records {
+            writeln!(f, "{}", value).unwrap();
+        }
+        let result = Reader::default().poll(f.path().to_path_buf()).unwrap();
+        assert_eq!(result["last"]["turnId"], "a");
+        assert_eq!(result["last"]["analysis"]["toolMs"], 1000);
+        assert_eq!(result["last"]["analysis"]["unclassifiedMs"], 1000);
+        assert_eq!(result["last"]["analysis"]["usageMatchesTurn"], true);
+        assert!(!result.to_string().contains("PRIVATE"));
+    }
     #[test]
     fn snapshots_partial_append_and_truncation() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
