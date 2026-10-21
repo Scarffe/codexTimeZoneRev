@@ -4,13 +4,25 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../services/account_usage.dart';
+import '../services/pet_roles.dart';
 import '../services/pet_alerts.dart';
 import '../services/monitor_preferences.dart';
 
 /// One query owner for main window, tray and pet. Cache is session-only.
 class AccountUsageController extends ChangeNotifier {
-  AccountUsageController(this.service, {DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+  AccountUsageController(
+    this.service, {
+    DateTime Function()? now,
+    PetRoleLibrary? roleLibrary,
+  }) : _now = now ?? DateTime.now,
+       roles = roleLibrary ?? PetRoleLibrary() {
+    roles.addListener(_roleChanged);
+  }
+  final PetRoleLibrary roles;
+  void _roleChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
   final AccountUsageService service;
   final DateTime Function() _now;
   AccountUsage? data;
@@ -346,6 +358,8 @@ class AccountUsageController extends ChangeNotifier {
         : '$label · 剩余 ${remaining.toStringAsFixed(0)}% · $status';
     return {
       'text': text,
+      'roleImage': roles.imagePath,
+      'roleName': roles.current?.name ?? '默认鲸鱼',
       'reducedMotion': reducedMotion,
       'animationState': busy
           ? 1
@@ -389,6 +403,8 @@ class AccountUsageController extends ChangeNotifier {
     _disposed = true;
     _generation++;
     _timer?.cancel();
+    roles.removeListener(_roleChanged);
+    roles.dispose();
     super.dispose();
   }
 }

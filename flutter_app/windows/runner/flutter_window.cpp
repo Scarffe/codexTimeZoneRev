@@ -38,6 +38,7 @@ bool FlutterWindow::OnCreate() {
       monitor_channel_->InvokeMethod(action,nullptr);
     })) return false;
     monitor_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+      if(call.method_name()=="roleEditor") { const auto* flag=std::get_if<bool>(call.arguments()); if(flag) desktop_prototype::SetRoleEditorOpen(*flag); result->Success(); return; }
       if(call.method_name()=="mainVisible") { result->Success(flutter::EncodableValue(IsWindowVisible(GetHandle()) && !IsIconic(GetHandle()))); return; }
       if(call.method_name()=="exit") {
         exiting_=true; result->Success(); PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
@@ -64,6 +65,7 @@ bool FlutterWindow::OnCreate() {
           int length=MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),nullptr,0);
           std::wstring w(length,L'\0'); MultiByteToWideChar(CP_UTF8,0,p->data(),static_cast<int>(p->size()),w.data(),length); return w;
         };
+        desktop_prototype::ConfigureRole(wideField("roleImage"),wideField("roleName"));
         auto visible=value("petVisible");
         if(auto flag=std::get_if<bool>(&visible)) desktop_prototype::ConfigureMonitor(
           static_cast<int>(number("petMode")),*flag,number("preferencesSerial"));

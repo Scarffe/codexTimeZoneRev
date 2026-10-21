@@ -17,6 +17,8 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
                     const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,
                     bool reduced_motion=false, int animation_state=3);
+void SetRoleEditorOpen(bool open);
+void ConfigureRole(const std::wstring& path, const std::wstring& name);
 void ConfigureMonitor(int mode, bool visible, int64_t serial);
 void DetachMonitor();
 // Available only with the explicit --monitor-test-controls launch flag.

@@ -12,6 +12,7 @@ import '../services/window_material.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
+import 'pet_role_dialog.dart';
 import 'theme.dart';
 
 class LauncherApplication extends StatefulWidget {
@@ -74,6 +75,24 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     });
   }
 
+  final _navigator = GlobalKey<NavigatorState>();
+  bool _rolesOpen = false;
+  Future<void> _openRoles() async {
+    final context = _navigator.currentState?.overlay?.context;
+    if (context == null || _rolesOpen) return;
+    _rolesOpen = true;
+    try {
+      await showGeneralDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: '关闭角色面板',
+        pageBuilder: (_, _, _) => PetRoleDialog(controller: usage),
+      );
+    } finally {
+      _rolesOpen = false;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -81,12 +100,14 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     launcher.initialize().then((_) async {
       if (!widget.preview && widget.backend == null) {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
+        await usage.roles.load();
       }
       if (mounted && widget.monitorEnabled && !widget.preview) {
         monitor = DesktopMonitor(
           usage,
           () => launcher.effectivePath,
           interval: widget.monitorInterval,
+          onRoles: _openRoles,
         )..start();
       }
     });
@@ -123,6 +144,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   @override
   Widget build(BuildContext context) => WidgetsApp(
+    navigatorKey: _navigator,
     title: 'Codex 时区启动器',
     color: const Color(0xff18181b),
     debugShowCheckedModeBanner: false,

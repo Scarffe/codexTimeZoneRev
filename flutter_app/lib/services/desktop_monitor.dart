@@ -10,11 +10,13 @@ class DesktopMonitor {
   DesktopMonitor(
     this.usage,
     this.path, {
+    this.onRoles,
     this.interval = const Duration(minutes: 2),
   });
   final AccountUsageController usage;
   final String Function() path;
   final Duration interval;
+  final VoidCallback? onRoles;
   static const channel = MethodChannel('codex_timezone/monitor');
   bool _closed = false;
   Timer? _clock;
@@ -25,6 +27,10 @@ class DesktopMonitor {
     usage.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'roles':
+          onRoles?.call();
+        case 'reduceMotion':
+          usage.setReducedMotion(!usage.reducedMotion);
         case 'mainShown':
           await _syncMainVisibility();
         case 'mainHidden':
@@ -53,6 +59,7 @@ class DesktopMonitor {
           usage.startMonitoring(path);
         case 'exit':
           usage.pause(persist: false);
+          await usage.roles.saved;
           await usage.settingsSaved;
           // Query owns its short-lived app-server. Let Rust Drop clean it first.
           while (usage.busy && !_closed) {

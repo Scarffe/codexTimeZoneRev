@@ -3,6 +3,10 @@
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "ole32.lib")
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
@@ -23,7 +27,7 @@ constexpr int kWidth = 240, kHeight = 160;
 constexpr UINT kEdge=110, kCompact=111, kExpanded=112;
 constexpr UINT kShow = 100, kHide = 101, kReset = 102, kExit = 103;
 constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
-constexpr UINT kMuteCycle=119;
+constexpr UINT kMuteCycle=119, kRoles=125, kReduceMotion=126, kPetTouch=127;
 constexpr UINT kPreviewIdle=120,kPreviewRefresh=121,kPreviewLow=122,kPreviewReal=123,kPreviewReduced=124;
 constexpr UINT kAlertTest=113;
 constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
@@ -39,19 +43,23 @@ struct State {
   HPOWERNOTIFY powerRegistration=nullptr;
   std::filesystem::path settings;
   std::wstring detail;
+  std::wstring rolePath,roleName;
+  UINT roleWidth=0,roleHeight=0;
+  std::vector<std::uint32_t> rolePixels;
   bool reducedMotion=false,powerSuspended=false,animationTimer=false;
   UINT animationInterval=0;
   int animationState=3,animationFrame=0,visualTest=-1,soakStep=-1;
   bool animationSoak=false,testReduced=false,testHidden=false,testSuspended=false;
   uint64_t animationFrames=0,renderCount=0,drawFailures=0;
   ULONGLONG lastAnimationReport=0;
-  bool preferredVisible=true;
+  bool preferredVisible=true,roleEditorOpen=false;
   int64_t preferencesSerial=0;
   int64_t alertSerial=0;
   bool testControls=false;
   HWND bubble=nullptr;
   ULONGLONG bubbleUntil=0;
   std::wstring bubbleText;
+  bool companionBubble=false;
   int alertsShown=0, alertTests=0, bubbleDismissals=0;
   int petClicks = 0, hostClicks = 0, restores = 0, selfChecks = 0;
   std::filesystem::path report;
@@ -113,6 +121,8 @@ void Report() {
     std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
     out << "{\"pid\":" << GetCurrentProcessId()
         << ",\"selfChecks\":" << s.selfChecks
+        << ",\"roleLoaded\":" << (!s.rolePixels.empty()?"true":"false")
+        << ",\"roleWidth\":" << s.roleWidth << ",\"roleHeight\":" << s.roleHeight
         << ",\"petClicks\":" << s.petClicks << ",\"hostClicks\":" << s.hostClicks
         << ",\"restores\":" << s.restores << ",\"tray\":" << (s.tray ? "true" : "false")
         << ",\"visible\":" << (IsWindowVisible(s.pet) ? "true" : "false")
@@ -161,7 +171,7 @@ bool InstallTray() {
 }
 
 int BaseWidth() { return current->mode==0 ? 88 : (current->mode==2 ? 320 : 240); }
-int BaseHeight() { return current->mode==0 ? 72 : (current->mode==2 ? 310 : 160); }
+int BaseHeight() { return current->mode==0 ? 72 : (!current->rolePixels.empty() ? (current->mode==2 ? 470 : 320) : (current->mode==2 ? 310 : 160)); }
 int Px(int value) { return pet_geometry::Scale(value,current->dpi); }
 int Width() { return Px(BaseWidth()); }
 int Height() { return Px(BaseHeight()); }
@@ -212,7 +222,7 @@ void ResetPosition() {
 int VisualState() { return current->visualTest>=0 ? current->visualTest : current->animationState; }
 bool AnimationAllowed() {
   const auto& s=*current;
-  return s.live && !s.reducedMotion && !s.testReduced && !s.powerSuspended &&
+  return s.rolePixels.empty() && s.live && !s.reducedMotion && !s.testReduced && !s.powerSuspended &&
     !s.testSuspended && !s.paused && !s.stale && !s.dragging &&
     IsWindowVisible(s.pet) && VisualState()<3;
 }
@@ -266,6 +276,7 @@ bool DrawPet() {
     const std::uint32_t lowColors[]={0xffe4b778,0xffe6bb7e,0xffe8bf84,0xffe6bb7e};
     const auto body=current->live && (current->stale || visual==3) ? 0xff89919au :
       (visual==2 ? lowColors[motion ? (frame/2)%4 : 0] : 0xff66bfe8u);
+    if (current->rolePixels.empty()) {
     if (ellipse(x,whaleY,118,94,66,43) || ellipse(x,whaleY,54,74,24,14) || ellipse(x,whaleY,53,103,21,13)) color=body;
     if (ellipse(x,whaleY,131,112,41,17)) color=0xffcbeaf4;
     if (ellipse(x,whaleY,150,85,5,7)) color=0xff182d49;
@@ -274,8 +285,22 @@ bool DrawPet() {
       if(ellipse(x,y,183+step*3,66-step*3,3,3)) color=0xffcbeaf4;
       if(ellipse(x,y,198-step*2,60-step*2,2,2)) color=0xff66bfe8;
     }
+    }
+    if(!current->rolePixels.empty() && current->mode!=0) {
+      const double scale=std::min(208.0/current->roleWidth,240.0/current->roleHeight);
+      const int rw=static_cast<int>(current->roleWidth*scale),rh=static_cast<int>(current->roleHeight*scale);
+      const int left=(BaseWidth()-rw)/2,top=52+(240-rh)/2;
+      if(x>=left && x<left+rw && y>=top && y<top+rh) {
+        const int sx=std::min(static_cast<int>((x-left)/scale),static_cast<int>(current->roleWidth)-1);
+        const int sy=std::min(static_cast<int>((y-top)/scale),static_cast<int>(current->roleHeight)-1);
+        const auto src=current->rolePixels[sy*current->roleWidth+sx];
+        const auto inv=255-(src>>24);
+        const auto channel=[&](int shift) { return std::min(255u,((src>>shift)&255)+(((color>>shift)&255)*inv+127)/255); };
+        color=(channel(24)<<24)|(channel(16)<<16)|(channel(8)<<8)|channel(0);
+      }
+    }
     const double remaining = current->live ? current->remaining : 72;
-    if (x >= 77 && x <= 174 && y >= 141 && y <= 147) color = remaining >= 0 && x < 77 + remaining * .98 ? (current->stale ? 0xff89919a : 0xff6bd4ad) : 0xff43526b;
+    if (x >= 77 && x <= 174 && y >= (current->rolePixels.empty()?141:301) && y <= (current->rolePixels.empty()?147:307)) color = remaining >= 0 && x < 77 + remaining * .98 ? (current->stale ? 0xff89919a : 0xff6bd4ad) : 0xff43526b;
     if(current->mode==0) {
       color=ellipse(x,y,44,36,40,30) ? (current->stale ? 0xff89919a : 0xff202b40) : 0;
       if(ellipse(x,y,68,18+(motion ? bobbing[frame%8] : 0),3,3))
@@ -298,13 +323,13 @@ bool DrawPet() {
     }
     DrawTextW(dc,caption.c_str(),-1,&label,current->mode==0 ? DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX : DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
     if(current->mode==2) {
-      RECT detail{Px(16),Px(160),width-Px(16),height-Px(12)};
+      RECT detail{Px(16),Px(current->rolePixels.empty()?160:320),width-Px(16),height-Px(12)};
       DrawTextW(dc,current->detail.c_str(),-1,&detail,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
     }
     // GDI batches text writes. Flush before restoring alpha in the DIB.
     GdiFlush();
     for(int y=0;y<height;++y) for(int x=0;x<width;++x) {
-      auto& pixel=data[y*width+x]; if(pixel & 0x00ffffff) pixel |= 0xff000000;
+      auto& pixel=data[y*width+x]; if((pixel & 0x00ffffff) && (current->rolePixels.empty() || y<Px(49) || (current->mode==2 && y>=Px(320)))) pixel |= 0xff000000;
     }
     SelectObject(dc,previousFont); DeleteObject(font);
   }
@@ -318,6 +343,7 @@ bool DrawPet() {
 }
 
 void ShowPet() {
+  if(current->roleEditorOpen) return;
   ShowWindow(current->pet, SW_SHOWNOACTIVATE);
   SetWindowPos(current->pet, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
   SyncAnimation(); Report();
@@ -335,7 +361,7 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
   return DefWindowProcW(hwnd,msg,wp,lp);
 }
 
-bool ShowAlert(const std::wstring& text,bool renew=true) {
+bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false) {
   auto& s=*current;
   if(!s.bubble) {
     if(!Register(kBubbleClass,BubbleProc)) return false;
@@ -362,7 +388,7 @@ bool ShowAlert(const std::wstring& text,bool renew=true) {
       OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,DEFAULT_QUALITY,DEFAULT_PITCH,L"Segoe UI");
   auto previousFont=SelectObject(dc,font); SetBkMode(dc,TRANSPARENT); SetTextColor(dc,RGB(255,255,255));
   RECT label{Px(14),Px(10),width-Px(14),height-Px(8)};
-  const auto message=L"低额度提醒 · 点击关闭\n"+text;
+  const auto message=std::wstring(companion ? L"桌宠回应 · 点击关闭\n" : L"低额度提醒 · 点击关闭\n")+text;
   DrawTextW(dc,message.c_str(),-1,&label,DT_LEFT|DT_WORDBREAK|DT_NOPREFIX);
   GdiFlush();
   for(int i=0;i<width*height;++i) if(data[i]&0x00ffffff) data[i]|=0xff000000;
@@ -377,9 +403,10 @@ bool ShowAlert(const std::wstring& text,bool renew=true) {
   if(ok) {
     // Extra inspection time only in explicitly opted-in UI test mode.
     if(renew) {
+      s.companionBubble=companion;
       s.bubbleText=text;
       s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
-      ++s.alertsShown;
+      if(!companion) ++s.alertsShown;
     }
     ShowWindow(s.bubble,SW_SHOWNOACTIVATE);
     SetWindowPos(s.bubble,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
@@ -401,7 +428,7 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         SetWindowPos(hwnd,HWND_TOPMOST,suggested.left,suggested.top,Width(),Height(),SWP_NOACTIVATE);
       }
       Place(false); DrawPet();
-      if(IsWindowVisible(s.bubble)) ShowAlert(s.bubbleText,false);
+      if(IsWindowVisible(s.bubble)) ShowAlert(s.bubbleText,false,s.companionBubble);
       SavePosition(); Report(); return 0;
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
@@ -429,7 +456,8 @@ LRESULT CALLBACK PetProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       }
       const bool clicked=s.dragging && !s.moved;
       s.dragging=false; ReleaseCapture(); SyncAnimation();
-      if(clicked) { s.mode=(s.mode+1)%3; if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); }
+      if(clicked && s.live) { PostMessageW(s.owner,kTray,0,WM_RBUTTONUP); }
+      if(clicked && !s.live) { s.mode=(s.mode+1)%3; if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); }
       Place(true); DrawPet(); SavePosition(); Report(); return 0;
     }
     case WM_DISPLAYCHANGE: case WM_SETTINGCHANGE:
@@ -508,7 +536,12 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
         HMENU menu=CreatePopupMenu();
         if (s.live) {
+          AppendMenuW(menu,MF_STRING|MF_GRAYED,0,s.caption.c_str());
+          AppendMenuW(menu,MF_STRING|MF_GRAYED,0,(L"外观："+(s.roleName.empty()?std::wstring(L"默认鲸鱼"):s.roleName)).c_str());
+          AppendMenuW(menu,MF_STRING,kRoles,L"角色与本地立绘…");
           AppendMenuW(menu,MF_STRING,kMain,L"打开主窗口");
+          AppendMenuW(menu,MF_STRING,kReduceMotion,s.reducedMotion?L"减少动画：开启":L"减少动画：关闭");
+          AppendMenuW(menu,MF_STRING,kPetTouch,L"摸摸桌宠");
           AppendMenuW(menu,MF_STRING,kRefresh,L"立即刷新额度");
           AppendMenuW(menu,MF_STRING,kPause,s.paused ? L"恢复自动刷新" : L"暂停自动刷新");
           AppendMenuW(menu,MF_STRING,kMuteCycle,L"本轮额度周期不再提醒");
@@ -550,6 +583,10 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kReset: ResetPosition(); Place(false); DrawPet(); SavePosition(); ShowPet(); if(s.live && s.action) s.action("showPet"); break;
         case kEdge: case kCompact: case kExpanded:
           s.mode=static_cast<int>(LOWORD(wp)-kEdge); Place(true); DrawPet(); SavePosition(); ShowPet(); if(s.live && s.action) s.action("mode"+std::to_string(s.mode)); break;
+        case kRoles:
+          ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); if(s.action) s.action("roles"); break;
+        case kReduceMotion: if(s.action) s.action("reduceMotion"); break;
+        case kPetTouch: ShowAlert(L"谢谢陪伴。额度仍由真实查询更新。",true,true); break;
         case kMain:
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
         case kMuteCycle: if(s.live && s.action) s.action("muteCycle"); break;
@@ -650,6 +687,37 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
   Report(); return true;
 }
 
+void SetRoleEditorOpen(bool open) {
+  if(!current) return;
+  current->roleEditorOpen=open;
+  if(open) { ShowWindow(current->pet,SW_HIDE); if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
+  else if(current->preferredVisible) ShowPet();
+  SyncAnimation(); Report();
+}
+
+void ConfigureRole(const std::wstring& path,const std::wstring& name) {
+  if(!current || (current->rolePath==path && current->roleName==name)) return;
+  auto& s=*current; s.rolePath=path; s.roleName=name; s.rolePixels.clear(); s.roleWidth=0;s.roleHeight=0;
+  if(!path.empty()) {
+    using Microsoft::WRL::ComPtr;
+    ComPtr<IWICImagingFactory> factory; ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame; ComPtr<IWICFormatConverter> converter;
+    std::error_code ec;
+    const auto bytes=std::filesystem::file_size(path,ec);
+    if(!ec && bytes<=8*1024*1024 &&
+       SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory))) &&
+       SUCCEEDED(factory->CreateDecoderFromFilename(path.c_str(),nullptr,GENERIC_READ,WICDecodeMetadataCacheOnLoad,&decoder)) &&
+       SUCCEEDED(decoder->GetFrame(0,&frame)) && SUCCEEDED(frame->GetSize(&s.roleWidth,&s.roleHeight)) &&
+       s.roleWidth>0 && s.roleHeight>0 && s.roleWidth<=2048 && s.roleHeight<=2048 &&
+       SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
+       SUCCEEDED(converter->Initialize(frame.Get(),GUID_WICPixelFormat32bppPBGRA,WICBitmapDitherTypeNone,nullptr,0,WICBitmapPaletteTypeCustom))) {
+      s.rolePixels.resize(s.roleWidth*s.roleHeight);
+      if(FAILED(converter->CopyPixels(nullptr,s.roleWidth*4,static_cast<UINT>(s.rolePixels.size()*4),reinterpret_cast<BYTE*>(s.rolePixels.data())))) s.rolePixels.clear();
+    }
+  }
+  Place(true); DrawPet(); SyncAnimation(); Report();
+}
+
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
                     const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,
@@ -660,7 +728,7 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   current->attempts=attempts; current->failures=failures;
   current->detail=detail;
   current->reducedMotion=reduced_motion; current->animationState=std::clamp(animation_state,0,3);
-  if(alert.empty() || stale) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
+  if((alert.empty() || stale) && !current->companionBubble) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
     if(ShowAlert(alert)) current->alertSerial=alert_serial;
   }
@@ -845,6 +913,22 @@ int Run(const std::vector<std::wstring>& args) {
       check(handlesAfter<=handlesBefore+1);
       check(state.drawFailures==0);
       check(GetForegroundWindow()==foreground);
+      const HRESULT roleCom=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+      ConfigureRole((std::filesystem::current_path()/L"flutter_app"/L"assets"/L"app_icon.png").wstring(),L"Owned icon fixture");
+      check(!state.rolePixels.empty());
+      state.mode=1; check(BaseHeight()==320); check(!AnimationAllowed()); check(DrawPet());
+      state.mode=2; check(BaseHeight()==470);
+      state.mode=0; check(BaseHeight()==72);
+      ConfigureRole(L"missing-role-test.png",L"Missing"); check(state.rolePixels.empty());
+      state.mode=1; check(BaseHeight()==160);
+      const int quotaAlerts=state.alertsShown;
+      SendMessageW(state.owner,WM_COMMAND,kPetTouch,0);
+      check(state.companionBubble && IsWindowVisible(state.bubble));
+      check(state.alertsShown==quotaAlerts);
+      SendMessageW(state.bubble,WM_LBUTTONUP,0,0);
+      SetRoleEditorOpen(true); check(!IsWindowVisible(state.pet));
+      SetRoleEditorOpen(false); check(IsWindowVisible(state.pet));
+      if(SUCCEEDED(roleCom)) CoUninitialize();
       state.live=false; SyncAnimation();
       Report();
       DestroyWindow(state.owner);

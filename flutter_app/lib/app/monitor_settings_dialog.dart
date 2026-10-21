@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../state/account_usage_controller.dart';
+import 'pet_role_dialog.dart';
 
 class MonitorSettingsDialog extends StatelessWidget {
   const MonitorSettingsDialog({super.key, required this.controller});
@@ -80,6 +81,19 @@ class MonitorSettingsDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     const Text('开启后保留静态状态与额度，不播放浮动或气泡动画。'),
+                    const SizedBox(height: 12),
+                    FButton(
+                      key: const ValueKey('pet-roles'),
+                      variant: FButtonVariant.outline,
+                      onPress: () => showGeneralDialog<void>(
+                        context: context,
+                        barrierDismissible: true,
+                        barrierLabel: '关闭角色面板',
+                        pageBuilder: (_, _, _) =>
+                            PetRoleDialog(controller: controller),
+                      ),
+                      child: const Text('角色与本地立绘'),
+                    ),
                     const SizedBox(height: 12),
                     const Text('桌宠形态（记住最后一次选择）'),
                     FSelect<int>(
