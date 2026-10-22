@@ -43,6 +43,8 @@ struct Reader {
     identity: Option<session_identity::Identity>,
     source_info: Option<Value>,
     incomplete: bool,
+    missing_identity: bool,
+    unsupported: bool,
     response_owners: BTreeMap<String, String>,
 }
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
@@ -175,14 +177,6 @@ impl Reader {
                 continue;
             }
             let p = &v["payload"];
-            let Some(id) = p["turn_id"].as_str().filter(|s| !s.trim().is_empty()) else {
-                if v["type"] == "compacted" || p["type"] == "token_count" {
-                    for t in self.turns.values_mut() {
-                        t.evidence.accept("compacted", p, &v, session.as_deref());
-                    }
-                }
-                continue;
-            };
             let kind = if v["type"] != "event_msg" {
                 v["type"].as_str().unwrap_or("")
             } else {
@@ -202,6 +196,34 @@ impl Reader {
             {
                 continue;
             }
+            let legacy = matches!(kind, "token_count" | "compacted");
+            self.unsupported |= legacy;
+            let Some(id) = p["turn_id"].as_str().filter(|s| !s.trim().is_empty()) else {
+                // Identity evidence cannot disappear before ownership checking.
+                // A known response still identifies its contradicted owner;
+                // unresolved relevant rows conservatively taint this epoch.
+                let owner = if kind == "token_usage_record" {
+                    session_quality::text(&p["response_id"])
+                        .and_then(|r| self.response_owners.get(&r))
+                        .cloned()
+                } else {
+                    None
+                };
+                if let Some(owner) = owner {
+                    if let Some(t) = self.turns.get_mut(&owner) {
+                        t.evidence.conflict("conflicting_identity");
+                        t.evidence.accept(kind, p, &v, session.as_deref());
+                    }
+                } else if legacy {
+                    for t in self.turns.values_mut() {
+                        t.evidence.accept(kind, p, &v, session.as_deref());
+                    }
+                } else {
+                    self.incomplete = true;
+                    self.missing_identity = true;
+                }
+                continue;
+            };
             self.serial += 1;
             let response_owner = if kind == "token_usage_record" {
                 session_quality::text(&p["response_id"])
@@ -284,17 +306,30 @@ impl Reader {
         let catching_up = self.offset < meta.len();
         let quality_of = |t: &Turn| {
             let a = t.timing.report(t.duration, t.output);
-            t.evidence.quality(
+            let mut quality = t.evidence.quality(
                 t.duration,
                 a["boundsValid"] == true,
                 session.as_deref(),
                 self.incomplete || catching_up,
-            )
+            );
+            if self.missing_identity {
+                quality["reasons"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("missing_identity"));
+            }
+            quality
         };
         let last = latest.map(|(id,t)| { let quality=quality_of(t); json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond":session_quality::rate(t.output,t.duration),"verifiedTokensPerSecond":if quality["status"]=="verified" {session_quality::rate(t.output,t.duration)} else {None},"quality":quality}) });
         let quality = latest
             .map(|(_, t)| quality_of(t))
-            .unwrap_or_else(|| json!({"status":"incomplete","reasons":["no_completed_turn"]}));
+            .unwrap_or_else(|| {
+                let mut reasons=vec!["no_completed_turn"];
+                if self.unsupported {reasons.push("unsupported_token_schema");}
+                if self.incomplete || catching_up {reasons.push("incomplete_history");}
+                if self.missing_identity {reasons.push("missing_identity");}
+                json!({"status":if self.unsupported {"unsupported"}else{"incomplete"},"reasons":reasons})
+            });
         let mut grouped: BTreeMap<
             (
                 Option<String>,
@@ -473,6 +508,9 @@ mod tests {
         for key in ["model", "effort", "service_tier"] {
             let mut r = records.clone();
             r[4]["payload"][key] = json!("different");
+            if key == "model" {
+                r[5]["payload"]["model"] = json!("different");
+            }
             assert_eq!(
                 m1_poll(&r)["verifiedGroups"].as_array().unwrap().len(),
                 2,
@@ -580,6 +618,76 @@ mod tests {
         // The complete output ledger is20, but reasoning5+5 cannot reconcile
         // with a final snapshot claiming only5 reasoning tokens.
         assert_eq!(m1_poll(&r)["quality"]["status"], "incomplete");
+    }
+    #[test]
+    fn session_m1_missing_turn_identity_cannot_hide_known_response_conflicts() {
+        for identity in [json!(null), json!(""), json!(123), json!("   ")] {
+            let mut r = m1_records("a", 20, 2000);
+            let mut malformed = r[2].clone();
+            malformed["payload"]["turn_id"] = identity;
+            malformed["payload"]["usage"]["output_tokens"] = json!(21);
+            r.push(malformed);
+            let v = m1_poll(&r);
+            assert_eq!(v["quality"]["status"], "conflict");
+            assert!(v["last"]["verifiedTokensPerSecond"].is_null());
+            assert_eq!(v["verifiedGroups"], json!([]));
+        }
+    }
+    #[test]
+    fn session_m1_unresolved_relevant_identity_downgrades_collection() {
+        let mut r = m1_records("a", 20, 2000);
+        let mut malformed = m1_usage("a", "unresolved", 10, 10);
+        malformed["payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("turn_id");
+        r.push(malformed);
+        let v = m1_poll(&r);
+        assert_eq!(v["quality"]["status"], "incomplete");
+        assert!(v["quality"]["reasons"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("missing_identity")));
+        assert!(v["last"]["verifiedTokensPerSecond"].is_null());
+    }
+    #[test]
+    fn session_m1_context_request_model_disagreement_never_merges() {
+        let mut r = m1_records("a", 20, 2000);
+        r.extend(m1_records("b", 80, 4000).into_iter().skip(1));
+        r[5]["payload"]["model"] = json!("other-model");
+        let v = m1_poll(&r);
+        assert_eq!(v["quality"]["status"], "conflict");
+        assert!(v["last"]["verifiedTokensPerSecond"].is_null());
+        assert_eq!(v["verifiedGroups"].as_array().unwrap().len(), 1);
+        assert_eq!(v["verifiedGroups"][0]["turnCount"], 1);
+        assert_eq!(v["verifiedGroups"][0]["outputTokens"], 20);
+    }
+    #[test]
+    fn session_m1_cross_response_model_disagreement_is_conflict() {
+        let mut r = m1_records("a", 10, 2000);
+        r.remove(1); // No context: requests themselves must still agree.
+        let mut second = m1_usage("a", "r2", 10, 20);
+        second["payload"]["model"] = json!("other-model");
+        second["payload"]["turn_token_usage"]["reasoning_output_tokens"] = json!(10);
+        second["payload"]["thread_token_usage"]["reasoning_output_tokens"] = json!(10);
+        r.push(second);
+        assert_eq!(m1_poll(&r)["quality"]["status"], "conflict");
+    }
+    #[test]
+    fn session_m1_unsupported_capability_survives_without_completed_turn() {
+        for legacy in [
+            json!({"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"output_tokens":20}}}}),
+            json!({"type":"compacted","payload":{"compaction_response_id":"c"}}),
+        ] {
+            let r = vec![m1_records("a", 20, 2000)[0].clone(), legacy];
+            let v = m1_poll(&r);
+            assert!(v["last"].is_null());
+            assert_eq!(v["quality"]["status"], "unsupported");
+            assert!(v["quality"]["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("unsupported_token_schema")));
+        }
     }
     #[test]
     fn recent_uses_modification_time_and_exposes_only_metadata() {

@@ -88,6 +88,15 @@ impl Evidence {
     pub fn conflict(&mut self, reason: &str) {
         self.conflicts.insert(reason.into());
     }
+    fn observe_model(&mut self, model: Option<String>) {
+        if let Some(model) = model {
+            if self.model.as_ref().is_some_and(|known| known != &model) {
+                self.conflict("conflicting_model");
+            } else {
+                self.model = Some(model);
+            }
+        }
+    }
     pub fn accept(&mut self, kind: &str, p: &Value, record: &Value, session: Option<&str>) {
         match kind {
             "task_complete" | "turn_aborted" => {
@@ -106,7 +115,7 @@ impl Evidence {
                 if self.context.as_ref().is_some_and(|first| first != &context) {
                     self.conflict("conflicting_metadata");
                 } else {
-                    self.model = text(&p["model"]);
+                    self.observe_model(text(&p["model"]));
                     self.effort = text(&p["effort"]);
                     self.tier = text(&p["service_tier"]);
                     self.context = Some(context);
@@ -115,6 +124,7 @@ impl Evidence {
             "token_count" | "compacted" => self.unsupported = true,
             "token_usage_record" => {
                 self.recognized = true;
+                self.observe_model(text(&p["model"]));
                 let usage = Usage::parse(&p["usage"]);
                 let snapshot = Usage::parse(&p["turn_token_usage"]);
                 let thread = Usage::parse(&p["thread_token_usage"]);
@@ -181,9 +191,6 @@ impl Evidence {
                 if self.responses.len() >= LIMIT {
                     self.truncated = true;
                     return;
-                }
-                if self.model.is_none() && self.context.is_none() {
-                    self.model = text(&p["model"]);
                 }
                 if let Some(s) = &response.snapshot {
                     self.output = Some(s.output);
@@ -376,7 +383,13 @@ fn timestamp(value: &Value) -> Option<u64> {
     {
         return None;
     }
-    let number = |a: usize, z: usize| -> Option<i64> { s.get(a..z)?.parse().ok() };
+    let number = |a: usize, z: usize| -> Option<i64> {
+        let digits = s.get(a..z)?;
+        if !digits.as_bytes().iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        digits.parse().ok()
+    };
     let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let days = [
@@ -397,7 +410,7 @@ fn timestamp(value: &Value) -> Option<u64> {
         return None;
     }
     let (hour, min, sec) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
-    if hour > 23 || min > 59 || sec > 59 {
+    if !(0..=23).contains(&hour) || !(0..=59).contains(&min) || !(0..=59).contains(&sec) {
         return None;
     }
     let mut pos = 19;
@@ -425,7 +438,7 @@ fn timestamp(value: &Value) -> Option<u64> {
         Some(sign @ (b'+' | b'-')) if pos + 6 == b.len() && b[pos + 3] == b':' => {
             let h = number(pos + 1, pos + 3)?;
             let m = number(pos + 4, pos + 6)?;
-            if h > 23 || m > 59 {
+            if !(0..=23).contains(&h) || !(0..=59).contains(&m) {
                 return None;
             }
             (h * 60 + m) * 60 * if *sign == b'+' { 1 } else { -1 }
@@ -445,4 +458,26 @@ fn timestamp(value: &Value) -> Option<u64> {
             .checked_add(millis)?,
     )
     .ok()
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn session_timestamp_rejects_signed_numeric_components() {
+        for s in [
+            "1970-01-01T00:00:+2Z",
+            "1970-01-01T00:+0:02Z",
+            "1970-01-01T+0:00:02Z",
+            "1970-01-01T00:00:02++0:00",
+            "1970-01-01T00:00:02+00:+0",
+            "1970-01-01T00:-0:02Z",
+            "1970-01-01T-0:00:02Z",
+            "1970-01-01T00:00:02+-0:00",
+            "1970-01-01T00:00:02+00:-0",
+        ] {
+            assert_eq!(timestamp(&json!(s)), None, "{s}");
+        }
+        assert_eq!(timestamp(&json!("1970-01-01T00:00:02Z")), Some(2000));
+        assert_eq!(timestamp(&json!("1970-01-01T08:00:02+08:00")), Some(2000));
+    }
 }
