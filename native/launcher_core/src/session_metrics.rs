@@ -94,7 +94,7 @@ fn metadata(path: &Path) -> Option<Value> {
     }
     let p = &value["payload"];
     Some(
-        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"path":path}),
+        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"title":p["title"],"modifiedMs":fs::metadata(path).ok().and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_millis() as u64),"path":path}),
     )
 }
 impl Reader {
@@ -217,20 +217,29 @@ impl Reader {
         )
     }
 }
+fn recent(base: &Path) -> Vec<Value> {
+    let mut files = Vec::new();
+    walk(base, 0, &mut files);
+    files.sort_by_key(|p| {
+        (
+            fs::metadata(p).ok().and_then(|m| m.modified().ok()),
+            p.clone(),
+        )
+    });
+    files.reverse();
+    let sessions: Vec<_> = files
+        .iter()
+        .filter_map(|p| p.canonicalize().ok())
+        .filter(|p| p.starts_with(base))
+        .filter_map(|p| metadata(&p))
+        .take(100)
+        .collect();
+    sessions
+}
 pub fn execute(payload: Value) -> Result<Value, String> {
     let base = root()?;
     if payload["action"] == "list" {
-        let mut files = Vec::new();
-        walk(&base, 0, &mut files);
-        files.sort();
-        files.reverse();
-        let sessions: Vec<_> = files
-            .iter()
-            .filter_map(|p| p.canonicalize().ok())
-            .filter(|p| p.starts_with(&base))
-            .filter_map(|p| metadata(&p))
-            .take(100)
-            .collect();
+        let sessions = recent(&base);
         return Ok(json!({"sessions":sessions}));
     }
     let path = PathBuf::from(payload["path"].as_str().ok_or("请先选择会话")?)
@@ -243,12 +252,40 @@ pub fn execute(payload: Value) -> Result<Value, String> {
         return Err("仅允许读取本机会话目录中的主会话日志".into());
     }
     let mut guard = READER.lock().map_err(|_| "会话采集锁不可用")?;
-    guard.get_or_insert_with(Reader::default).poll(path)
+    let info = metadata(&path);
+    let mut result = guard.get_or_insert_with(Reader::default).poll(path)?;
+    result["sourceInfo"] = info.unwrap_or(Value::Null);
+    Ok(result)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn recent_uses_modification_time_and_exposes_only_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, stamp) in [("rollout-z.jsonl", 100), ("rollout-a.jsonl", 200)] {
+            let path = dir.path().join(name);
+            let mut file = File::create(path).unwrap();
+            writeln!(file, "{}", json!({"type":"session_meta","payload":{"id":name,"cwd":"fixture","source":"vscode","title":"safe title"}})).unwrap();
+            writeln!(
+                file,
+                "{}",
+                json!({"type":"event_msg","payload":{"message":"private prompt"}})
+            )
+            .unwrap();
+            file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(stamp))
+                .unwrap();
+        }
+        let rows = recent(&dir.path().canonicalize().unwrap());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["id"], "rollout-a.jsonl");
+        assert_eq!(rows[0]["modifiedMs"], 200000);
+        assert_eq!(rows[0]["title"], "safe title");
+        assert!(!serde_json::to_string(&rows)
+            .unwrap()
+            .contains("private prompt"));
+    }
     #[test]
     fn lifecycle_replay_cancel_and_log_reset_are_explicit() {
         let mut f = tempfile::NamedTempFile::new().unwrap();

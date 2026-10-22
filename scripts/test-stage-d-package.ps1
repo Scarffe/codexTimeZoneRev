@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Archive, [ValidateSet('D','E','E34','F','G','H1','H2','I')][string]$Stage='D')
+param([Parameter(Mandatory)][string]$Archive, [ValidateSet('D','E','E34','F','G','H1','H2','I','I31')][string]$Stage='D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $Archive = (Resolve-Path -LiteralPath $Archive).Path
@@ -17,7 +17,7 @@ try {
             !$target.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or !$names.Add($name)) {
             throw "Unsafe or duplicate ZIP entry: $name"
         }
-        if ([IO.Path]::GetFileName($name) -match '^(settings\.json|monitor-preferences.*|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
+        if ([IO.Path]::GetFileName($name) -match '^(settings\.json|monitor-preferences.*|session-selection.*|pet-position.*|context.*|auth\.json)$|\.(log|pdb)$') {
             throw "Unexpected private/runtime entry: $name"
         }
     }

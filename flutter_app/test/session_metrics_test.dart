@@ -155,7 +155,9 @@ void main() {
       }
       await tester.tap(find.byKey(const ValueKey('session-selector')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('2026-10-21 · fixture · main').last);
+      await tester.tap(
+        find.textContaining(' · fixture · 会话 main · ID main · ').last,
+      );
       await tester.pumpAndSettle();
       expect(
         c.selected,
@@ -178,7 +180,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('session-selector')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('2026-10-21 · fixture · main').last);
+    await tester.tap(
+      find.textContaining(' · fixture · 会话 main · ID main · ').last,
+    );
     await tester.pumpAndSettle();
     expect(c.selected, 'a');
     expect(find.textContaining('回合平均吞吐 10.00 tokens/s'), findsOneWidget);

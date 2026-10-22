@@ -6,6 +6,7 @@ import '../services/backend.dart';
 import '../services/account_usage.dart';
 import '../services/desktop_monitor.dart';
 import '../services/monitor_preferences.dart';
+import '../services/session_selection.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../services/window_material.dart';
@@ -117,8 +118,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
         await usage.roles.load();
       }
-      if (mounted && !widget.preview && widget.selectedSessionPath != null) {
-        metrics.select(widget.selectedSessionPath);
+      if (mounted && !widget.preview && widget.backend == null) {
+        await metrics.initialize(
+          SessionSelectionStore.portable(),
+          initialPath: widget.selectedSessionPath,
+        );
       }
       if (mounted && widget.monitorEnabled && !widget.preview) {
         monitor = DesktopMonitor(

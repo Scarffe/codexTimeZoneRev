@@ -75,6 +75,7 @@ class DesktopMonitor {
             await Future<void>.delayed(const Duration(milliseconds: 100));
           }
           await usage.settingsSaved;
+          await metrics?.selectionSaved;
           if (!_closed) await channel.invokeMethod<void>('exit');
       }
     });

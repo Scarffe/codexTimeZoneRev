@@ -37,10 +37,10 @@ class SessionMetricsPanel extends StatelessWidget {
               if (controller.sessions.isNotEmpty)
                 FSelect<String>.search(
                   key: const ValueKey('session-selector'),
-                  label: const Text('选择主会话（时间 · 工作目录 · ID）'),
+                  label: const Text('最近会话（日志写入时间 · 项目 · 会话）'),
                   items: {
                     for (final s in controller.sessions)
-                      '${s['timestamp']} · ${s['cwd']} · ${s['id']}':
+                      '${controller.activityLabel(s)} · ${s['cwd'] ?? '目录未知'} · ${controller.sessionName(s)} · ID ${s['id']} · ${s['path'] == controller.selectorValue ? controller.stateLabel : '未采集'}':
                           s['path'] as String,
                   },
                   control: FSelectControl.lifted(
@@ -53,6 +53,24 @@ class SessionMetricsPanel extends StatelessWidget {
                   controller.selectorValue == null)
                 const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
               const SizedBox(height: 12),
+              const Text('固定跟踪所选会话；列表按日志写入时间排序，不据此推断模型活动。无标题时使用会话 ID。'),
+              if (controller.selected != null) ...[
+                Text(
+                  '来源项目：${controller.sourceInfo?['cwd'] ?? '未知（尚未成功读取）'}',
+                  key: const ValueKey('session-source'),
+                ),
+                Text(
+                  '会话：${controller.sourceInfo == null ? '等待核验' : controller.sessionName(controller.sourceInfo!)}',
+                ),
+                Text('日志：${controller.selected}'),
+                Text(
+                  '最近成功读取：${controller.lastRead?.toLocal().toString().split('.').first ?? '尚未成功读取'}',
+                ),
+              ],
+              if (controller.listError != null)
+                Text('列表刷新失败：${controller.listError}'),
+              if (controller.selectionError != null)
+                Text(controller.selectionError!),
               Text(
                 controller.selected == null
                     ? '请选择会话；不会自动猜测当前对话。仅显示最近 100 个本地主会话。'

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../services/backend.dart';
+import '../services/session_selection.dart';
 
 /// Independent of quota polling: local files only, including while the main UI is hidden.
 class SessionMetricsController extends ChangeNotifier {
@@ -14,6 +15,59 @@ class SessionMetricsController extends ChangeNotifier {
   String? selected;
   Map<String, dynamic>? data;
   String? error;
+  SessionSelectionStore? _selectionStore;
+  Future<void> _saved = Future<void>.value();
+  Future<void> get selectionSaved => _saved;
+  String? selectionError, listError;
+  String? _expectedId;
+  DateTime? lastRead;
+  Map<String, dynamic>? get sourceInfo =>
+      data?['sourceInfo'] as Map<String, dynamic>?;
+  String sessionName(Map<String, dynamic> s) {
+    final title = s['title'];
+    if (title is String && title.trim().isNotEmpty) return title.trim();
+    return '会话 ${s['id'] ?? (s['path'] as String).split(RegExp(r'[\\/]')).last}';
+  }
+
+  String activityLabel(Map<String, dynamic> s) {
+    final ms = s['modifiedMs'];
+    return ms is num
+        ? DateTime.fromMillisecondsSinceEpoch(ms.toInt())
+              .toLocal()
+              .toString()
+              .split('.')
+              .first
+        : '活动时间未知';
+  }
+
+  Future<void> initialize(
+    SessionSelectionStore store, {
+    String? initialPath,
+  }) async {
+    _selectionStore = store;
+    String? path, id;
+    try {
+      final value = await store.read();
+      path = value['path'] is String ? value['path'] as String : null;
+      id = value['id'] is String ? value['id'] as String : null;
+    } catch (_) {
+      selectionError = '无法恢复上次选择，请重新选择会话。';
+    }
+    await list();
+    if (_closed) return;
+    select(initialPath ?? path, expectedId: initialPath == null ? id : null);
+  }
+
+  void _saveSelection() {
+    final store = _selectionStore;
+    if (store == null) return;
+    final value = <String, Object?>{'path': selected, 'id': _expectedId};
+    _saved = _saved.then((_) => store.write(value)).catchError((Object e) {
+      selectionError = '会话选择保存失败；本次采集继续。';
+      if (!_closed) notifyListeners();
+    });
+  }
+
   bool busy = false;
   bool listing = false;
   bool _closed = false;
@@ -145,11 +199,10 @@ class SessionMetricsController extends ChangeNotifier {
       final value = await backend.call('session_metrics', {'action': 'list'});
       if (_closed) return;
       sessions = (value['sessions'] as List).cast<Map<String, dynamic>>();
-      error = null;
+      listError = null;
     } catch (e) {
       if (!_closed) {
-        error = e.toString();
-        resetObservation();
+        listError = e.toString();
       }
     } finally {
       listing = false;
@@ -157,10 +210,16 @@ class SessionMetricsController extends ChangeNotifier {
     }
   }
 
-  void select(String? path) {
+  void select(String? path, {String? expectedId}) {
     _generation++;
     resetObservation();
     selected = path;
+    lastRead = null;
+    _expectedId = expectedId;
+    for (final s in sessions) {
+      if (s['path'] == path) _expectedId ??= s['id'] as String?;
+    }
+    _saveSelection();
     data = null;
     error = null;
     _timer?.cancel();
@@ -178,7 +237,16 @@ class SessionMetricsController extends ChangeNotifier {
     try {
       final value = await backend.call('session_metrics', {'path': selected});
       if (!_closed && generation == _generation) {
+        final info = value['sourceInfo'];
+        if (_expectedId != null && info is Map && info['id'] != _expectedId) {
+          throw StateError('所选路径的会话标识已变化，请重新选择');
+        }
+        if (_expectedId == null && info is Map && info['id'] is String) {
+          _expectedId = info['id'] as String;
+          _saveSelection();
+        }
         data = value;
+        lastRead = _now();
         error = null;
         _observe(value);
       }
