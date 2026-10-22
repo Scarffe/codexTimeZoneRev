@@ -31,6 +31,8 @@ constexpr UINT kMain = 104, kRefresh = 105, kPause = 106;
 constexpr UINT kMuteCycle=119, kRoles=125, kReduceMotion=126, kPetTouch=127;
 constexpr UINT kPreviewIdle=120,kPreviewRefresh=121,kPreviewLow=122,kPreviewReal=123,kPreviewReduced=124;
 constexpr UINT kAlertTest=113;
+constexpr UINT kMonitor=128;
+constexpr UINT kTestQuota=1123,kTestSession=1124,kTestClick=1125,kTestClose=1126,kTestLegacy=1127,kTestResume=1128;
 constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
 struct State {
   HWND owner = nullptr, pet = nullptr, host = nullptr;
@@ -72,6 +74,14 @@ struct State {
   std::filesystem::path report;
   UINT taskbarCreated = 0;
   bool live = false, stale = false, paused = false;
+  bool production=false,keepAlive=false,bridgeReady=false,backgroundStart=false;
+  int closeRequests=0,backgroundNotices=0,notificationAttempts=0,notificationShellAccepted=0;
+  int notificationClicks=0,notificationClickInjections=0,testActionInjections=0;
+  bool notificationKeptFocus=true;
+  int64_t notificationSerial=0;
+  std::string workspace="launcher",notificationKind,notificationClickRoute,pendingNotificationRoute;
+  std::wstring notificationText;
+  ULONGLONG quotaPriorityUntil=0;
   HWND mainWindow = nullptr;
   double remaining = -1;
   int64_t revision = 0, attempts = 0, failures = 0;
@@ -116,6 +126,17 @@ std::wstring Suffix() {
   return std::to_wstring(session) + L"." + std::to_wstring(hash) + (app_instance::IsolatedProcess()?L".isolated":L"");
 }
 
+std::string Json(const std::wstring& value) {
+  const int size=WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),nullptr,0,nullptr,nullptr);
+  std::string utf8(size,'\0'); WideCharToMultiByte(CP_UTF8,0,value.data(),static_cast<int>(value.size()),utf8.data(),size,nullptr,nullptr);
+  std::ostringstream out; out<<'"';
+  for(unsigned char ch:utf8) {
+    if(ch=='"' || ch=='\\') out<<'\\'<<ch;
+    else if(ch<32) out<<"\\u"<<std::hex<<std::setw(4)<<std::setfill('0')<<static_cast<unsigned int>(ch)<<std::dec;
+    else out<<ch;
+  }
+  out<<'"'; return out.str();
+}
 void Report() {
   auto& s = *current;
   if (s.report.empty()) return;
@@ -127,6 +148,24 @@ void Report() {
   {
     std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
     out << "{\"pid\":" << GetCurrentProcessId()
+        << ",\"petPaused\":" << (s.production?"true":"false")
+        << ",\"workspace\":\"" << s.workspace << "\""
+        << ",\"keepAlive\":" << (s.keepAlive?"true":"false")
+        << ",\"bridgeReady\":" << (s.bridgeReady?"true":"false")
+        << ",\"backgroundStart\":" << (s.backgroundStart?"true":"false")
+        << ",\"closePolicy\":\"" << ((s.backgroundStart || s.keepAlive)?"hide":"exit") << "\""
+        << ",\"closeRequests\":" << s.closeRequests
+        << ",\"backgroundNotices\":" << s.backgroundNotices
+        << ",\"notificationAttempts\":" << s.notificationAttempts
+        << ",\"notificationShellAccepted\":" << s.notificationShellAccepted
+        << ",\"notificationKind\":\"" << s.notificationKind << "\""
+        << ",\"notificationText\":" << Json(s.notificationText)
+        << ",\"notificationSerial\":" << s.notificationSerial
+        << ",\"notificationClickRoute\":\"" << s.notificationClickRoute << "\""
+        << ",\"notificationClicks\":" << s.notificationClicks
+        << ",\"notificationClickInjections\":" << s.notificationClickInjections
+        << ",\"testActionInjections\":" << s.testActionInjections
+        << ",\"notificationKeptFocus\":" << (s.notificationKeptFocus?"true":"false")
         << ",\"selfChecks\":" << s.selfChecks
         << ",\"selfFailedLine\":" << s.selfFailedLine
         << ",\"roleLoaded\":" << (!s.rolePixels.empty()?"true":"false")
@@ -188,6 +227,31 @@ bool InstallTray() {
   return current->tray;
 }
 
+bool Notify(const std::wstring& text,const std::string& kind,int64_t serial,const std::string& route) {
+  auto& s=*current;
+  const HWND foreground=GetForegroundWindow();
+  ++s.notificationAttempts; s.notificationText=text; s.notificationKind=kind; s.notificationSerial=serial;
+  NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=s.owner; icon.uID=1; icon.uFlags=NIF_INFO;
+  icon.dwInfoFlags=NIIF_INFO|NIIF_NOSOUND;
+  const wchar_t* title=kind=="quota" ? L"Codex 额度提醒" : (kind=="session" ? L"Codex 回合提醒" : L"Codex 后台运行");
+  wcsncpy_s(icon.szInfoTitle,title,_TRUNCATE); wcsncpy_s(icon.szInfo,text.c_str(),_TRUNCATE);
+  const bool accepted=Shell_NotifyIconW(NIM_MODIFY,&icon)!=FALSE;
+  if(accepted) { ++s.notificationShellAccepted; s.pendingNotificationRoute=route; }
+  s.notificationKeptFocus=s.notificationKeptFocus && foreground==GetForegroundWindow();
+  Report(); return accepted; // Shell acceptance does not establish physical display.
+}
+void RestoreMain() {
+  ShowWindow(current->mainWindow,SW_RESTORE); SetForegroundWindow(current->mainWindow);
+}
+void NotificationClick(bool injected) {
+  auto& s=*current;
+  if(injected) ++s.notificationClickInjections;
+  if(s.pendingNotificationRoute.empty()) { Report(); return; }
+  ++s.notificationClicks; s.notificationClickRoute=s.pendingNotificationRoute;
+  s.pendingNotificationRoute.clear(); s.quotaPriorityUntil=0;
+  RestoreMain(); if(s.action) s.action(s.notificationClickRoute); Report();
+}
+
 int BaseWidth() { return current->mode==0 ? 88 : (current->mode==2 ? 320 : 240); }
 int BaseHeight() { return current->mode==0 ? 72 : (!current->rolePixels.empty() ? (current->mode==2 ? 470 : 320) : (current->mode==2 ? 310 : 160)); }
 int Px(int value) { return pet_geometry::Scale(value,current->dpi); }
@@ -195,7 +259,7 @@ int Width() { return Px(BaseWidth()); }
 int Height() { return Px(BaseHeight()); }
 
 void SavePosition() {
-  if(current->settings.empty()) return;
+  if(current->production || current->settings.empty()) return;
   RECT r{}; GetWindowRect(current->pet,&r);
   const auto temporary=current->settings.wstring()+L".tmp";
   { std::ofstream out(temporary); out << "1 " << current->mode << ' ' << r.left << ' ' << r.top; }
@@ -240,7 +304,7 @@ void ResetPosition() {
 int VisualState() { return current->visualTest>=0 ? current->visualTest : current->animationState; }
 bool AnimationAllowed() {
   const auto& s=*current;
-  return s.rolePixels.empty() && s.live && !s.reducedMotion && !s.testReduced && !s.powerSuspended &&
+  return !s.production && s.rolePixels.empty() && s.live && !s.reducedMotion && !s.testReduced && !s.powerSuspended &&
     !s.testSuspended && !s.paused && !s.stale && !s.dragging &&
     IsWindowVisible(s.pet) && VisualState()<3;
 }
@@ -361,7 +425,7 @@ bool DrawPet() {
 }
 
 void ShowPet() {
-  if(current->roleEditorOpen) return;
+  if(current->production || current->roleEditorOpen) return;
   ShowWindow(current->pet, SW_SHOWNOACTIVATE);
   SetWindowPos(current->pet, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
   SyncAnimation(); Report();
@@ -388,6 +452,7 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
 
 bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false,bool session=false) {
   auto& s=*current;
+  if(s.production) return false;
   // A pet response must not replace a still-visible completion reminder.
   if(companion && s.sessionBubble && IsWindowVisible(s.bubble)) return true;
   if(!s.bubble) {
@@ -522,7 +587,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
   auto& s=*current;
   if (msg == s.taskbarCreated && s.taskbarCreated) { InstallTray(); return 0; }
   if (msg == kRestore) {
-    ++s.restores; if(!s.live || s.preferredVisible) ShowPet();
+    ++s.restores; if(!s.production && (!s.live || s.preferredVisible)) ShowPet();
     if(s.live) { ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); }
     return 0;
   }
@@ -536,7 +601,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if(!s.resumeSent) {
           s.resumeSent=true; ++s.resumeActions;
           ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2);
-          Place(false); DrawPet(); SavePosition();
+          if(!s.production) { Place(false); DrawPet(); SavePosition(); }
           if(s.action) s.action("systemResume");
         }
       }
@@ -550,7 +615,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
       }
-      if(wp==4 && s.animationSoak && s.testControls) {
+      if(wp==4 && !s.production && s.animationSoak && s.testControls) {
         ++s.soakStep; const int step=s.soakStep%8;
         s.visualTest=step<3 ? step : (step==5 ? 3 : 0);
         s.testReduced=step==3; s.testHidden=step==4; s.testSuspended=step==6;
@@ -561,28 +626,37 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if(wp==2 && GetTickCount64()>=s.bubbleUntil) { ShowWindow(s.bubble,SW_HIDE); KillTimer(hwnd,2); }
       Report(); return 0;
     case kTray:
+      if(s.production && lp==NIN_BALLOONUSERCLICK) { NotificationClick(false); return 0; }
+      if(s.production && (lp==NIN_BALLOONTIMEOUT || lp==NIN_BALLOONHIDE)) {
+        s.pendingNotificationRoute.clear(); s.quotaPriorityUntil=0; Report(); return 0;
+      }
+      if(s.production && (lp==WM_LBUTTONUP || lp==WM_LBUTTONDBLCLK)) { RestoreMain(); Report(); return 0; }
       if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); if(s.live && s.action) s.action("showPet"); return 0; }
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
         HMENU menu=CreatePopupMenu();
         if (s.live) {
           AppendMenuW(menu,MF_STRING|MF_GRAYED,0,s.caption.c_str());
-          AppendMenuW(menu,MF_STRING|MF_GRAYED,0,(L"外观："+(s.roleName.empty()?std::wstring(L"默认鲸鱼"):s.roleName)).c_str());
-          AppendMenuW(menu,MF_STRING,kRoles,L"角色与本地立绘…");
+          if(!s.production) {
+            AppendMenuW(menu,MF_STRING,kRoles,L"角色与本地立绘…");
+            AppendMenuW(menu,MF_STRING,kReduceMotion,L"减少动画");
+            AppendMenuW(menu,MF_STRING,kPetTouch,L"摸摸桌宠");
+          }
           AppendMenuW(menu,MF_STRING,kMain,L"打开主窗口");
-          AppendMenuW(menu,MF_STRING,kReduceMotion,s.reducedMotion?L"减少动画：开启":L"减少动画：关闭");
-          AppendMenuW(menu,MF_STRING,kPetTouch,L"摸摸桌宠");
+          AppendMenuW(menu,MF_STRING,kMonitor,L"监控与工具");
           AppendMenuW(menu,MF_STRING,kRefresh,L"立即刷新额度");
           AppendMenuW(menu,MF_STRING,kPause,s.paused ? L"恢复自动刷新" : L"暂停自动刷新");
           AppendMenuW(menu,MF_STRING,kMuteCycle,L"本轮额度周期不再提醒");
           AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         }
+        if(!s.production) {
         AppendMenuW(menu,MF_STRING|(s.mode==0?MF_CHECKED:0),kEdge,L"边缘形态");
         AppendMenuW(menu,MF_STRING|(s.mode==1?MF_CHECKED:0),kCompact,L"紧凑形态");
         AppendMenuW(menu,MF_STRING|(s.mode==2?MF_CHECKED:0),kExpanded,L"展开形态");
         AppendMenuW(menu,MF_STRING,kShow,s.live ? L"显示桌宠" : L"Show pet (DEMO)");
         AppendMenuW(menu,MF_STRING,kHide,s.live ? L"隐藏桌宠" : L"Hide pet");
         AppendMenuW(menu,MF_STRING,kReset,s.live ? L"复位桌宠位置" : L"Reset position");
-        if(s.testControls) {
+        }
+        if(s.testControls && !s.production) {
           AppendMenuW(menu,MF_STRING,kPreviewIdle,L"动画预览：待机（模拟）");
           AppendMenuW(menu,MF_STRING,kPreviewRefresh,L"动画预览：刷新（模拟）");
           AppendMenuW(menu,MF_STRING,kPreviewLow,L"动画预览：低额度（模拟）");
@@ -606,6 +680,22 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (command) PostMessageW(hwnd,WM_COMMAND,command,0);
       } return 0;
     case WM_COMMAND:
+      if(s.production) {
+        const UINT command=LOWORD(wp);
+        if(command==kShow || command==kHide || command==kReset || command==kEdge || command==kCompact || command==kExpanded ||
+           command==kRoles || command==kReduceMotion || command==kPetTouch || (command>=kPreviewIdle && command<=kPreviewReduced)) { Report(); return 0; }
+        if(command>=kTestQuota && command<=kTestResume) {
+          if(!s.testControls) return 0;
+          ++s.testActionInjections;
+          if(command==kTestQuota) Notify(L"测试注入：额度提醒","quota",++s.alertSerial,"monitorDetails");
+          if(command==kTestSession) Notify(L"测试注入：回合提醒","session",++s.sessionAlertSerial,"sessionDetails");
+          if(command==kTestClick) NotificationClick(true);
+          if(command==kTestClose) SendMessageW(s.mainWindow,WM_CLOSE,0,0);
+          if(command==kTestLegacy) { ConfigureMonitor(2,true,s.preferencesSerial+1); ShowPet(); }
+          if(command==kTestResume) { ++s.powerTestInjections; SendMessageW(hwnd,WM_POWERBROADCAST,PBT_APMSUSPEND,0); SendMessageW(hwnd,WM_POWERBROADCAST,PBT_APMRESUMEAUTOMATIC,0); }
+          Report(); return 0;
+        }
+      }
       switch (LOWORD(wp)) {
         case kShow: ShowPet(); if(s.live && s.action) s.action("showPet"); break;
         case kHide: s.preferredVisible=false; ShowWindow(s.pet,SW_HIDE); if(s.live && s.action) s.action("hidePet"); Report(); break;
@@ -618,6 +708,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kPetTouch: ShowAlert(L"谢谢陪伴。额度仍由真实查询更新。",true,true); break;
         case kMain:
           ShowWindow(s.mainWindow,SW_RESTORE); SetForegroundWindow(s.mainWindow); break;
+        case kMonitor: RestoreMain(); if(s.action) s.action("monitorDetails"); break;
         case kMuteCycle: if(s.live && s.action) s.action("muteCycle"); break;
         case kRefresh: if(s.action) s.action("refresh"); break;
         case kPreviewIdle: case kPreviewRefresh: case kPreviewLow: case kPreviewReal: case kPreviewReduced:
@@ -688,9 +779,24 @@ bool ClaimMonitorInstance(bool request_exit) {
   return false;
 }
 
-bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action) {
+int ForwardWorkspaceTestAction(const std::vector<std::wstring>& arguments) {
+  constexpr wchar_t prefix[]=L"--workspace-test-action=";
+  for(const auto& argument:arguments) if(argument.rfind(prefix,0)==0) {
+    const auto name=argument.substr(std::size(prefix)-1);
+    UINT command=0;
+    if(name==L"quota") command=kTestQuota; else if(name==L"session") command=kTestSession;
+    else if(name==L"click") command=kTestClick; else if(name==L"close") command=kTestClose;
+    else if(name==L"legacy-show") command=kTestLegacy; else if(name==L"resume") command=kTestResume;
+    else if(name==L"restore") command=kMain; else return 4;
+    const HWND owner=FindWindowW(kOwnerClass,(L"CodexTimeZone.Monitor."+Suffix()).c_str());
+    return owner && PostMessageW(owner,WM_COMMAND,command,0) ? 0 : 4;
+  }
+  return -1;
+}
+
+bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action, bool background_start) {
   if(current) return false;
-  current=new State(); current->live=true; current->mainWindow=main_window;
+  current=new State(); current->live=true; current->production=true; current->preferredVisible=false; current->mainWindow=main_window;
   int argc=0; auto argv=CommandLineToArgvW(GetCommandLineW(),&argc);
   if(argv) {
     for(int i=1;i<argc;++i) { std::wstring arg(argv[i]); constexpr wchar_t prefix[]=L"--monitor-report=";
@@ -700,24 +806,19 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
     }
     LocalFree(argv);
   }
+  current->backgroundStart=background_start;
   current->action=std::move(action);
   current->taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
   if(!Register(kOwnerClass,OwnerProc)||!Register(kPetClass,PetProc)) { DetachMonitor(); return false; }
   current->owner=CreateWindowExW(WS_EX_TOOLWINDOW,kOwnerClass,(L"CodexTimeZone.Monitor."+Suffix()).c_str(),
       WS_POPUP,0,0,1,1,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-  current->pet=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
-      kPetClass,L"Codex 用量桌宠",WS_POPUP,0,0,kWidth,kHeight,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
-  if(!current->owner || !current->pet || !InstallTray()) { DetachMonitor(); return false; }
+  if(!current->owner || !InstallTray()) { DetachMonitor(); return false; }
   current->powerRegistration=RegisterSuspendResumeNotification(current->owner,DEVICE_NOTIFY_WINDOW_HANDLE);
-  current->dpi=GetDpiForWindow(current->pet); if(!current->dpi) current->dpi=96;
-  ResetPosition(); LoadPosition();
-  if(!DrawPet()) { DetachMonitor(); return false; }
-  if(current->animationSoak && current->testControls) SetTimer(current->owner,4,10000,nullptr);
   Report(); return true;
 }
 
 void SetRoleEditorOpen(bool open) {
-  if(!current) return;
+  if(!current || current->production) return;
   current->roleEditorOpen=open;
   if(open) { ShowWindow(current->pet,SW_HIDE); if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
   else if(current->preferredVisible) ShowPet();
@@ -725,7 +826,7 @@ void SetRoleEditorOpen(bool open) {
 }
 
 void ConfigureRole(const std::wstring& path,const std::wstring& name) {
-  if(!current || (current->rolePath==path && current->roleName==name)) return;
+  if(!current || current->production || (current->rolePath==path && current->roleName==name)) return;
   auto& s=*current; s.rolePath=path; s.roleName=name; s.rolePixels.clear(); s.roleWidth=0;s.roleHeight=0;
   if(!path.empty()) {
     using Microsoft::WRL::ComPtr;
@@ -748,12 +849,33 @@ void ConfigureRole(const std::wstring& path,const std::wstring& name) {
 }
 
 void ReportMonitorState() { if(current) Report(); }
+void ConfigureWorkspace(bool keep_alive,const std::string& workspace) {
+  if(!current || !current->production) return;
+  current->keepAlive=keep_alive; current->workspace=workspace=="monitor"?"monitor":"launcher";
+  current->bridgeReady=true; Report();
+}
+void RecordCloseRequest() { if(current) { ++current->closeRequests; Report(); } }
+void HideMonitorMain() {
+  if(!current) return;
+  ShowWindow(current->mainWindow,SW_HIDE);
+  if(!current->backgroundNotices && (current->keepAlive || current->backgroundStart)) {
+    ++current->backgroundNotices;
+    Notify(L"窗口已隐藏，监控仍在后台运行。双击托盘恢复，托盘菜单可退出。","background",0,"monitorDetails");
+  }
+  Report();
+}
 
 void ConfigureSessionSummary(const std::wstring& summary, double rate, int status) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; current->sessionStatus=status; } }
 
 void ConfigureSessionAlert(const std::wstring& text, int64_t serial) {
   if(!current || !current->live) return;
   auto& s=*current;
+  if(s.production) {
+    if(text.empty() || serial<=s.sessionAlertSerial) return;
+    s.sessionAlertSerial=serial;
+    if(s.powerSuspended || s.sessionStatus!=2 || GetTickCount64()<s.quotaPriorityUntil) { ++s.sessionAlertsSuppressed; Report(); return; }
+    Notify(text,"session",serial,"sessionDetails"); Report(); return;
+  }
   if(text.empty()) {
     // The Dart production TTL is 10s. Only opted-in UI tests retain the
     // same completed-turn bubble longer for a human click; state changes clear it.
@@ -782,19 +904,26 @@ void PublishMonitor(const std::wstring& text, double remaining, bool stale,
   current->detail=detail;
   current->reducedMotion=reduced_motion; current->animationState=std::clamp(animation_state,0,3);
   if((alert.empty() || stale) && !current->companionBubble && !current->sessionBubble) { if(IsWindow(current->bubble)) ShowWindow(current->bubble,SW_HIDE); }
+  // A suppressed stale event is consumed, never replayed after a later refresh.
+  if(current->production && stale && alert_serial>current->alertSerial) current->alertSerial=alert_serial;
   if(!alert.empty() && !stale && alert_serial>current->alertSerial) {
-    if(ShowAlert(alert)) current->alertSerial=alert_serial;
+    if(current->production) {
+      current->alertSerial=alert_serial;
+      current->quotaPriorityUntil=GetTickCount64()+10000;
+      Notify(alert,"quota",alert_serial,"monitorDetails");
+    } else if(ShowAlert(alert)) current->alertSerial=alert_serial;
   }
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=current->owner;
   icon.uID=1; icon.uFlags=NIF_TIP; wcsncpy_s(icon.szTip,text.c_str(),_TRUNCATE);
   Shell_NotifyIconW(NIM_MODIFY,&icon);
-  SetWindowTextW(current->pet,text.c_str()); SyncAnimation(); DrawPet();
+  if(!current->production) { SetWindowTextW(current->pet,text.c_str()); SyncAnimation(); DrawPet(); }
   Report();
 }
 
 void ConfigureMonitor(int mode, bool visible, int64_t serial) {
   if(!current || !current->live || serial<=current->preferencesSerial) return;
   current->preferencesSerial=serial;
+  if(current->production) { current->preferredVisible=false; Report(); return; }
   current->preferredVisible=visible;
   current->mode=std::clamp(mode,0,2);
   Place(false); DrawPet(); SavePosition();

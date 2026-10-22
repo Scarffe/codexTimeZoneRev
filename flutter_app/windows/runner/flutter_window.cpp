@@ -30,20 +30,23 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
-  if(monitor_) {
+  {
     monitor_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
         flutter_controller_->engine()->messenger(), "codex_timezone/monitor",
         &flutter::StandardMethodCodec::GetInstance());
     if(!desktop_prototype::AttachMonitor(GetHandle(),[this](const std::string& action) {
+      if(action=="exit" && !bridge_ready_) {
+        exiting_=true; PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
+      }
       monitor_channel_->InvokeMethod(action,nullptr);
-    })) return false;
+    },monitor_)) return false;
     monitor_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
       if(call.method_name()=="roleEditor") { const auto* flag=std::get_if<bool>(call.arguments()); if(flag) desktop_prototype::SetRoleEditorOpen(*flag); result->Success(); return; }
       if(call.method_name()=="mainVisible") { desktop_prototype::ReportMonitorState(); result->Success(flutter::EncodableValue(IsWindowVisible(GetHandle()) && !IsIconic(GetHandle()))); return; }
       if(call.method_name()=="exit") {
         exiting_=true; result->Success(); PostMessageW(GetHandle(),WM_CLOSE,0,0); return;
       }
-      if(call.method_name()=="hide") { ShowWindow(GetHandle(),SW_HIDE); result->Success(); return; }
+      if(call.method_name()=="hide") { close_pending_=false; desktop_prototype::HideMonitorMain(); result->Success(); return; }
       if(call.method_name()=="publish") {
         const auto* map=std::get_if<flutter::EncodableMap>(call.arguments());
         if(!map) { result->Error("invalid_snapshot","Expected map"); return; }
@@ -67,6 +70,10 @@ bool FlutterWindow::OnCreate() {
         };
         auto sessionRate=value("sessionRate");
         const auto* rate=std::get_if<double>(&sessionRate);
+        auto workspace=value("workspace");
+        const auto* page=std::get_if<std::string>(&workspace);
+        desktop_prototype::ConfigureWorkspace(value("keepAlive")==flutter::EncodableValue(true),page?*page:"launcher");
+        bridge_ready_=true;
         desktop_prototype::ConfigureSessionSummary(wideField("sessionSummary"),rate ? *rate : -1.0, static_cast<int>(number("sessionStatus")));
         desktop_prototype::ConfigureRole(wideField("roleImage"),wideField("roleName"));
         auto visible=value("petVisible");
@@ -98,7 +105,7 @@ bool FlutterWindow::OnCreate() {
   }
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if(!monitor_) this->Show();
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -112,7 +119,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   // Win32Window::Create calls Destroy before OnCreate. The instance lock must
   // survive that initial cleanup; only tear down an attached monitor channel.
-  if(monitor_ && monitor_channel_) desktop_prototype::DetachMonitor();
+  if(monitor_channel_) desktop_prototype::DetachMonitor();
   monitor_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -131,7 +138,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     if(message==WM_SIZE && wparam==SIZE_MINIMIZED) visible=false;
     monitor_channel_->InvokeMethod(visible ? "mainShown" : "mainHidden",nullptr);
   }
-  if(message==WM_CLOSE && monitor_ && !exiting_) { ShowWindow(hwnd,SW_HIDE); return 0; }
+  if(message==WM_CLOSE && monitor_channel_ && !exiting_ && bridge_ready_) {
+    if(!close_pending_) {
+      close_pending_=true; desktop_prototype::RecordCloseRequest();
+      monitor_channel_->InvokeMethod("closeRequested",nullptr);
+    }
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

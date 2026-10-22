@@ -12,7 +12,11 @@ bool Requested(const std::vector<std::wstring>& arguments);
 int Run(const std::vector<std::wstring>& arguments);
 // Stage B: shares the Flutter engine's UI thread and receives normalized state.
 bool ClaimMonitorInstance(bool request_exit = false);
-bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action);
+bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action, bool background_start=false);
+int ForwardWorkspaceTestAction(const std::vector<std::wstring>& arguments);
+void ConfigureWorkspace(bool keep_alive, const std::string& workspace);
+void RecordCloseRequest();
+void HideMonitorMain();
 void ReportMonitorState();
 void ConfigureSessionSummary(const std::wstring& summary, double rate, int status=0);
 void ConfigureSessionAlert(const std::wstring& text, int64_t serial);

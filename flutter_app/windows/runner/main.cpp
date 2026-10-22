@@ -26,13 +26,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   const bool monitor = std::find(arguments.begin(),arguments.end(),L"--desktop-monitor") != arguments.end();
   const bool monitor_exit = std::find(arguments.begin(),arguments.end(),L"--monitor-exit") != arguments.end();
+  const int test_action=desktop_prototype::ForwardWorkspaceTestAction(arguments);
+  if(test_action!=-1) return test_action;
+  // The directory-scoped service lease belongs to every real app mode.
+  // Exit requests reach this owner before any restore-to-foreground operation.
+  if(!desktop_prototype::ClaimMonitorInstance(monitor_exit)) return 0;
   app_instance::Lease application;
   if(!monitor_exit) {
     app_instance::Options options; options.isolated=app_instance::Has(arguments,L"--isolated-instance");
     const auto decision=application.Claim(options);
     if(decision!=app_instance::Decision::start) return decision==app_instance::Decision::reused ? 0 : 1;
   }
-  if(monitor && !desktop_prototype::ClaimMonitorInstance(monitor_exit)) return 0;
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
