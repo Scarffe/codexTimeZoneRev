@@ -1,0 +1,63 @@
+{
+  "sourceCommit": "b1746a84a4665810abebb5ab09a6677d371c9e22",
+  "adaptations": ["project_ttfo_excludes_tool_arguments", "project_e2e_uses_actual_http_eof"],
+  "cases": [
+    {
+      "id": "upstream_six_tokens_bundled_first_three",
+      "origin": "test_inter_token_latency_subtracts_bundled_first_chunk",
+      "startNs": 100, "content": [[120,"text"],[200,"text"]], "endNs": 200,
+      "outputTokens": 6, "reasoningTokens": 0, "firstChunkTokens": 3,
+      "upstream": {"ttftNs":20,"requestLatencyNs":100,"decodeNs":80,"itlNs":26.666666666666668,"streamTokensPerSecond":37500000,"fullDecodeNs":80,"fullItlNs":26.666666666666668,"fullTokensPerSecond":37500000,"e2eTokensPerSecond":60000000,"ttfoNs":20},
+      "project": {"ttftMs":0.00002,"ttfoMs":0.00002,"streamTokensPerSecond":37500000,"fullResponseTokensPerSecond":37500000,"e2eTokensPerSecond":60000000,"streamQuality":"reported"}
+    },
+    {
+      "id": "upstream_six_tokens_missing_first",
+      "origin": "test_inter_token_latency_absent_first_chunk_falls_back_to_one",
+      "startNs":100,"content":[[120,"text"],[200,"text"]],"endNs":200,
+      "outputTokens":6,"reasoningTokens":0,"firstChunkTokens":null,
+      "upstream":{"ttftNs":20,"requestLatencyNs":100,"decodeNs":80,"itlNs":16,"streamTokensPerSecond":62500000,"fullDecodeNs":80,"fullItlNs":16,"fullTokensPerSecond":62500000,"e2eTokensPerSecond":60000000,"ttfoNs":20},
+      "project":{"ttftMs":0.00002,"ttfoMs":0.00002,"streamTokensPerSecond":62500000,"fullResponseTokensPerSecond":62500000,"e2eTokensPerSecond":60000000,"streamQuality":"estimated"}
+    },
+    {
+      "id":"project_48_exact_delayed_usage_eof","origin":"project_fixture_original_upstream_formulas",
+      "startNs":0,"content":[[500000000,"text"],[2500000000,"text"]],"usageNs":3000000000,"doneNs":3100000000,"endNs":3500000000,
+      "outputTokens":100,"reasoningTokens":0,"firstChunkTokens":4,
+      "upstream":{"ttftNs":500000000,"requestLatencyNs":2500000000,"decodeNs":2000000000,"itlNs":20833333.333333332,"streamTokensPerSecond":48,"fullDecodeNs":3000000000,"fullItlNs":31250000,"fullTokensPerSecond":32,"e2eTokensPerSecond":40,"ttfoNs":500000000},
+      "project":{"ttftMs":500,"ttfoMs":500,"streamTokensPerSecond":48,"fullResponseTokensPerSecond":32,"e2eTokensPerSecond":28.571428571428573,"streamQuality":"reported"}
+    },
+    {
+      "id":"project_49_5_estimated_delayed_usage_eof","origin":"project_fixture_original_upstream_formulas",
+      "startNs":0,"content":[[500000000,"text"],[2500000000,"text"]],"usageNs":3000000000,"doneNs":3100000000,"endNs":3500000000,
+      "outputTokens":100,"reasoningTokens":0,"firstChunkTokens":null,
+      "upstream":{"ttftNs":500000000,"requestLatencyNs":2500000000,"decodeNs":2000000000,"itlNs":20202020.2020202,"streamTokensPerSecond":49.5,"fullDecodeNs":3000000000,"fullItlNs":30303030.303030305,"fullTokensPerSecond":33,"e2eTokensPerSecond":40,"ttfoNs":500000000},
+      "project":{"ttftMs":500,"ttfoMs":500,"streamTokensPerSecond":49.5,"fullResponseTokensPerSecond":33,"e2eTokensPerSecond":28.571428571428573,"streamQuality":"estimated"}
+    },
+    {
+      "id":"reasoning_then_visible_prose","origin":"project_fixture_reasoning_extension",
+      "startNs":0,"roleOnlyNs":100000000,"content":[[500000000,"reasoning"],[1500000000,"text"]],"endNs":2000000000,
+      "outputTokens":20,"reasoningTokens":5,"firstChunkTokens":null,
+      "upstream":{"ttftNs":500000000,"requestLatencyNs":1500000000,"decodeNs":1000000000,"itlNs":52631578.94736842,"streamTokensPerSecond":19,"fullDecodeNs":1500000000,"fullItlNs":78947368.42105263,"fullTokensPerSecond":12.666666666666666,"e2eTokensPerSecond":13.333333333333334,"ttfoNs":1500000000},
+      "project":{"ttftMs":500,"ttfoMs":1500,"streamTokensPerSecond":null,"fullResponseTokensPerSecond":null,"e2eTokensPerSecond":10,"streamQuality":"unavailable"}
+    },
+    {
+      "id":"tool_only_ttfo_deliberate_difference","origin":"project_fixture_explicit_adaptation",
+      "startNs":0,"content":[[500000000,"tool"],[1500000000,"tool"]],"endNs":2000000000,
+      "outputTokens":20,"reasoningTokens":0,"firstChunkTokens":null,
+      "upstream":{"ttftNs":500000000,"requestLatencyNs":1500000000,"decodeNs":1000000000,"itlNs":52631578.94736842,"streamTokensPerSecond":19,"fullDecodeNs":1500000000,"fullItlNs":78947368.42105263,"fullTokensPerSecond":12.666666666666666,"e2eTokensPerSecond":13.333333333333334,"ttfoNs":500000000},
+      "project":{"ttftMs":500,"ttfoMs":null,"streamTokensPerSecond":null,"fullResponseTokensPerSecond":null,"e2eTokensPerSecond":10,"streamQuality":"unavailable"}
+    },
+    {
+      "id":"reasoning_only_no_ttfo","origin":"project_fixture_reasoning_extension",
+      "startNs":0,"content":[[500000000,"reasoning"],[1500000000,"reasoning"]],"endNs":2000000000,
+      "outputTokens":20,"reasoningTokens":20,"firstChunkTokens":null,
+      "upstream":{"ttftNs":500000000,"requestLatencyNs":1500000000,"decodeNs":1000000000,"itlNs":52631578.94736842,"streamTokensPerSecond":19,"fullDecodeNs":1500000000,"fullItlNs":78947368.42105263,"fullTokensPerSecond":12.666666666666666,"e2eTokensPerSecond":13.333333333333334,"ttfoNs":null},
+      "project":{"ttftMs":500,"ttfoMs":null,"streamTokensPerSecond":null,"fullResponseTokensPerSecond":null,"e2eTokensPerSecond":10,"streamQuality":"unavailable"}
+    },
+    {
+      "id":"empty_explicit_zero","origin":"project_fixture_completion_without_content",
+      "startNs":0,"content":[],"endNs":300,"outputTokens":0,"reasoningTokens":null,"firstChunkTokens":null,
+      "upstream":{"ttftNs":null,"requestLatencyNs":null,"decodeNs":null,"itlNs":null,"streamTokensPerSecond":null,"fullDecodeNs":null,"fullItlNs":null,"fullTokensPerSecond":null,"e2eTokensPerSecond":null,"ttfoNs":null},
+      "project":{"ttftMs":null,"ttfoMs":null,"streamTokensPerSecond":null,"fullResponseTokensPerSecond":null,"e2eTokensPerSecond":0,"streamQuality":"unavailable"}
+    }
+  ]
+}
