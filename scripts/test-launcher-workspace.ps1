@@ -1,7 +1,8 @@
 param(
  [string]$RuntimeDirectory='',
  [string]$NativeLibrary='',
- [string]$Archive=''
+ [string]$Archive='',
+ [switch]$NotificationGateSelfTest
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
@@ -14,6 +15,19 @@ $script:failure=$null
 $oldHome=$env:CODEX_HOME
 function Assert-That([bool]$condition,[string]$message) {
  if(!$condition){throw $message};$checks.Add($message)
+}
+function Test-NotificationPublication($value,[string]$kind,[int]$attemptsBefore,[int]$acceptedBefore) {
+ return $value.notificationKind -eq $kind -and $value.notificationAttempts -eq ($attemptsBefore+1) -and $value.notificationShellAccepted -eq ($acceptedBefore+1)
+}
+if($NotificationGateSelfTest) {
+ $rejected=[pscustomobject]@{notificationKind='session';notificationAttempts=3;notificationShellAccepted=1}
+ $accepted=[pscustomobject]@{notificationKind='session';notificationAttempts=3;notificationShellAccepted=2}
+ Assert-That (!(Test-NotificationPublication $rejected 'session' 2 1)) 'An attempted publication rejected by the shell cannot pass'
+ Assert-That (Test-NotificationPublication $accepted 'session' 2 1) 'A publication accepted by the shell passes'
+ Assert-That (!(Test-NotificationPublication $accepted 'quota' 2 1)) 'The wrong notification kind cannot pass'
+ Assert-That (!(Test-NotificationPublication $accepted 'session' 3 1)) 'An unchanged attempt count cannot pass'
+ Write-Output "PASS: $($checks.Count) notification publication gate assertions"
+ return
 }
 function Save-Evidence([string]$name) {
  Copy-Item -LiteralPath $report -Destination (Join-Path $directory "$name.json")
@@ -176,9 +190,10 @@ try {
  Wait-State {param($v) $v.petPaused -and !$v.visible -and $v.testActionInjections -ge 2} 'legacy and resume cannot resurrect pet'
  Invoke-Control 'close';Wait-State {param($v) !$v.mainVisible -and $v.keepAlive} 'session-only close hides'
  $noticeBase=$script:last.notificationAttempts
+ $acceptedBase=$script:last.notificationShellAccepted
  Add-Event 'task_started' 'live';Wait-State {param($v) $v.sessionStatus -eq 1} 'hidden session collector observes start'
  Add-Event 'task_complete' 'live'
- Wait-State {param($v) $v.sessionStatus -eq 2 -and $v.notificationKind -eq 'session' -and $v.notificationAttempts -eq ($noticeBase+1)} 'live hidden completion publishes independent notice'
+ Wait-State {param($v) $v.sessionStatus -eq 2 -and (Test-NotificationPublication $v 'session' $noticeBase $acceptedBase)} 'live hidden completion publishes independent notice accepted by shell'
  Assert-That ($script:last.notificationKeptFocus -and !$script:last.mainVisible -and !$script:last.visible) 'Notification publication preserves focus and hidden surfaces'
  Save-Evidence 'live-session-notice'
  $count=$script:last.notificationAttempts
@@ -189,8 +204,9 @@ try {
  Wait-State {param($v) $v.mainVisible -and $v.workspace -eq 'monitor' -and $v.notificationClickRoute -eq 'sessionDetails'} 'injected session notification callback opens monitor page'
  Assert-That ($script:last.notificationClickInjections -eq 1) 'Session callback is explicitly recorded as an injection'
  Save-Evidence 'session-click-injected'
+ $quotaAcceptedBase=$script:last.notificationShellAccepted
  Invoke-Control 'quota'
- Wait-State {param($v) $v.notificationKind -eq 'quota' -and $v.notificationAttempts -eq ($count+1)} 'injected quota notice published'
+ Wait-State {param($v) Test-NotificationPublication $v 'quota' $count $quotaAcceptedBase} 'injected quota notice accepted by shell'
  Invoke-Control 'click'
  Wait-State {param($v) $v.mainVisible -and $v.workspace -eq 'monitor' -and $v.notificationClickRoute -eq 'monitorDetails'} 'injected quota callback opens monitor page'
  Assert-That ($script:last.notificationClickInjections -eq 2 -and $script:last.notificationKeptFocus) 'Quota callback injection and publication focus are recorded'
