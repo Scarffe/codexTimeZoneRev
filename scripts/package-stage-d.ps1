@@ -1,4 +1,4 @@
-param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31')][string]$Stage = 'D')
+param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31','W')][string]$Stage = 'D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $gitArguments = @('-c', "safe.directory=$($root.Replace('\','/'))", '-C', $root)
@@ -18,6 +18,7 @@ if ($Stage -eq 'H1') { $coreTarget = 'stage-h1-cargo' }
 if ($Stage -eq 'H2') { $coreTarget = 'stage-h2-cargo' }
 if ($Stage -eq 'I') { $coreTarget = 'stage-i-cargo' }
 if ($Stage -eq 'I31') { $coreTarget = 'stage-i31-cargo' }
+if ($Stage -eq 'W') { $coreTarget = 'stage-w-cargo' }
 $library = Join-Path $root "environment\$coreTarget\release\codex_timezone_core.dll"
 foreach ($required in @((Join-Path $source 'codex_timezone.exe'),(Join-Path $source 'flutter_windows.dll'),(Join-Path $source 'data\app.so'),$library)) {
     if (!(Test-Path -LiteralPath $required)) { throw "Missing release input: $required" }
@@ -40,6 +41,12 @@ Copy-Item -LiteralPath (Join-Path $root "release-notes\desktop-monitor$(if($Stag
 if ($Stage -in @('H1','H2','I','I31')) {
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Trial.cmd') -Encoding ascii
+}
+if ($Stage -eq 'W') {
+    @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
+    @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
+    @('@echo off','start "" "%~dp0codex_timezone.exe" --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
+    @('@echo off','start "" "%~dp0codex_timezone.exe" --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Trial.cmd') -Encoding ascii
 }
 @{stage=$Stage;kind='local-release-candidate';sourceCommit=$commit;platform='windows-x64';monitorIntervalSeconds=120;
     exeSha256=(Get-FileHash (Join-Path $output 'codex_timezone.exe')).Hash;
