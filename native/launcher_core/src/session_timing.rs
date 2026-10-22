@@ -8,10 +8,15 @@ pub(super) struct Timing {
     responses: BTreeMap<String, (Option<u64>, Option<u64>, u64)>,
     start: Option<u64>,
     end: Option<u64>,
+    terminal_seen: bool,
+    pub conflicting_item: bool,
+    pub conflicting_usage: bool,
     pub truncated: bool,
     missing_ids: u64,
 }
+#[derive(PartialEq)]
 struct Item {
+    identity_content: Value,
     kind: String,
     start: Option<u64>,
     end: Option<u64>,
@@ -39,12 +44,23 @@ impl Timing {
     pub fn accept(&mut self, kind: &str, p: &Value, serial: u64) {
         match kind {
             "task_complete" => {
-                self.start = p["started_at"].as_u64();
-                self.end = p["completed_at"].as_u64();
+                if !self.terminal_seen {
+                    self.start = p["started_at"].as_u64();
+                    self.end = p["completed_at"].as_u64();
+                    self.terminal_seen = true;
+                }
             }
+            "turn_aborted" => self.terminal_seen = true,
             "token_usage_record" => {
                 if let Some(id) = p["response_id"].as_str().filter(|s| !s.is_empty()) {
-                    if self.responses.contains_key(id) || self.responses.len() < LIMIT {
+                    let row = (
+                        p["usage"]["output_tokens"].as_u64(),
+                        p["usage"]["reasoning_output_tokens"].as_u64(),
+                        serial,
+                    );
+                    if let Some(old) = self.responses.get(id) {
+                        self.conflicting_usage |= old.0 != row.0 || old.1 != row.1;
+                    } else if self.responses.len() < LIMIT {
                         self.responses.insert(
                             id.into(),
                             (
@@ -66,15 +82,16 @@ impl Timing {
                     return;
                 }
                 if let Some(id) = item["id"].as_str().filter(|s| !s.is_empty()) {
-                    if self.items.contains_key(id) || self.items.len() < LIMIT {
-                        self.items.insert(
-                            id.into(),
-                            Item {
-                                kind: item["type"].as_str().unwrap_or("Unknown").into(),
-                                start: p["started_at_ms"].as_u64(),
-                                end: p["completed_at_ms"].as_u64(),
-                            },
-                        );
+                    let row = Item {
+                        identity_content: item.clone(),
+                        kind: item["type"].as_str().unwrap_or("Unknown").into(),
+                        start: p["started_at_ms"].as_u64(),
+                        end: p["completed_at_ms"].as_u64(),
+                    };
+                    if let Some(old) = self.items.get(id) {
+                        self.conflicting_item |= old != &row;
+                    } else if self.items.len() < LIMIT {
+                        self.items.insert(id.into(), row);
                     } else {
                         self.truncated = true;
                     }
@@ -146,7 +163,11 @@ impl Timing {
             .responses
             .values()
             .try_fold(0u64, |sum, (n, _, _)| sum.checked_add((*n)?));
-        let agreement = if self.responses.is_empty() || self.truncated || self.missing_ids > 0 {
+        let agreement = if self.responses.is_empty()
+            || self.truncated
+            || self.missing_ids > 0
+            || self.conflicting_usage
+        {
             None
         } else {
             sum.zip(output).map(|(a, b)| a == b)

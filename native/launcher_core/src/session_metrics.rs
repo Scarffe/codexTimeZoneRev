@@ -1,3 +1,7 @@
+#[path = "session_identity.rs"]
+mod session_identity;
+#[path = "session_quality.rs"]
+mod session_quality;
 #[path = "session_timing.rs"]
 mod session_timing;
 use serde_json::{json, Value};
@@ -16,6 +20,7 @@ use std::{
 const MAX_LINE: u64 = 8 * 1024 * 1024;
 #[derive(Default)]
 struct Turn {
+    evidence: session_quality::Evidence,
     timing: session_timing::Timing,
     state: String,
     output: Option<u64>,
@@ -35,6 +40,10 @@ struct Reader {
     turns: BTreeMap<String, Turn>,
     serial: u64,
     stamp: Option<std::time::SystemTime>,
+    identity: Option<session_identity::Identity>,
+    source_info: Option<Value>,
+    incomplete: bool,
+    response_owners: BTreeMap<String, String>,
 }
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 static READER: Mutex<Option<Reader>> = Mutex::new(None);
@@ -87,22 +96,37 @@ fn line(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 fn metadata(path: &Path) -> Option<Value> {
-    let mut reader = BufReader::new(File::open(path).ok()?);
+    metadata_file(File::open(path).ok()?, path)
+}
+fn metadata_file(mut file: File, path: &Path) -> Option<Value> {
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let modified = file
+        .metadata()
+        .ok()?
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| u64::try_from(d.as_millis()).ok());
+    let mut reader = BufReader::new(file);
     let value: Value = serde_json::from_slice(&line(&mut reader).ok()?).ok()?;
     if value["type"] != "session_meta" || value["payload"]["source"].is_object() {
         return None;
     }
     let p = &value["payload"];
     Some(
-        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"title":p["title"],"modifiedMs":fs::metadata(path).ok().and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_millis() as u64),"path":path}),
+        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"title":p["title"],"modifiedMs":modified,"path":path}),
     )
 }
 impl Reader {
     fn poll(&mut self, path: PathBuf) -> Result<Value, String> {
-        let file = File::open(&path).map_err(|_| "所选会话已移除或不可读取")?;
+        let mut file = File::open(&path).map_err(|_| "所选会话已移除或不可读取")?;
         let meta = file.metadata().map_err(|_| "会话属性读取失败")?;
         let modified = meta.modified().ok();
         if self.path != path
+            || self
+                .identity
+                .as_ref()
+                .is_some_and(|i| !i.matches(&mut file).unwrap_or(false))
             || meta.len() < self.offset
             || (meta.len() == self.offset && self.stamp != modified)
         {
@@ -112,6 +136,16 @@ impl Reader {
                 ..Default::default()
             };
         }
+        // Metadata and records come from this same open handle, including when
+        // the directory entry is atomically replaced during the poll.
+        self.source_info = metadata_file(
+            file.try_clone().map_err(|_| "会话属性读取失败")?,
+            &self.path,
+        );
+        let session = self
+            .source_info
+            .as_ref()
+            .and_then(|m| session_quality::text(&m["id"]));
         let mut reader = BufReader::new(file);
         reader
             .seek(SeekFrom::Start(self.offset))
@@ -126,17 +160,31 @@ impl Reader {
             self.offset += bytes.len() as u64;
             read += bytes.len();
             let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
+                self.incomplete = true;
                 continue;
             };
-            if v["type"] != "event_msg" && v["type"] != "token_usage_record" {
+            if ![
+                "event_msg",
+                "token_usage_record",
+                "turn_context",
+                "compacted",
+            ]
+            .iter()
+            .any(|k| v["type"] == *k)
+            {
                 continue;
             }
             let p = &v["payload"];
-            let Some(id) = p["turn_id"].as_str() else {
+            let Some(id) = p["turn_id"].as_str().filter(|s| !s.trim().is_empty()) else {
+                if v["type"] == "compacted" || p["type"] == "token_count" {
+                    for t in self.turns.values_mut() {
+                        t.evidence.accept("compacted", p, &v, session.as_deref());
+                    }
+                }
                 continue;
             };
-            let kind = if v["type"] == "token_usage_record" {
-                "token_usage_record"
+            let kind = if v["type"] != "event_msg" {
+                v["type"].as_str().unwrap_or("")
             } else {
                 p["type"].as_str().unwrap_or("")
             };
@@ -146,14 +194,35 @@ impl Reader {
                 "turn_aborted",
                 "token_usage_record",
                 "item_completed",
+                "turn_context",
+                "token_count",
+                "compacted",
             ]
             .contains(&kind)
             {
                 continue;
             }
             self.serial += 1;
+            let response_owner = if kind == "token_usage_record" {
+                session_quality::text(&p["response_id"])
+                    .and_then(|r| self.response_owners.insert(r, id.to_owned()))
+            } else {
+                None
+            };
+            if let Some(other) = response_owner.as_ref().filter(|other| other.as_str() != id) {
+                if let Some(t) = self.turns.get_mut(other) {
+                    t.evidence.conflict("conflicting_usage");
+                }
+            }
             let t = self.turns.entry(id.to_owned()).or_default();
+            if response_owner.is_some_and(|other| other != id) {
+                t.evidence.conflict("conflicting_usage");
+            }
+            t.evidence.accept(kind, p, &v, session.as_deref());
             t.timing.accept(kind, p, self.serial);
+            if t.timing.conflicting_item {
+                t.evidence.conflict("conflicting_item");
+            }
             // Replayed lifecycle records must not resurrect a terminal turn or
             // reorder an old turn ahead of newer activity. First terminal wins.
             if kind == "task_started" && !t.ended {
@@ -183,13 +252,14 @@ impl Reader {
                 t.order = self.serial;
             }
             if kind == "token_usage_record" {
-                // turn_token_usage is a snapshot: replace, never sum repeated/cumulative notifications.
-                if let Some(n) = p["turn_token_usage"]["output_tokens"].as_u64() {
-                    t.output = Some(n);
-                    t.reasoning = p["turn_token_usage"]["reasoning_output_tokens"].as_u64();
-                }
+                t.output = t.evidence.output;
+                t.reasoning = t.evidence.reasoning;
             }
         }
+        self.identity = Some(
+            session_identity::Identity::capture(reader.get_mut(), self.offset)
+                .map_err(|_| "会话连续性检查失败")?,
+        );
         self.stamp = modified;
         let latest = self
             .turns
@@ -211,9 +281,58 @@ impl Reader {
             .take(64)
             .map(|(id, t)| json!({"turnId":id,"status":t.state,"durationMs":t.duration}))
             .collect();
-        let last = latest.map(|(id,t)| json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond": t.output.zip(t.duration).filter(|(_,d)| *d>0).map(|(n,d)| n as f64*1000.0/d as f64)}));
+        let catching_up = self.offset < meta.len();
+        let quality_of = |t: &Turn| {
+            let a = t.timing.report(t.duration, t.output);
+            t.evidence.quality(
+                t.duration,
+                a["boundsValid"] == true,
+                session.as_deref(),
+                self.incomplete || catching_up,
+            )
+        };
+        let last = latest.map(|(id,t)| { let quality=quality_of(t); json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond":session_quality::rate(t.output,t.duration),"verifiedTokensPerSecond":if quality["status"]=="verified" {session_quality::rate(t.output,t.duration)} else {None},"quality":quality}) });
+        let quality = latest
+            .map(|(_, t)| quality_of(t))
+            .unwrap_or_else(|| json!({"status":"incomplete","reasons":["no_completed_turn"]}));
+        let mut grouped: BTreeMap<
+            (
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ),
+            Vec<&Turn>,
+        > = BTreeMap::new();
+        for (id, t) in &self.turns {
+            if !t.complete || quality_of(t)["status"] != "verified" {
+                continue;
+            }
+            let e = &t.evidence;
+            let unknown = if e.model.is_none() || e.effort.is_none() || e.tier.is_none() {
+                Some(id.clone())
+            } else {
+                None
+            };
+            grouped
+                .entry((
+                    session.clone(),
+                    e.model.clone(),
+                    e.effort.clone(),
+                    e.tier.clone(),
+                    unknown,
+                ))
+                .or_default()
+                .push(t);
+        }
+        let groups:Vec<_>=grouped.into_iter().filter_map(|((session,model,effort,tier,_),turns)| {
+            let output=turns.iter().try_fold(0u64,|a,t|a.checked_add(t.output?))?;
+            let duration=turns.iter().try_fold(0u64,|a,t|a.checked_add(t.duration?))?;
+            Some(json!({"sessionId":session,"model":model,"effort":effort,"serviceTier":tier,"turnCount":turns.len(),"outputTokens":output,"durationMs":duration,"tokensPerSecond":session_quality::rate(Some(output),Some(duration))}))
+        }).collect();
         Ok(
-            json!({"logEpoch":self.epoch,"current":current,"terminals":terminals,"active":active,"catchingUp":self.offset<meta.len(),"last":last,"completedTurns":self.turns.values().filter(|t|t.complete).count()}),
+            json!({"logEpoch":self.epoch,"current":current,"terminals":terminals,"active":active,"catchingUp":catching_up,"last":last,"completedTurns":self.turns.values().filter(|t|t.complete).count(),"sourceInfo":self.source_info,"quality":quality,"verifiedGroups":groups,"measurement":{"kind":"observed_turn","sourceLabel":"所选 Codex 会话 · 本地只读日志","sessionId":session,"tokenSource":"turn_token_usage.output_tokens","durationSource":"task_complete.duration_ms","outputIncludesReasoning":if latest.is_some_and(|(_,t)|t.evidence.recognized){Some(true)}else{None}}}),
         )
     }
 }
@@ -252,15 +371,216 @@ pub fn execute(payload: Value) -> Result<Value, String> {
         return Err("仅允许读取本机会话目录中的主会话日志".into());
     }
     let mut guard = READER.lock().map_err(|_| "会话采集锁不可用")?;
-    let info = metadata(&path);
-    let mut result = guard.get_or_insert_with(Reader::default).poll(path)?;
-    result["sourceInfo"] = info.unwrap_or(Value::Null);
-    Ok(result)
+    guard.get_or_insert_with(Reader::default).poll(path)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+    fn m1_usage(turn: &str, response: &str, output: u64, total: u64) -> Value {
+        json!({"type":"token_usage_record","timestamp":"1970-01-01T00:00:02.000Z","payload":{"turn_id":turn,"thread_id":"session","response_id":response,"model":"model","usage":{"input_tokens":100,"output_tokens":output,"reasoning_output_tokens":5},"turn_token_usage":{"input_tokens":100,"output_tokens":total,"reasoning_output_tokens":5},"thread_token_usage":{"input_tokens":100,"output_tokens":total,"reasoning_output_tokens":5}}})
+    }
+    fn m1_records(turn: &str, output: u64, duration: u64) -> Vec<Value> {
+        vec![
+            json!({"type":"session_meta","payload":{"id":"session","source":"vscode"}}),
+            json!({"type":"turn_context","payload":{"turn_id":turn,"model":"model","effort":"high","service_tier":"standard"}}),
+            m1_usage(turn, &format!("r-{turn}"), output, output),
+            json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":turn,"started_at":1,"completed_at":1+duration/1000,"duration_ms":duration}}),
+        ]
+    }
+    fn m1_poll(records: &[Value]) -> Value {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        for v in records {
+            writeln!(f, "{v}").unwrap();
+        }
+        Reader::default().poll(f.path().to_path_buf()).unwrap()
+    }
+    #[test]
+    fn session_m1_verified_replay_and_reasoning_are_not_double_counted() {
+        let mut records = m1_records("a", 20, 2000);
+        records.push(records[2].clone());
+        let v = m1_poll(&records);
+        assert_eq!(v["quality"]["status"], "verified");
+        assert_eq!(v["last"]["verifiedTokensPerSecond"], 10.0);
+        assert_eq!(v["measurement"]["outputIncludesReasoning"], true);
+        assert_eq!(v["verifiedGroups"][0]["outputTokens"], 20);
+    }
+    #[test]
+    fn session_m1_response_linked_cumulative_replay_does_not_regress() {
+        let mut records = m1_records("a", 10, 2000);
+        records.insert(3, m1_usage("a", "r2", 10, 20));
+        records[3]["payload"]["turn_token_usage"]["reasoning_output_tokens"] = json!(10);
+        records[3]["payload"]["thread_token_usage"]["reasoning_output_tokens"] = json!(10);
+        records.push(records[2].clone());
+        let v = m1_poll(&records);
+        assert_eq!(v["last"]["outputTokens"], 20);
+        assert_eq!(v["quality"]["status"], "verified");
+        records.push(m1_usage("a", "r2", 11, 21));
+        assert_eq!(m1_poll(&records)["quality"]["status"], "conflict");
+    }
+    #[test]
+    fn session_m1_conflicting_terminal_freezes_h2_bounds() {
+        let mut records = m1_records("a", 20, 2000);
+        records.push(json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"a","started_at_ms":1000,"completed_at_ms":2000,"item":{"id":"i","type":"CommandExecution"}}}));
+        records.push(json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":"a","started_at":10,"completed_at":12,"duration_ms":2000}}));
+        let v = m1_poll(&records);
+        assert_eq!(v["last"]["analysis"]["toolMs"], 1000);
+        assert_eq!(v["quality"]["status"], "conflict");
+        assert!(v["last"]["verifiedTokensPerSecond"].is_null());
+    }
+    #[test]
+    fn session_m1_conflicting_item_and_snapshot_are_visible() {
+        let mut records = m1_records("a", 20, 2000);
+        for end in [2000, 2500] {
+            records.push(json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"a","started_at_ms":1000,"completed_at_ms":end,"item":{"id":"i","type":"CommandExecution"}}}));
+        }
+        let v = m1_poll(&records);
+        assert_eq!(v["quality"]["status"], "conflict");
+        assert_eq!(v["last"]["analysis"]["toolMs"], 1000);
+        let mut records = m1_records("a", 20, 2000);
+        let mut changed = records[2].clone();
+        changed["payload"]["turn_token_usage"]["output_tokens"] = json!(21);
+        records.push(changed);
+        assert_eq!(m1_poll(&records)["quality"]["status"], "conflict");
+    }
+    #[test]
+    fn session_m1_invalid_missing_and_old_schema_never_verify() {
+        for bad in [json!(-1), json!("20"), json!(1.5), json!(true)] {
+            let mut records = m1_records("a", 20, 2000);
+            records[2]["payload"]["usage"]["output_tokens"] = bad;
+            let v = m1_poll(&records);
+            assert_eq!(v["quality"]["status"], "incomplete");
+            assert!(v["last"]["verifiedTokensPerSecond"].is_null());
+        }
+        let mut records = m1_records("a", 20, 0);
+        assert_eq!(m1_poll(&records)["quality"]["status"], "incomplete");
+        records.remove(2);
+        assert_eq!(m1_poll(&records)["quality"]["status"], "incomplete");
+        records.push(json!({"type":"event_msg","payload":{"type":"token_count","turn_id":"a","info":{"total_token_usage":{"output_tokens":20}}}}));
+        assert_eq!(m1_poll(&records)["quality"]["status"], "unsupported");
+    }
+    #[test]
+    fn session_m1_groups_use_weighted_duration_and_unknowns_stay_separate() {
+        let mut records = m1_records("a", 20, 2000);
+        records.extend(m1_records("b", 80, 4000).into_iter().skip(1));
+        let v = m1_poll(&records);
+        assert_eq!(v["verifiedGroups"].as_array().unwrap().len(), 1);
+        assert_eq!(v["verifiedGroups"][0]["durationMs"], 6000);
+        assert!(
+            (v["verifiedGroups"][0]["tokensPerSecond"].as_f64().unwrap() - 100.0 / 6.0).abs()
+                < 1e-10
+        );
+        for key in ["model", "effort", "service_tier"] {
+            let mut r = records.clone();
+            r[4]["payload"][key] = json!("different");
+            assert_eq!(
+                m1_poll(&r)["verifiedGroups"].as_array().unwrap().len(),
+                2,
+                "{key}"
+            );
+        }
+        for r in &mut records {
+            if r["type"] == "turn_context" {
+                r["payload"].as_object_mut().unwrap().remove("service_tier");
+            }
+        }
+        assert_eq!(
+            m1_poll(&records)["verifiedGroups"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+    #[test]
+    fn session_m1_longer_same_session_atomic_replacement_resets_epoch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout.jsonl");
+        let write_log = |path: &Path, records: Vec<Value>| {
+            let mut f = File::create(path).unwrap();
+            for v in records {
+                writeln!(f, "{v}").unwrap();
+            }
+        };
+        write_log(&path, m1_records("old", 20, 2000));
+        let mut reader = Reader::default();
+        let before = reader.poll(path.clone()).unwrap();
+        let replacement = dir.path().join("replacement");
+        let mut newer = m1_records("new", 80, 4000);
+        newer.push(json!({"padding":"longer file padding repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated"}));
+        write_log(&replacement, newer);
+        assert!(fs::metadata(&replacement).unwrap().len() > fs::metadata(&path).unwrap().len());
+        fs::remove_file(&path).unwrap();
+        fs::rename(replacement, &path).unwrap();
+        let after = reader.poll(path).unwrap();
+        assert_ne!(before["logEpoch"], after["logEpoch"]);
+        assert_eq!(after["completedTurns"], 1);
+        assert_eq!(after["last"]["turnId"], "new");
+        assert_eq!(after["sourceInfo"]["id"], "session");
+    }
+    #[test]
+    fn session_m1_timestamp_identity_and_counter_ranges_gate_verification() {
+        for (key, bad) in [
+            ("reasoning_output_tokens", json!(21)),
+            ("cached_input_tokens", json!(101)),
+            ("input_tokens", json!(u64::MAX)),
+        ] {
+            let mut r = m1_records("a", 20, 2000);
+            r[2]["payload"]["usage"][key] = bad;
+            let v = m1_poll(&r);
+            assert_eq!(v["quality"]["status"], "incomplete", "{key}");
+        }
+        for stamp in [
+            json!(null),
+            json!("1970-01-01T00:00:04.000Z"),
+            json!("1970-02-30T00:00:02Z"),
+            json!("1970-01-01T00:00:02junk"),
+        ] {
+            let mut r = m1_records("a", 20, 2000);
+            r[2]["timestamp"] = stamp;
+            assert_eq!(m1_poll(&r)["quality"]["status"], "incomplete");
+        }
+        let mut r = m1_records("a", 20, 2000);
+        r[2]["payload"]["thread_id"] = json!("other");
+        assert_eq!(m1_poll(&r)["quality"]["status"], "conflict");
+        r[2]["payload"].as_object_mut().unwrap().remove("thread_id");
+        assert_eq!(m1_poll(&r)["quality"]["status"], "reported_only");
+    }
+    #[test]
+    fn session_m1_late_compatible_usage_can_verify_and_cross_turn_response_cannot() {
+        let mut r = m1_records("a", 20, 2000);
+        let usage = r.remove(2);
+        r.push(usage);
+        assert_eq!(m1_poll(&r)["quality"]["status"], "verified");
+        let mut b = m1_records("b", 20, 2000);
+        b[2]["payload"]["response_id"] = json!("r-a");
+        r.extend(b.into_iter().skip(1));
+        let v = m1_poll(&r);
+        assert_eq!(v["quality"]["status"], "conflict");
+        assert_eq!(v["verifiedGroups"], json!([]));
+    }
+    #[test]
+    fn session_m1_conflicting_item_content_is_invalid() {
+        let mut r = m1_records("a", 20, 2000);
+        for content in ["one", "two"] {
+            r.push(json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"a","started_at_ms":1000,"completed_at_ms":2000,"item":{"id":"i","type":"AgentMessage","content":content}}}));
+        }
+        assert_eq!(m1_poll(&r)["quality"]["status"], "conflict");
+    }
+    #[test]
+    fn session_m1_first_token_cannot_exceed_duration() {
+        let mut r = m1_records("a", 20, 2000);
+        r[3]["payload"]["time_to_first_token_ms"] = json!(3000);
+        assert_eq!(m1_poll(&r)["quality"]["status"], "incomplete");
+    }
+    #[test]
+    fn session_m1_snapshot_counter_disagreement_cannot_verify() {
+        let mut r = m1_records("a", 10, 2000);
+        r.insert(3, m1_usage("a", "r2", 10, 20));
+        // The complete output ledger is20, but reasoning5+5 cannot reconcile
+        // with a final snapshot claiming only5 reasoning tokens.
+        assert_eq!(m1_poll(&r)["quality"]["status"], "incomplete");
+    }
     #[test]
     fn recent_uses_modification_time_and_exposes_only_metadata() {
         let dir = tempfile::tempdir().unwrap();
