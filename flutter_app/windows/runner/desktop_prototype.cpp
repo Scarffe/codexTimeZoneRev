@@ -49,7 +49,7 @@ struct State {
   int sessionStatus=0, sessionAlertsShown=0, sessionAlertsSuppressed=0;
   int64_t sessionAlertSerial=0;
   bool sessionBubble=false, sessionAlertKeptFocus=true;
-  int sessionFocusChecks=0;
+  int sessionFocusChecks=0, sessionBubbleClicks=0;
   std::wstring rolePath,roleName;
   UINT roleWidth=0,roleHeight=0;
   std::vector<std::uint32_t> rolePixels;
@@ -160,6 +160,7 @@ void Report() {
         << ",\"bubbleDismissals\":" << s.bubbleDismissals
         << ",\"bubbleVisible\":" << (IsWindowVisible(s.bubble) ? "true" : "false")
         << ",\"sessionStatus\":" << s.sessionStatus
+        << ",\"sessionBubbleClicks\":" << s.sessionBubbleClicks
         << ",\"sessionFocusChecks\":" << s.sessionFocusChecks
         << ",\"sessionAlertKeptFocus\":" << (s.sessionAlertKeptFocus?"true":"false")
         << ",\"bubbleForeground\":" << (GetForegroundWindow()==s.bubble?"true":"false")
@@ -376,6 +377,7 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
     const bool openSession=msg==WM_LBUTTONUP && current->sessionBubble;
     ShowWindow(hwnd,SW_HIDE); KillTimer(current->owner,2);
     if(openSession && current->live) {
+      ++current->sessionBubbleClicks;
       ShowWindow(current->mainWindow,SW_RESTORE); SetForegroundWindow(current->mainWindow);
       if(current->action) current->action("sessionDetails");
     }
@@ -386,6 +388,8 @@ LRESULT CALLBACK BubbleProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
 
 bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false,bool session=false) {
   auto& s=*current;
+  // A pet response must not replace a still-visible completion reminder.
+  if(companion && s.sessionBubble && IsWindowVisible(s.bubble)) return true;
   if(!s.bubble) {
     if(!Register(kBubbleClass,BubbleProc)) return false;
     s.bubble=CreateWindowExW(WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
@@ -429,7 +433,7 @@ bool ShowAlert(const std::wstring& text,bool renew=true,bool companion=false,boo
       s.companionBubble=companion;
       s.sessionBubble=session;
       s.bubbleText=text;
-      s.bubbleUntil=GetTickCount64()+(s.testControls ? 30000 : 10000);
+      s.bubbleUntil=GetTickCount64()+(s.testControls ? 90000 : 10000);
       if(session) ++s.sessionAlertsShown;
       else if(!companion) ++s.alertsShown;
     }
@@ -751,6 +755,9 @@ void ConfigureSessionAlert(const std::wstring& text, int64_t serial) {
   if(!current || !current->live) return;
   auto& s=*current;
   if(text.empty()) {
+    // The Dart production TTL is 10s. Only opted-in UI tests retain the
+    // same completed-turn bubble longer for a human click; state changes clear it.
+    if(s.testControls && s.sessionStatus==2 && GetTickCount64()<s.bubbleUntil) return;
     if(s.sessionBubble) { ShowWindow(s.bubble,SW_HIDE); KillTimer(s.owner,2); }
     Report(); return;
   }
@@ -907,6 +914,7 @@ int Run(const std::vector<std::wstring>& args) {
       check(__LINE__,state.sessionAlertsShown==shown+1 && state.sessionBubble && state.sessionAlertKeptFocus);
       check(__LINE__,(GetWindowLongPtrW(state.bubble,GWL_EXSTYLE)&WS_EX_NOACTIVATE)!=0);
       check(__LINE__,SendMessageW(state.bubble,WM_MOUSEACTIVATE,0,0)==MA_NOACTIVATE);
+      check(__LINE__,ShowAlert(L"桌宠回应不覆盖提醒",true,true) && state.sessionBubble);
       ConfigureSessionAlert(L"重复事件",1); check(__LINE__,state.sessionAlertsShown==shown+1);
       PublishMonitor(L"自检",-1,true,true,0,0,0,L"",L"",0,true,3);
       check(__LINE__,IsWindowVisible(state.bubble)!=FALSE);
