@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../state/session_metrics_controller.dart';
+import '../services/session_measurement_quality.dart';
 import 'session_timing_panel.dart';
 
 class SessionMetricsPanel extends StatelessWidget {
@@ -78,6 +79,7 @@ class SessionMetricsPanel extends StatelessWidget {
               ),
               if (controller.selected != null) ...[
                 const SizedBox(height: 8),
+                _MeasurementDetails(quality: controller.measurementQuality),
                 Text(
                   '输出：${last?['outputTokens'] ?? '不可用'} tokens · 推理：${last?['reasoningTokens'] ?? '不可用'} tokens',
                 ),
@@ -108,4 +110,47 @@ class SessionMetricsPanel extends StatelessWidget {
       );
     },
   );
+}
+
+class _MeasurementDetails extends StatefulWidget {
+  const _MeasurementDetails({required this.quality});
+  final SessionMeasurementQuality quality;
+  @override
+  State<_MeasurementDetails> createState() => _MeasurementDetailsState();
+}
+
+class _MeasurementDetailsState extends State<_MeasurementDetails> {
+  bool expanded = false;
+  @override
+  Widget build(BuildContext context) {
+    final quality = widget.quality;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('样本质量：${quality.label}', key: const ValueKey('session-quality')),
+        for (final reason in quality.reasons) Text(reason),
+        const SizedBox(height: 8),
+        FButton(
+          key: const ValueKey('session-measurement-details'),
+          variant: FButtonVariant.outline,
+          onPress: () => setState(() => expanded = !expanded),
+          child: Text(expanded ? '收起统计来源与核验详情' : '查看统计来源与核验详情'),
+        ),
+        if (expanded) ...[
+          const SizedBox(height: 8),
+          Text('统计来源：${quality.sourceLabel}'),
+          const Text('口径：回合输出 token ÷ 完整回合耗时。包含工具与等待；推理已包含在输出中时不重复相加。'),
+          Text(
+            '日志报告值 · 未充分核验：${quality.reportedTokensPerSecond?.toStringAsFixed(2) ?? '不可用'}${quality.reportedTokensPerSecond == null ? '' : ' tokens/s'}',
+          ),
+          const Text('已核验汇总按会话、模型、推理强度与服务层级分组，以总输出除以总耗时计算。'),
+          if (quality.verifiedGroups.isEmpty) const Text('暂无可用的已核验分组'),
+          for (final group in quality.verifiedGroups)
+            Text(
+              '会话 ${group['sessionId']} · ${group['model']} · ${group['effort']} · ${group['serviceTier']}：${group['turnCount']} 回合，${group['outputTokens']} tokens / ${((group['durationMs'] as num) / 1000).toStringAsFixed(3)} s = ${(group['tokensPerSecond'] as num).toStringAsFixed(2)} tokens/s',
+            ),
+        ],
+      ],
+    );
+  }
 }

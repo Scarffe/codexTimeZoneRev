@@ -149,7 +149,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(c.selectorValue, outsideList ? null : backend.listedPath);
-      expect(find.textContaining('回合平均吞吐 10.00 tokens/s'), findsOneWidget);
+      expect(find.textContaining('上轮回合平均吞吐：日志报告值 · 未充分核验'), findsOneWidget);
       if (outsideList) {
         expect(find.textContaining('当前采集会话不在最近列表中'), findsOneWidget);
       }
@@ -185,7 +185,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(c.selected, 'a');
-    expect(find.textContaining('回合平均吞吐 10.00 tokens/s'), findsOneWidget);
+    expect(find.textContaining('上轮回合平均吞吐：日志报告值 · 未充分核验'), findsOneWidget);
     await tester.ensureVisible(find.text('停止会话采集'));
     await tester.tap(find.text('停止会话采集'));
     await tester.pumpAndSettle();
@@ -215,7 +215,9 @@ void main() {
       await tester.pump();
       expect(usage.mainWindowVisible, false);
       expect(usage.attempts, 0);
-      expect(snapshots.last['text'], contains('回合平均吞吐 10.00 tokens/s'));
+      expect(snapshots.last['sessionRate'], -1.0);
+      expect(snapshots.last['text'], contains('未充分核验'));
+      expect(snapshots.last['text'], isNot(contains('10.00 tokens/s')));
       expect(snapshots.last['sessionSummary'], contains('回合平均吞吐'));
       metrics.select(null);
       await tester.pump();
@@ -236,7 +238,8 @@ void main() {
       expect(c.selected, isNull);
       c.select('a');
       await Future<void>.delayed(Duration.zero);
-      expect(c.summary, contains('回合平均吞吐 10.00 tokens/s'));
+      expect(c.summary, contains('未充分核验'));
+      expect(c.summary, isNot(contains('10.00 tokens/s')));
       expect(c.summary, contains('本轮进行中'));
       expect(c.petSummary, contains('回合平均吞吐'));
       c.select(null);

@@ -85,11 +85,13 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   final _navigator = GlobalKey<NavigatorState>();
   final _sessionPanel = GlobalKey();
+  final _independentApiSelected = ValueNotifier(false);
   void _showMonitor() {
     if (mounted) setState(() => monitorSelected = true);
   }
 
   void _showSessionDetails() {
+    _independentApiSelected.value = false;
     _showMonitor();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = _sessionPanel.currentContext;
@@ -229,6 +231,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                 metrics: metrics,
                 sessionPanelKey: _sessionPanel,
                 recentNotice: recentNotice,
+                independentApiSelected: _independentApiSelected,
               ),
             ),
           ),
@@ -246,6 +249,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     usage.dispose();
     metrics.dispose();
     appearance.dispose();
+    _independentApiSelected.dispose();
     super.dispose();
   }
 }

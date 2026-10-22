@@ -178,6 +178,43 @@ void main() {
     c.dispose();
   });
   test(
+    'longer same-session replacement epoch silently baselines history',
+    () async {
+      final feed = Feed();
+      final controller = SessionMetricsController(feed)
+        ..configureReminders(enabled: true)
+        ..select('same-path');
+      addTearDown(controller.dispose);
+      await settle();
+      feed.value = state('live', 'completed', history: ['old']);
+      await controller.poll();
+      expect(controller.alertSerial, 1);
+      // Rust detects an atomic longer replacement and supplies a new epoch,
+      // even though source identity and selected path remain the same.
+      feed.value = {
+        ...state(
+          'replacement-last',
+          'completed',
+          epoch: 2,
+          history: List.generate(40, (index) => 'replacement-history-$index'),
+        ),
+        'sourceInfo': {
+          'id': 'same-session',
+          'path': 'same-path',
+          'size': 100000,
+        },
+      };
+      await controller.poll();
+      expect(controller.alert, '');
+      expect(controller.alertSerial, 1);
+      await controller.poll();
+      expect(controller.alertSerial, 1);
+      feed.value = state('new-after-replacement', 'completed', epoch: 2);
+      await controller.poll();
+      expect(controller.alertSerial, 2);
+    },
+  );
+  test(
     'default-off, enabling and mute expiry never replay past endings',
     () async {
       var now = DateTime(2026, 10, 22);

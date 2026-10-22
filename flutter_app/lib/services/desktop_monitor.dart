@@ -164,8 +164,7 @@ class DesktopMonitor {
             '已取消' => 3,
             _ => 4,
           };
-    snapshot['sessionRate'] =
-        (metrics?.last?['tokensPerSecond'] as num?)?.toDouble() ?? -1.0;
+    snapshot['sessionRate'] = metrics?.verifiedTokensPerSecond ?? -1.0;
     snapshot['sessionSummary'] = metrics?.petSummary ?? '';
     final summary = metrics?.summary ?? '';
     if (summary.isNotEmpty) {

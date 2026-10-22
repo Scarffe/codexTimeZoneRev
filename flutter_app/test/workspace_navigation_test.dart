@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/app/application.dart';
@@ -8,6 +10,7 @@ import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/desktop_monitor.dart';
 import 'package:codex_timezone/services/network_info.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,8 +18,10 @@ import 'package:timezone/data/latest.dart' as timezone;
 
 import 'account_usage_page_test.dart' show PageBackend, PageUsage;
 import 'account_usage_test.dart' show usageResponse;
+import 'session_measurement_quality_test.dart' show qualityFixture;
 
 class WorkspaceBackend extends PageBackend {
+  int sessionCalls = 0;
   static final longPath =
       r'C:\项目\' + List.filled(12, '很长的工程与会话目录').join(r'\') + r'\selected.jsonl';
   @override
@@ -25,6 +30,7 @@ class WorkspaceBackend extends PageBackend {
     Map<String, dynamic> payload = const {},
   ]) {
     if (command == 'session_metrics') {
+      sessionCalls++;
       return Future.value(
         payload['action'] == 'list'
             ? {
@@ -39,6 +45,28 @@ class WorkspaceBackend extends PageBackend {
                 ],
               }
             : {
+                ...qualityFixture(),
+                'measurement': {
+                  ...qualityFixture()['measurement'] as Map<String, dynamic>,
+                  'sourceLabel':
+                      '所选 Codex 会话 · 本地只读日志 · ${List.filled(12, '用于核对统计来源的长项目说明').join(' · ')}',
+                },
+                'quality': {
+                  'status': 'incomplete',
+                  'reasons': [
+                    'missing_request_evidence',
+                    'missing_identity',
+                    'incomplete_history',
+                    'future_reason',
+                  ],
+                },
+                'last': {
+                  ...qualityFixture()['last'] as Map<String, dynamic>,
+                  'quality': {
+                    'status': 'incomplete',
+                    'reasons': ['missing_request_evidence'],
+                  },
+                },
                 'current': {'status': 'running'},
                 'sourceInfo': {
                   'id': 'selected',
@@ -53,7 +81,21 @@ class WorkspaceBackend extends PageBackend {
 }
 
 void main() {
-  setUpAll(timezone.initializeTimeZones);
+  setUpAll(() async {
+    timezone.initializeTimeZones();
+    // Readable offline render evidence on Windows; no font download or install.
+    final cjkFont = File('C:/Windows/Fonts/msyh.ttc');
+    if (await cjkFont.exists()) {
+      await (FontLoader('Microsoft YaHei')..addFont(
+            cjkFont.readAsBytes().then((value) => ByteData.sublistView(value)),
+          ))
+          .load();
+      await (FontLoader('packages/forui/Inter')..addFont(
+            rootBundle.load('packages/forui/assets/fonts/inter/Inter.ttf'),
+          ))
+          .load();
+    }
+  });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<void> switchPage(WidgetTester tester, String page) async {
@@ -212,6 +254,90 @@ void main() {
   });
 
   testWidgets(
+    'ten measurement entry switches retain session selection scroll and requests',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(760, 600);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final backend = WorkspaceBackend();
+      final service = PageUsage();
+      await tester.pumpWidget(
+        LauncherApplication(
+          backend: backend,
+          usageService: service,
+          networkFactory: () => NetworkController(preview: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await switchPage(tester, 'monitor');
+      final panel = tester.widget<SessionMetricsPanel>(
+        find.byType(SessionMetricsPanel),
+      );
+      final metrics = panel.controller;
+      metrics.select(WorkspaceBackend.longPath);
+      await tester.pumpAndSettle();
+      final scroll = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const PageStorageKey('monitor-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      scroll.position.jumpTo(100);
+      await tester.pump();
+      final calls = backend.sessionCalls;
+      for (var i = 0; i < 10; i++) {
+        await tester.tap(
+          find.byKey(const ValueKey('measurement-independent-api')),
+        );
+        await tester.pump();
+        expect(find.byType(SessionMetricsPanel), findsNothing);
+        expect(find.textContaining('M2/M3'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const PageStorageKey('independent-api-scroll')),
+            matching: find.byType(EditableText),
+          ),
+          findsNothing,
+        );
+        expect(find.textContaining('开始测速'), findsNothing);
+        expect(metrics.selected, WorkspaceBackend.longPath);
+        expect(scroll.position.pixels, 100);
+        final hiddenPanel = find.byType(
+          SessionMetricsPanel,
+          skipOffstage: false,
+        );
+        expect(TickerMode.of(tester.element(hiddenPanel)), false);
+        await tester.tap(
+          find.byKey(const ValueKey('measurement-current-session')),
+        );
+        await tester.pump();
+        expect(
+          tester
+              .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
+              .controller,
+          same(metrics),
+        );
+        expect(
+          TickerMode.of(tester.element(find.byType(SessionMetricsPanel))),
+          true,
+        );
+        expect(scroll.position.pixels, 100);
+      }
+      expect(backend.sessionCalls, calls);
+      expect(service.calls, 0);
+      expect(metrics.alertSerial, 0);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      // Forui's pointer highlight timers outlive zero-time simulated taps.
+      // Dispose the real session owner first, then drain only those UI timers.
+      await tester.pump(const Duration(milliseconds: 200));
+    },
+  );
+
+  testWidgets(
     'native detail actions select monitor and locate sessions without new quota requests',
     (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -255,6 +381,11 @@ void main() {
       await nativeAction('monitorDetails');
       await tester.pumpAndSettle();
       expect(find.byType(AccountUsagePanel), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('measurement-independent-api')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('M2/M3'), findsOneWidget);
       await switchPage(tester, 'launcher');
       await nativeAction('sessionDetails');
       await tester.pumpAndSettle();
@@ -298,12 +429,16 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         addTearDown(tester.view.resetPhysicalSize);
         final service = PageUsage();
+        final capture = GlobalKey();
         await tester.pumpWidget(
-          LauncherApplication(
-            backend: WorkspaceBackend(),
-            usageService: service,
-            networkFactory: () => NetworkController(preview: true),
-            initialAppearance: appearance,
+          RepaintBoundary(
+            key: capture,
+            child: LauncherApplication(
+              backend: WorkspaceBackend(),
+              usageService: service,
+              networkFactory: () => NetworkController(preview: true),
+              initialAppearance: appearance,
+            ),
           ),
         );
         await tester.pumpAndSettle();
@@ -322,6 +457,32 @@ void main() {
         expect(find.byKey(const ValueKey('session-selector')), findsOneWidget);
         await tester.ensureVisible(find.text('会话回合统计'));
         await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('session-measurement-details')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('session-measurement-details')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining('用于核对统计来源的长项目说明'), findsOneWidget);
+        expect(find.textContaining('核验信息不完整，暂无法核验'), findsOneWidget);
+        expect(find.textContaining('future_reason'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.runAsync(() async {
+          final boundary =
+              capture.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 1);
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          await File('../environment/m1-ui-$appearance-${width.toInt()}.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+        await tester.tap(
+          find.byKey(const ValueKey('measurement-independent-api')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining('M2/M3'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await switchPage(tester, 'launcher');
         expect(find.text('保存并启动'), findsOneWidget);

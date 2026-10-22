@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/backend.dart';
 import '../services/session_selection.dart';
+import '../services/session_measurement_quality.dart';
 
 /// Independent of quota polling: local files only, including while the main UI is hidden.
 class SessionMetricsController extends ChangeNotifier {
@@ -262,24 +263,29 @@ class SessionMetricsController extends ChangeNotifier {
     }
   }
 
-  Map<String, dynamic>? get last => data?['last'] as Map<String, dynamic>?;
+  Map<String, dynamic>? get last => data?['last'] is Map<String, dynamic>
+      ? data!['last'] as Map<String, dynamic>
+      : null;
+  SessionMeasurementQuality get measurementQuality =>
+      SessionMeasurementQuality.fromData(data);
+  double? get verifiedTokensPerSecond =>
+      measurementQuality.verifiedTokensPerSecond;
   String get summary {
     if (selected == null) return '';
     if (error != null) return '会话统计不可用';
     if (data?['catchingUp'] == true) return '正在读取会话历史';
-    final rate = last?['tokensPerSecond'] as num?;
+    final rate = verifiedTokensPerSecond;
     final prefix = data?['active'] == true ? '本轮进行中 · 上轮' : '上轮';
     return rate == null
-        ? '$prefix回合平均吞吐：暂无完整统计'
-        : '$prefix回合平均吞吐 ${rate.toStringAsFixed(2)} tokens/s';
+        ? '$prefix回合平均吞吐：${measurementQuality.label}'
+        : '$prefix已核验回合平均吞吐 ${rate.toStringAsFixed(2)} tokens/s';
   }
 
   String get petSummary {
     if (selected == null) return '';
     if (error != null) return '状态未知 · 读取失败';
     if (data?['catchingUp'] == true) return '状态未知 · 读取历史';
-    final rate = last?['tokensPerSecond'] as num?;
-    return '$stateLabel · 上轮\n回合平均吞吐 ${rate == null ? '暂无统计' : '${rate.toStringAsFixed(2)} tokens/s'}';
+    return '$stateLabel\n$summary';
   }
 
   @override
