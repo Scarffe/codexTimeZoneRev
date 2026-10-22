@@ -5,8 +5,100 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <shellapi.h>
+
+namespace {
+constexpr wchar_t kOwnerClass[]=L"CodexTimeZone.StageA.Owner";
+constexpr wchar_t kPetClass[]=L"CodexTimeZone.StageA.Pet";
+std::filesystem::path decoyReport;
+HWND decoyOwner=nullptr,decoyPet=nullptr;
+int decoyMutations=0;
+void WriteDecoy() {
+  std::ofstream out(decoyReport);
+  out<<GetCurrentProcessId()<<' '<<reinterpret_cast<uintptr_t>(decoyOwner)<<' '
+     <<reinterpret_cast<uintptr_t>(decoyPet)<<' '<<decoyMutations;
+}
+LRESULT CALLBACK DecoyProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp) {
+  if(message==WM_COMMAND || message==WM_APP+72 || message==WM_POWERBROADCAST) {
+    ++decoyMutations; WriteDecoy(); return 0;
+  }
+  return DefWindowProcW(hwnd,message,wp,lp);
+}
+int RunDecoy(const wchar_t* output,const wchar_t* stopName) {
+  decoyReport=output;
+  WNDCLASSW cls{}; cls.lpfnWndProc=DecoyProc; cls.hInstance=GetModuleHandleW(nullptr);
+  cls.lpszClassName=kOwnerClass; if(!RegisterClassW(&cls)) return 10;
+  cls.lpszClassName=kPetClass; if(!RegisterClassW(&cls)) return 11;
+  decoyOwner=CreateWindowExW(WS_EX_TOOLWINDOW,kOwnerClass,L"Foreign fixture decoy owner",WS_POPUP,
+      0,0,1,1,nullptr,nullptr,cls.hInstance,nullptr);
+  decoyPet=CreateWindowExW(WS_EX_TOOLWINDOW,kPetClass,L"Foreign fixture decoy pet",WS_POPUP,
+      0,0,1,1,nullptr,nullptr,cls.hInstance,nullptr);
+  if(!decoyOwner || !decoyPet) return 12;
+  HANDLE stop=OpenEventW(SYNCHRONIZE,FALSE,stopName); if(!stop) return 13;
+  WriteDecoy();
+  const auto deadline=GetTickCount64()+15000;
+  while(GetTickCount64()<deadline && WaitForSingleObject(stop,0)!=WAIT_OBJECT_0) {
+    MsgWaitForMultipleObjects(1,&stop,FALSE,50,QS_ALLINPUT);
+    MSG message{}; while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)) { TranslateMessage(&message); DispatchMessageW(&message); }
+  }
+  WriteDecoy(); DestroyWindow(decoyPet); DestroyWindow(decoyOwner); CloseHandle(stop); return 0;
+}
+struct ForeignDecoy {
+  HANDLE stop=nullptr,process=nullptr;
+  DWORD pid=0; HWND owner=nullptr,pet=nullptr;
+  std::filesystem::path report;
+  ~ForeignDecoy() { if(stop) SetEvent(stop); if(process) { WaitForSingleObject(process,5000); CloseHandle(process); } if(stop) CloseHandle(stop); }
+  bool Start(const std::filesystem::path& output) {
+    report=output;
+    const auto stopName=L"Local\\CodexTimeZone.WorkspaceDecoy.Stop."+std::to_wstring(GetCurrentProcessId());
+    stop=CreateEventW(nullptr,TRUE,FALSE,stopName.c_str()); if(!stop) return false;
+    wchar_t executable[32768]{}; GetModuleFileNameW(nullptr,executable,32768);
+    std::wstring command=L"\""+std::wstring(executable)+L"\" --workspace-foreign-decoy \""+report.wstring()+L"\" \""+stopName+L"\"";
+    STARTUPINFOW startup{}; startup.cb=sizeof(startup); startup.dwFlags=STARTF_USESHOWWINDOW; startup.wShowWindow=SW_HIDE;
+    PROCESS_INFORMATION child{};
+    if(!CreateProcessW(nullptr,command.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&startup,&child)) return false;
+    process=child.hProcess; pid=child.dwProcessId; CloseHandle(child.hThread);
+    const auto deadline=GetTickCount64()+5000;
+    while(GetTickCount64()<deadline) {
+      DWORD reportedPid=0; uintptr_t ownerValue=0,petValue=0; int mutations=-1;
+      std::ifstream in(report);
+      if(in>>reportedPid>>ownerValue>>petValue>>mutations && reportedPid==pid && ownerValue && petValue) {
+        owner=reinterpret_cast<HWND>(ownerValue); pet=reinterpret_cast<HWND>(petValue);
+        // Put this owned decoy before the app owner to reproduce unscoped lookup.
+        SetWindowPos(owner,HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+        return mutations==0;
+      }
+      Sleep(20);
+    }
+    return false;
+  }
+  bool Untouched() const {
+    DWORD reportedPid=0; uintptr_t ownerValue=0,petValue=0; int mutations=-1;
+    std::ifstream in(report); in>>reportedPid>>ownerValue>>petValue>>mutations;
+    return reportedPid==pid && mutations==0 && IsWindow(owner) && IsWindow(pet);
+  }
+};
+struct OwnWindowSearch { const wchar_t* windowClass; HWND window=nullptr; };
+BOOL CALLBACK FindOwnWindow(HWND window,LPARAM parameter) {
+  auto& search=*reinterpret_cast<OwnWindowSearch*>(parameter);
+  DWORD pid=0; GetWindowThreadProcessId(window,&pid);
+  if(pid!=GetCurrentProcessId()) return TRUE;
+  wchar_t windowClass[128]{};
+  if(GetClassNameW(window,windowClass,static_cast<int>(std::size(windowClass))) &&
+      std::wstring(windowClass)==search.windowClass) { search.window=window; return FALSE; }
+  return TRUE;
+}
+HWND CurrentProcessWindow(const wchar_t* windowClass) {
+  OwnWindowSearch search{windowClass};
+  EnumWindows(FindOwnWindow,reinterpret_cast<LPARAM>(&search)); return search.window;
+}
+bool OwnedByCurrentProcess(HWND window) {
+  DWORD pid=0; if(window) GetWindowThreadProcessId(window,&pid); return window && pid==GetCurrentProcessId();
+}
+}
 
 int wmain(int argc, wchar_t** argv) {
+  if(argc==4 && std::wstring(argv[1])==L"--workspace-foreign-decoy") return RunDecoy(argv[2],argv[3]);
   if (argc < 2) return 2;
   const std::filesystem::path report(argv[1]);
   HWND main = CreateWindowExW(0,L"STATIC",L"Workspace native fixture",WS_OVERLAPPEDWINDOW,
@@ -20,8 +112,17 @@ int wmain(int argc, wchar_t** argv) {
     desktop_prototype::ReportMonitorState(); std::ifstream in(report); std::ostringstream out; out<<in.rdbuf(); return out.str();
   };
   check(desktop_prototype::AttachMonitor(main,[&](const std::string& a){ actions.push_back(a); }),"attach live native monitor");
-  HWND owner=FindWindowW(L"CodexTimeZone.StageA.Owner",nullptr);
-  HWND pet=FindWindowW(L"CodexTimeZone.StageA.Pet",nullptr);
+  ForeignDecoy decoy;
+  check(decoy.Start(report.wstring()+L".decoy"),"foreign same-class decoy starts in separate owned process");
+  HWND owner=CurrentProcessWindow(kOwnerClass);
+  HWND pet=CurrentProcessWindow(kPetClass);
+  check(OwnedByCurrentProcess(owner),"fixture owner lookup targets only current process");
+  check(pet==nullptr,"production creates no current-process pet HWND");
+  if(!OwnedByCurrentProcess(owner) || pet!=nullptr) {
+    check(decoy.Untouched(),"foreign decoy remains untouched before failed ownership guard");
+    desktop_prototype::DetachMonitor(); DestroyWindow(main);
+    std::cout<<checks<<" checks, "<<failures<<" failed\n"; return 1;
+  }
   desktop_prototype::ConfigureMonitor(2,true,5);
   check(!IsWindowVisible(pet),"legacy petVisible true cannot expose production pet");
   for (UINT command : {100u,102u,110u,111u,112u,125u,127u}) SendMessageW(owner,WM_COMMAND,command,0);
@@ -63,6 +164,7 @@ int wmain(int argc, wchar_t** argv) {
   desktop_prototype::DetachMonitor();
   check(desktop_prototype::AttachMonitor(main,[&](const std::string& a){ actions.push_back(a); },true),"explicit background native initialization succeeds");
   check(snapshot().find("\"backgroundStart\":true")!=std::string::npos && !IsWindowVisible(main),"background attach leaves main hidden");
+  check(decoy.Untouched(),"foreign same-class owner and pet receive no fixture mutations");
   desktop_prototype::DetachMonitor(); DestroyWindow(main);
   std::cout<<checks<<" checks, "<<failures<<" failed\n"; return failures?1:0;
 }
