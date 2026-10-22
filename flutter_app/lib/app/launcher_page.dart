@@ -8,30 +8,16 @@ import '../services/clocks.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../state/launcher_controller.dart';
-import '../state/account_usage_controller.dart';
-import 'account_usage_panel.dart';
-import 'session_metrics_panel.dart';
-import '../state/session_metrics_controller.dart';
 
 class LauncherPage extends StatelessWidget {
   const LauncherPage({
     super.key,
     required this.launcher,
     required this.network,
-    required this.usage,
-    required this.appearance,
-    required this.onAppearance,
-    this.metrics,
-    this.sessionPanelKey,
     this.desktop = const SystemDesktopServices(),
   });
   final LauncherController launcher;
   final NetworkController network;
-  final AccountUsageController usage;
-  final SessionMetricsController? metrics;
-  final Key? sessionPanelKey;
-  final String appearance;
-  final ValueChanged<String> onAppearance;
   final DesktopServices desktop;
 
   Future<void> _browse() =>
@@ -196,53 +182,6 @@ class LauncherPage extends StatelessWidget {
     ]);
 
     return FScaffold(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-        child: Row(
-          children: [
-            Image.asset(
-              'assets/app_icon.png',
-              width: 40,
-              height: 40,
-              excludeFromSemantics: true,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Codex 时区启动器',
-                    style: context.theme.typography.display.xl.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '独立时区 · 本地启动 · v${const String.fromEnvironment('FLUTTER_BUILD_NAME', defaultValue: 'dev')}',
-                    style: context.theme.typography.body.sm.copyWith(
-                      color: context.theme.colors.mutedForeground,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            SizedBox(
-              width: 138,
-              child: FSelect<String>(
-                items: const {'跟随系统': 'system', '浅色': 'light', '深色': 'dark'},
-                control: FSelectControl.lifted(
-                  value: appearance,
-                  onChange: (value) {
-                    if (value != null) onAppearance(value);
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
       footer: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -320,6 +259,7 @@ class LauncherPage extends StatelessWidget {
         ),
       ),
       child: SingleChildScrollView(
+        key: const PageStorageKey('launcher-scroll'),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1200),
@@ -348,19 +288,9 @@ class LauncherPage extends StatelessWidget {
                 ],
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final preview = Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        ClockPanel(
-                          settings: settings,
-                          preview: launcher.preview,
-                        ),
-                        const SizedBox(height: 20),
-                        AccountUsagePanel(
-                          controller: usage,
-                          launcher: launcher,
-                        ),
-                      ],
+                    final clock = ClockPanel(
+                      settings: settings,
+                      preview: launcher.preview,
                     );
                     if (constraints.maxWidth < 820) {
                       return Column(
@@ -368,63 +298,21 @@ class LauncherPage extends StatelessWidget {
                         children: [
                           settingCard,
                           const SizedBox(height: 20),
-                          preview,
+                          clock,
                         ],
                       );
                     }
-                    // Fill cells use the settings cell's height, so query results
-                    // cannot push either the row or the network card down.
-                    return Table(
-                      columnWidths: const {
-                        0: FlexColumnWidth(3),
-                        1: FixedColumnWidth(20),
-                        2: FlexColumnWidth(2),
-                      },
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TableRow(
-                          children: [
-                            TableCell(
-                              key: const ValueKey('launch-settings-card'),
-                              verticalAlignment: TableCellVerticalAlignment.top,
-                              child: settingCard,
-                            ),
-                            const SizedBox.shrink(),
-                            TableCell(
-                              verticalAlignment:
-                                  TableCellVerticalAlignment.fill,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  ClockPanel(
-                                    settings: settings,
-                                    preview: launcher.preview,
-                                    compact: true,
-                                  ),
-                                  const SizedBox(height: 20),
-                                  Expanded(
-                                    child: AccountUsagePanel(
-                                      controller: usage,
-                                      launcher: launcher,
-                                      bounded: true,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                        Expanded(flex: 3, child: settingCard),
+                        const SizedBox(width: 20),
+                        Expanded(flex: 2, child: clock),
                       ],
                     );
                   },
                 ),
                 const SizedBox(height: 20),
-                if (metrics != null) ...[
-                  SessionMetricsPanel(
-                    key: sessionPanelKey,
-                    controller: metrics!,
-                  ),
-                  const SizedBox(height: 20),
-                ],
                 _section(
                   context,
                   '网络位置参考',

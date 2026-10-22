@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../state/account_usage_controller.dart';
-import 'pet_role_dialog.dart';
 
 class MonitorSettingsDialog extends StatelessWidget {
   const MonitorSettingsDialog({super.key, required this.controller});
@@ -93,50 +92,7 @@ class MonitorSettingsDialog extends StatelessWidget {
                         controller.sessionMuted ? '取消回合提醒静音' : '回合提醒静音 15 分钟',
                       ),
                     ),
-                    const Text('仅提醒所选会话观察期间的新结束事件；取消不弹气泡。回合结束不代表任务成功。'),
-                    const SizedBox(height: 12),
-                    FButton(
-                      key: const ValueKey('reduced-motion'),
-                      variant: FButtonVariant.outline,
-                      onPress: () => controller.setReducedMotion(
-                        !controller.reducedMotion,
-                      ),
-                      child: Text(
-                        '减少动画：${controller.reducedMotion ? '开启' : '关闭'}',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('开启后保留静态状态与额度，不播放浮动或气泡动画。'),
-                    const SizedBox(height: 12),
-                    FButton(
-                      key: const ValueKey('pet-roles'),
-                      variant: FButtonVariant.outline,
-                      onPress: () => showGeneralDialog<void>(
-                        context: context,
-                        barrierDismissible: true,
-                        barrierLabel: '关闭角色面板',
-                        pageBuilder: (_, _, _) =>
-                            PetRoleDialog(controller: controller),
-                      ),
-                      child: const Text('角色与本地立绘'),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('桌宠形态（记住最后一次选择）'),
-                    FSelect<int>(
-                      items: const {'边缘': 0, '紧凑': 1, '展开': 2},
-                      control: FSelectControl.lifted(
-                        value: controller.petMode,
-                        onChange: (v) => controller.configurePet(mode: v),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FButton(
-                      variant: FButtonVariant.outline,
-                      onPress: () => controller.configurePet(
-                        visible: !controller.petVisible,
-                      ),
-                      child: Text('桌宠：${controller.petVisible ? '显示' : '隐藏'}'),
-                    ),
+                    const Text('仅提醒所选会话观察期间的新结束事件；取消不发通知。回合结束不代表任务成功。'),
                     const SizedBox(height: 12),
                     FButton(
                       key: const ValueKey('mute-cycle'),
@@ -151,7 +107,7 @@ class MonitorSettingsDialog extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text('按当前账号各额度窗口分别静音，重置后恢复；重启仍有效。查询失败或缓存过期时不弹低额度气泡。'),
+                    const Text('按当前账号各额度窗口分别静音，重置后恢复；重启仍有效。查询失败或缓存过期时不发低额度通知。'),
                     if (controller.preferencesError != null)
                       Text(controller.preferencesError!),
                     const SizedBox(height: 12),

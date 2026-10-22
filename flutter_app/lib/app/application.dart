@@ -13,7 +13,8 @@ import '../services/window_material.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
-import 'pet_role_dialog.dart';
+import 'monitoring_page.dart';
+import 'workspace_shell.dart';
 import 'theme.dart';
 import '../state/session_metrics_controller.dart';
 
@@ -62,9 +63,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
   DesktopMonitor? monitor;
+  bool monitorSelected = false;
+  String recentNotice = '';
 
   void _sourceChanged() {
-    if (widget.monitorEnabled) usage.sourceChanged(launcher.effectivePath);
+    usage.sourceChanged(launcher.effectivePath);
   }
 
   void _syncMaterial(bool dark) {
@@ -82,7 +85,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   final _navigator = GlobalKey<NavigatorState>();
   final _sessionPanel = GlobalKey();
+  void _showMonitor() {
+    if (mounted) setState(() => monitorSelected = true);
+  }
+
   void _showSessionDetails() {
+    _showMonitor();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = _sessionPanel.currentContext;
       if (mounted && context != null) {
@@ -92,23 +100,6 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
-  bool _rolesOpen = false;
-  Future<void> _openRoles() async {
-    final context = _navigator.currentState?.overlay?.context;
-    if (context == null || _rolesOpen) return;
-    _rolesOpen = true;
-    try {
-      await showGeneralDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        barrierLabel: '关闭角色面板',
-        pageBuilder: (_, _, _) => PetRoleDialog(controller: usage),
-      );
-    } finally {
-      _rolesOpen = false;
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -116,7 +107,6 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     launcher.initialize().then((_) async {
       if (!widget.preview && widget.backend == null) {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
-        await usage.roles.load();
       }
       if (mounted && !widget.preview && widget.backend == null) {
         await metrics.initialize(
@@ -124,19 +114,28 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           initialPath: widget.selectedSessionPath,
         );
       }
-      if (mounted && widget.monitorEnabled && !widget.preview) {
+      // Explicit background mode also supports injected backends. Portable
+      // preferences and session restoration above remain production-only.
+      if (mounted &&
+          !widget.preview &&
+          (widget.backend == null || widget.monitorEnabled)) {
         monitor = DesktopMonitor(
           usage,
           () => launcher.effectivePath,
           interval: widget.monitorInterval,
-          onRoles: _openRoles,
+          onMonitor: _showMonitor,
+          backgroundStart: widget.monitorEnabled,
+          workspace: () => monitorSelected ? 'monitor' : 'launcher',
+          onNotice: (text) {
+            if (mounted) setState(() => recentNotice = text);
+          },
           onSessionDetails: _showSessionDetails,
           metrics: metrics,
         )..start();
       }
     });
     network.initialize();
-    if (!widget.preview) _loadAppearance();
+    if (!widget.preview && widget.backend == null) _loadAppearance();
   }
 
   Future<void> _loadAppearance() async {
@@ -154,7 +153,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   Future<void> _setAppearance(String value) async {
     setState(() => appearance.value = value);
-    if (!widget.preview) {
+    if (!widget.preview && widget.backend == null) {
       try {
         await (await SharedPreferences.getInstance()).setString(
           'flutter-appearance',
@@ -201,20 +200,36 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     onGenerateRoute: (settings) => PageRouteBuilder<void>(
       settings: settings,
       pageBuilder: (context, animation, secondary) => ListenableBuilder(
-        listenable: Listenable.merge([launcher, network, usage, appearance]),
+        listenable: Listenable.merge([
+          launcher,
+          network,
+          usage,
+          metrics,
+          appearance,
+        ]),
         builder: (context, _) => TickerMode(
-          enabled: !widget.monitorEnabled || usage.mainWindowVisible,
+          enabled: usage.mainWindowVisible,
           child: Offstage(
-            offstage: widget.monitorEnabled && !usage.mainWindowVisible,
-            child: LauncherPage(
-              desktop: widget.desktop,
-              launcher: launcher,
-              network: network,
-              usage: usage,
-              metrics: widget.preview ? null : metrics,
-              sessionPanelKey: _sessionPanel,
+            offstage: !usage.mainWindowVisible,
+            child: WorkspaceShell(
+              monitorSelected: monitorSelected,
+              onSelect: (value) => setState(() => monitorSelected = value),
               appearance: appearance.value,
               onAppearance: _setAppearance,
+              launcher: LauncherPage(
+                key: const ValueKey('launcher-page'),
+                desktop: widget.desktop,
+                launcher: launcher,
+                network: network,
+              ),
+              monitor: MonitoringPage(
+                key: const ValueKey('monitor-page'),
+                launcher: launcher,
+                usage: usage,
+                metrics: metrics,
+                sessionPanelKey: _sessionPanel,
+                recentNotice: recentNotice,
+              ),
             ),
           ),
         ),

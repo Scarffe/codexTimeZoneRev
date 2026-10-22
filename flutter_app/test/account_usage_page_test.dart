@@ -133,45 +133,14 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('query-account-usage')),
+            findsNothing,
+          );
+          await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+          await tester.pumpAndSettle();
           expect(service.calls, 0);
           expect(find.text('点击按钮查询，或开启自动监控。'), findsOneWidget);
-          expect(find.text('本地时间 · 系统时区'), findsOneWidget);
-          final card = find.byKey(const ValueKey('account-usage-card'));
-          expect(
-            tester.getTopLeft(card).dy,
-            greaterThan(tester.getTopLeft(find.text('时间预览')).dy),
-          );
-          if (width >= 820) {
-            expect(
-              tester.getTopLeft(card).dx,
-              greaterThan(tester.getTopLeft(find.text('启动设置')).dx),
-            );
-            expect(
-              tester.getRect(card).bottom,
-              closeTo(
-                tester
-                    .getRect(find.byKey(const ValueKey('launch-settings-card')))
-                    .bottom,
-                0.1,
-              ),
-            );
-            expect(
-              tester
-                  .getRect(find.byKey(const ValueKey('time-preview-card')))
-                  .top,
-              closeTo(
-                tester
-                    .getRect(find.byKey(const ValueKey('launch-settings-card')))
-                    .top,
-                0.1,
-              ),
-            );
-            await screenshot(
-              tester,
-              boundary,
-              '${dark ? 'dark' : 'light'}-idle',
-            );
-          }
           await tester.pump(const Duration(minutes: 2));
           expect(service.calls, 0);
           final button = find.byKey(const ValueKey('query-account-usage'));
@@ -186,27 +155,7 @@ void main() {
           expect(find.text('已用 5%'), findsOneWidget);
           expect(find.text('1,234,567'), findsOneWidget);
           expect(find.text('12,345'), findsOneWidget);
-          // This page uses live clocks. A fixed calendar date makes the release
-          // suite fail the day after it was authored; clock values have their
-          // own deterministic tests in clocks_test.dart.
-          expect(
-            find.textContaining(
-              RegExp(r'^\d{4} 年 \d{1,2} 月 \d{1,2} 日 · 星期[一二三四五六日]$'),
-            ),
-            findsNWidgets(2),
-          );
           expect(find.byType(FDeterminateProgress), findsNWidgets(3));
-          if (width >= 820) {
-            expect(
-              tester.getRect(card).bottom,
-              closeTo(
-                tester
-                    .getRect(find.byKey(const ValueKey('launch-settings-card')))
-                    .bottom,
-                0.1,
-              ),
-            );
-          }
           final reset = DateTime.fromMillisecondsSinceEpoch(
             1791981390000,
             isUtc: true,
@@ -236,32 +185,9 @@ void main() {
             findsOneWidget,
           );
           expect(service.calls, 1);
-          if (width >= 820) {
-            expect(
-              tester.getRect(card).bottom,
-              closeTo(
-                tester
-                    .getRect(find.byKey(const ValueKey('launch-settings-card')))
-                    .bottom,
-                0.1,
-              ),
-            );
-          }
           expect(tester.takeException(), isNull);
           await tester.pump(const Duration(minutes: 2));
           expect(service.calls, 1);
-          if (width >= 820) {
-            await tester.drag(
-              find.byType(SingleChildScrollView).first,
-              const Offset(0, 2000),
-            );
-            await tester.pumpAndSettle();
-            await screenshot(
-              tester,
-              boundary,
-              '${dark ? 'dark' : 'light'}-loaded',
-            );
-          }
           await tester.ensureVisible(find.text('累计 token'));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
@@ -273,17 +199,6 @@ void main() {
           expect(find.text('未检测到已登录账号'), findsOneWidget);
           expect(find.text('tester@example.com'), findsNothing);
           expect(find.text('1,234,567'), findsNothing);
-          if (width >= 820) {
-            expect(
-              tester.getRect(card).bottom,
-              closeTo(
-                tester
-                    .getRect(find.byKey(const ValueKey('launch-settings-card')))
-                    .bottom,
-                0.1,
-              ),
-            );
-          }
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
         },
@@ -309,25 +224,23 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.pumpAndSettle();
       final button = find.byKey(const ValueKey('query-account-usage'));
       await tester.ensureVisible(button);
       await tester.tap(button);
       await tester.pump();
       expect(find.text('正在查询用量…'), findsOneWidget);
-      expect(
-        tester.getRect(find.byKey(const ValueKey('account-usage-card'))).bottom,
-        closeTo(
-          tester
-              .getRect(find.byKey(const ValueKey('launch-settings-card')))
-              .bottom,
-          0.1,
-        ),
-      );
       expect(tester.widget<FButton>(button).onPress, isNull);
+      await tester.tap(find.byKey(const ValueKey('workspace-launcher')));
+      await tester.pump();
       await tester.tap(find.text('保存设置'));
       await tester.pump();
       expect(backend.calls, contains('save'));
       expect(service.calls, 1);
+      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.pump();
       service.pending!.complete(AccountUsage.fromJson(usageResponse()));
       await tester.pumpAndSettle();
       expect(find.text('已用 8%'), findsOneWidget);
@@ -354,6 +267,9 @@ void main() {
         networkFactory: () => NetworkController(preview: true),
       ),
     );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
     await tester.pumpAndSettle();
     final button = find.byKey(const ValueKey('query-account-usage'));
     await tester.ensureVisible(button);
@@ -393,6 +309,9 @@ void main() {
             ),
           ),
         );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
         await tester.pumpAndSettle();
         expect(service.calls, 0);
         final button = find.byKey(const ValueKey('query-account-usage'));
@@ -450,6 +369,9 @@ void main() {
             ),
           ),
         );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
         await tester.pumpAndSettle();
         expect(service.calls, 0);
         final button = find.byKey(const ValueKey('query-account-usage'));

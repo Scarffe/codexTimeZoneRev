@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:codex_timezone/app/application.dart';
-import 'package:codex_timezone/app/launcher_page.dart';
+import 'package:codex_timezone/app/account_usage_panel.dart';
+import 'package:codex_timezone/app/workspace_shell.dart';
 import 'package:codex_timezone/services/backend.dart';
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/desktop_monitor.dart';
@@ -37,8 +38,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       final usage = tester
-          .widget<LauncherPage>(find.byType(LauncherPage, skipOffstage: false))
-          .usage;
+          .widget<AccountUsagePanel>(
+            find.byType(AccountUsagePanel, skipOffstage: false),
+          )
+          .controller;
+      expect(service.calls, 0);
+      final query = usage.query(r'C:\Codex.exe');
+      usage.setMainWindowVisible(false);
+      await tester.pumpAndSettle();
       expect(usage.busy, true);
       expect(service.calls, 1);
       expect(tester.binding.transientCallbackCount, 0);
@@ -55,7 +62,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       expect(clockTexts(), frozen);
       final pageStage = find.byWidgetPredicate(
-        (w) => w is Offstage && w.child is LauncherPage,
+        (w) => w is Offstage && w.child is WorkspaceShell,
         skipOffstage: false,
       );
       expect(tester.widget<Offstage>(pageStage).offstage, true);
@@ -64,6 +71,7 @@ void main() {
       await tester.pump();
       expect(tester.widget<Offstage>(pageStage).offstage, false);
       expect(clockTexts(), isNot(equals(frozen)));
+      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.binding.transientCallbackCount, greaterThan(0));
       usage.setMainWindowVisible(false);
@@ -80,6 +88,7 @@ void main() {
           fetchedAt: DateTime.now(),
         ),
       );
+      await query;
       await tester.pump();
       expect(usage.busy, false);
       await tester.pumpWidget(const SizedBox());
