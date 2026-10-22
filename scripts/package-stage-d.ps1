@@ -1,4 +1,4 @@
-param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31','W')][string]$Stage = 'D')
+param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31','W','M1')][string]$Stage = 'D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $gitArguments = @('-c', "safe.directory=$($root.Replace('\','/'))", '-C', $root)
@@ -19,6 +19,7 @@ if ($Stage -eq 'H2') { $coreTarget = 'stage-h2-cargo' }
 if ($Stage -eq 'I') { $coreTarget = 'stage-i-cargo' }
 if ($Stage -eq 'I31') { $coreTarget = 'stage-i31-cargo' }
 if ($Stage -eq 'W') { $coreTarget = 'stage-w-cargo' }
+if ($Stage -eq 'M1') { $coreTarget = 'stage-m1-cargo' }
 $library = Join-Path $root "environment\$coreTarget\release\codex_timezone_core.dll"
 foreach ($required in @((Join-Path $source 'codex_timezone.exe'),(Join-Path $source 'flutter_windows.dll'),(Join-Path $source 'data\app.so'),$library)) {
     if (!(Test-Path -LiteralPath $required)) { throw "Missing release input: $required" }
@@ -35,6 +36,10 @@ foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File) {
 }
 Copy-Item -LiteralPath $library -Destination (Join-Path $output 'codex_timezone_core.dll') -Force
 foreach ($document in @('LICENSE',"STAGE-$Stage.md")) { Copy-Item -LiteralPath (Join-Path $root $document) -Destination $output }
+if ($Stage -eq 'M1' -and (Test-Path -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md'))) {
+    Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination $output
+    Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $output -Recurse
+}
 Copy-Item -LiteralPath (Join-Path $root "release-notes\desktop-monitor$(if($Stage -ne 'D') { '-' + $Stage.ToLowerInvariant() })-rc.md") -Destination (Join-Path $output 'README.md')
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
 @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
@@ -42,7 +47,7 @@ if ($Stage -in @('H1','H2','I','I31')) {
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Trial.cmd') -Encoding ascii
 }
-if ($Stage -eq 'W') {
+if ($Stage -in @('W','M1')) {
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
