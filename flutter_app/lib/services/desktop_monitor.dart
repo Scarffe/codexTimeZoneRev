@@ -13,6 +13,10 @@ class DesktopMonitor {
     this.path, {
     this.onRoles,
     this.onSessionDetails,
+    this.onMonitor,
+    this.backgroundStart = false,
+    this.workspace,
+    this.onNotice,
     this.metrics,
     this.interval = const Duration(minutes: 2),
   });
@@ -20,14 +24,22 @@ class DesktopMonitor {
   final SessionMetricsController? metrics;
   final String Function() path;
   final Duration interval;
-  final VoidCallback? onRoles, onSessionDetails;
+  final VoidCallback? onRoles, onSessionDetails, onMonitor;
+  final bool backgroundStart;
+  final String Function()? workspace;
+  final ValueChanged<String>? onNotice;
   static const channel = MethodChannel('codex_timezone/monitor');
   bool _closed = false;
+  bool _started = false;
+  Future<void>? _exitRequest;
+  int _quotaNoticeSerial = 0, _sessionNoticeSerial = 0;
   Timer? _clock;
   Map<String, Object?>? _lastSnapshot;
 
   void start() {
-    usage.setMainWindowVisible(false);
+    if (_started || _closed) return;
+    _started = true;
+    usage.setMainWindowVisible(!backgroundStart);
     usage.addListener(_publish);
     metrics?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
@@ -35,24 +47,29 @@ class DesktopMonitor {
         case 'sessionDetails':
           await _syncMainVisibility();
           onSessionDetails?.call();
+        case 'monitorDetails':
+          await _syncMainVisibility();
+          onMonitor?.call();
+        case 'closeRequested':
+          if (backgroundStart || _keepAlive) {
+            await channel.invokeMethod<void>('hide');
+            await _syncMainVisibility();
+          } else {
+            await _exit();
+          }
         case 'roles':
-          onRoles?.call();
         case 'reduceMotion':
-          usage.setReducedMotion(!usage.reducedMotion);
+        case 'mode0':
+        case 'mode1':
+        case 'mode2':
+        case 'showPet':
+        case 'hidePet':
+          // Legacy tray commands must not resurrect the paused pet feature.
+          break;
         case 'mainShown':
           await _syncMainVisibility();
         case 'mainHidden':
           await _syncMainVisibility();
-        case 'mode0':
-          usage.configurePet(mode: 0, visible: true);
-        case 'mode1':
-          usage.configurePet(mode: 1, visible: true);
-        case 'mode2':
-          usage.configurePet(mode: 2, visible: true);
-        case 'showPet':
-          usage.configurePet(visible: true);
-        case 'hidePet':
-          usage.configurePet(visible: false);
         case 'muteCycle':
           usage.muteCurrentCycle();
         case 'systemSuspend':
@@ -67,16 +84,7 @@ class DesktopMonitor {
         case 'resume':
           usage.startMonitoring(path);
         case 'exit':
-          usage.pause(persist: false);
-          await usage.roles.saved;
-          await usage.settingsSaved;
-          // Query owns its short-lived app-server. Let Rust Drop clean it first.
-          while (usage.busy && !_closed) {
-            await Future<void>.delayed(const Duration(milliseconds: 100));
-          }
-          await usage.settingsSaved;
-          await metrics?.selectionSaved;
-          if (!_closed) await channel.invokeMethod<void>('exit');
+          await _exit();
       }
     });
     unawaited(_syncMainVisibility());
@@ -90,6 +98,23 @@ class DesktopMonitor {
     }
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => _publish());
     _publish();
+  }
+
+  bool get _keepAlive => usage.monitoring || metrics?.selected != null;
+
+  Future<void> _exit() => _exitRequest ??= _gracefulExit();
+
+  Future<void> _gracefulExit() async {
+    usage.pause(persist: false);
+    await usage.roles.saved;
+    await usage.settingsSaved;
+    // Query owns its short-lived app-server. Let Rust Drop clean it first.
+    while (usage.busy && !_closed) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await usage.settingsSaved;
+    await metrics?.selectionSaved;
+    if (!_closed) await channel.invokeMethod<void>('exit');
   }
 
   Future<void> _syncMainVisibility() async {
@@ -108,8 +133,29 @@ class DesktopMonitor {
       muteUntil: usage.sessionMutedUntil,
     );
     final snapshot = usage.desktopSnapshot;
+    snapshot['keepAlive'] = _keepAlive;
+    snapshot['workspace'] = workspace?.call() == 'monitor'
+        ? 'monitor'
+        : 'launcher';
+    snapshot['petVisible'] = false;
+    snapshot['roleImage'] = '';
+    snapshot['roleName'] = '';
     snapshot['sessionAlert'] = metrics?.alert ?? '';
     snapshot['sessionAlertSerial'] = metrics?.alertSerial ?? 0;
+    final quotaSerial = snapshot['alertSerial'] as int;
+    final sessionSerial = snapshot['sessionAlertSerial'] as int;
+    final quotaNotice = quotaSerial > _quotaNoticeSerial
+        ? snapshot['alert'] as String
+        : '';
+    final sessionNotice = sessionSerial > _sessionNoticeSerial
+        ? snapshot['sessionAlert'] as String
+        : '';
+    _quotaNoticeSerial = quotaSerial;
+    _sessionNoticeSerial = sessionSerial;
+    // Records a local event; the OS may suppress the native notification.
+    if (quotaNotice.isNotEmpty || sessionNotice.isNotEmpty) {
+      onNotice?.call(quotaNotice.isNotEmpty ? quotaNotice : sessionNotice);
+    }
     snapshot['sessionStatus'] = metrics?.selected == null
         ? 0
         : switch (metrics?.stateLabel) {

@@ -20,6 +20,15 @@ class SampleService implements AccountUsageService {
 }
 
 void main() {
+  test(
+    'fresh and malformed enabled preferences cannot authorize auto query',
+    () {
+      expect(const MonitorPreferences().enabled, false);
+      expect(MonitorPreferences.fromJson({}).enabled, false);
+      expect(MonitorPreferences.fromJson({'enabled': 'true'}).enabled, false);
+      expect(MonitorPreferences.fromJson({'enabled': true}).enabled, true);
+    },
+  );
   final now = DateTime.utc(2026, 10, 20);
   AccountUsage sample({
     String identity = 'account-A',
@@ -70,6 +79,70 @@ void main() {
         1,
       );
       expect(await File('${store.file.path}.tmp').exists(), false);
+    },
+  );
+  test(
+    'only a stored explicit enable restores automatic quota monitoring',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('monitor-explicit-');
+      final store = MonitorPreferencesStore(File('${dir.path}/prefs.json'));
+      addTearDown(() => dir.delete(recursive: true));
+      for (final enabled in [false, true]) {
+        await store.write({'enabled': enabled});
+        final usage = AccountUsageController(
+          SampleService(sample()),
+          now: () => now,
+        );
+        await usage.loadPreferences(store);
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              DesktopMonitor.channel,
+              (_) async => null,
+            );
+        final bridge = DesktopMonitor(usage, () => 'fixture')..start();
+        await Future<void>.delayed(Duration.zero);
+        expect(usage.attempts, enabled ? 1 : 0);
+        expect(usage.monitoring, enabled);
+        bridge.dispose();
+        await usage.settingsSaved;
+        usage.dispose();
+      }
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopMonitor.channel, null);
+    },
+  );
+  testWidgets(
+    'recent quota notice deduplicates and ignores stale or failed results',
+    (tester) async {
+      var clock = now;
+      final notices = <String>[];
+      final service = SampleService(sample());
+      final usage = AccountUsageController(service, now: () => clock);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopMonitor.channel, (_) async => null);
+      final bridge = DesktopMonitor(
+        usage,
+        () => 'fixture',
+        onNotice: notices.add,
+      )..start();
+      await usage.query('fixture');
+      await tester.pump();
+      expect(notices, hasLength(1));
+      expect(notices.single, contains('额度'));
+      await tester.pump(const Duration(seconds: 1));
+      await usage.query('fixture');
+      expect(notices.length, 1);
+      service.result = sample(hours: 3);
+      clock = now.add(const Duration(minutes: 10));
+      await usage.query('fixture');
+      expect(notices.length, 1);
+      service.fail = true;
+      await usage.query('fixture');
+      expect(notices.length, 1);
+      bridge.dispose();
+      usage.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(DesktopMonitor.channel, null);
     },
   );
   test('corrupt input is backed up before the first replacement', () async {
@@ -203,7 +276,7 @@ void main() {
       final fast = AccountUsageController(
         SampleService(sample()),
         now: () => now,
-      );
+      )..savedMonitoring = true;
       final testMonitor = DesktopMonitor(
         fast,
         () => 'fixture',

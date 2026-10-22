@@ -43,7 +43,7 @@ class AccountUsageController extends ChangeNotifier {
   Future<void> _pendingSave = Future<void>.value();
   String? preferencesError;
   bool preferencesReady = true;
-  bool alertsEnabled = true, petVisible = true, savedMonitoring = true;
+  bool alertsEnabled = true, petVisible = true, savedMonitoring = false;
   bool reducedMotion = false;
   bool sessionAlertsEnabled = false;
   DateTime? sessionMutedUntil;

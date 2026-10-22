@@ -46,6 +46,7 @@ void main() {
     'hidden surfaces share session state and alert without quota query',
     (tester) async {
       final snapshots = <Map<Object?, Object?>>[];
+      final notices = <String>[];
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(DesktopMonitor.channel, (call) async {
@@ -60,8 +61,12 @@ void main() {
         ..sessionAlertsEnabled = true;
       final feed = Feed();
       final metrics = SessionMetricsController(feed);
-      final monitor = DesktopMonitor(usage, () => '', metrics: metrics)
-        ..start();
+      final monitor = DesktopMonitor(
+        usage,
+        () => '',
+        metrics: metrics,
+        onNotice: notices.add,
+      )..start();
       metrics.select('fixture');
       await tester.pump();
       expect(snapshots.last['sessionAlert'], '');
@@ -76,6 +81,11 @@ void main() {
       await tester.pump();
       expect(snapshots.last['sessionAlertSerial'], 1);
       expect(snapshots.last['sessionAlert'], contains('回合已结束'));
+      expect(notices, hasLength(1));
+      expect(notices.single, contains('回合已结束'));
+      await metrics.poll();
+      await tester.pump(const Duration(seconds: 1));
+      expect(notices.length, 1);
       expect(usage.attempts, 0);
       expect(usage.mainWindowVisible, false);
       feed.fail = true;
@@ -83,6 +93,7 @@ void main() {
       await tester.pump();
       expect(snapshots.last['sessionStatus'], 4);
       expect(snapshots.last['sessionAlert'], '');
+      expect(notices.length, 1);
       monitor.dispose();
       metrics.dispose();
       usage.dispose();
