@@ -309,7 +309,7 @@ void main() {
           SessionMetricsPanel,
           skipOffstage: false,
         );
-        expect(TickerMode.of(tester.element(hiddenPanel)), false);
+        expect(TickerMode.valuesOf(tester.element(hiddenPanel)).enabled, false);
         await tester.tap(
           find.byKey(const ValueKey('measurement-current-session')),
         );
@@ -321,7 +321,8 @@ void main() {
           same(metrics),
         );
         expect(
-          TickerMode.of(tester.element(find.byType(SessionMetricsPanel))),
+          TickerMode.valuesOf(tester.element(find.byType(SessionMetricsPanel)))
+              .enabled,
           true,
         );
         expect(scroll.position.pixels, 100);

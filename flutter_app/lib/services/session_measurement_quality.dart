@@ -132,8 +132,9 @@ class SessionMeasurementQuality {
             ].every((key) => _text(value[key])) ||
             value['turnCount'] is! int ||
             (value['turnCount'] as int) <= 0 ||
-            !_ratio(value, 'tokensPerSecond'))
+            !_ratio(value, 'tokensPerSecond')) {
           continue;
+        }
         groups.add(
           Map<String, dynamic>.unmodifiable(Map<String, dynamic>.from(value)),
         );
@@ -141,12 +142,10 @@ class SessionMeasurementQuality {
     }
     return SessionMeasurementQuality._(
       status: status,
-      reasons: List.unmodifiable(
-        [
-          for (final code in codes) _explanations[code] ?? _unknown,
-          if (!verified && codes.isEmpty) _unknown,
-        ].toSet(),
-      ),
+      reasons: List.unmodifiable({
+        for (final code in codes) _explanations[code] ?? _unknown,
+        if (!verified && codes.isEmpty) _unknown,
+      }),
       verifiedTokensPerSecond: verified
           ? _rate(last['verifiedTokensPerSecond'])
           : null,

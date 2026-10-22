@@ -194,8 +194,9 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(DesktopMonitor.channel, (call) async {
-        if (call.method == 'publish')
+        if (call.method == 'publish') {
           snapshots.add(Map<Object?, Object?>.from(call.arguments as Map));
+        }
         if (call.method == 'mainVisible') return false;
         return null;
       });
