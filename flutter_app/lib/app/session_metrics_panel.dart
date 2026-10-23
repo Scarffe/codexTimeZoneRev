@@ -13,6 +13,19 @@ class SessionMetricsPanel extends StatelessWidget {
     listenable: controller,
     builder: (context, _) {
       final last = controller.last;
+      final analysis = last?['analysis'] is Map<String, dynamic>
+          ? last!['analysis'] as Map<String, dynamic>
+          : null;
+      final timeline = analysis?['timeline'];
+      final turnIdentity = (
+        controller.selected,
+        controller.data?['logEpoch'],
+        last?['turnId'] ??
+            (
+              timeline is Map ? timeline['startEpochMs'] : null,
+              timeline is Map ? timeline['endEpochMsExclusive'] : null,
+            ),
+      );
       String ms(String key) => last?[key] is num
           ? '${((last![key] as num) / 1000).toStringAsFixed(3)} s'
           : '不可用';
@@ -91,7 +104,10 @@ class SessionMetricsPanel extends StatelessWidget {
                 ),
                 if (controller.data?['catchingUp'] != true)
                   SessionTimingPanel(
-                    analysis: last?['analysis'] as Map<String, dynamic>?,
+                    analysis: analysis,
+                    durationMs: last?['durationMs'],
+                    firstTokenMs: last?['firstTokenMs'],
+                    turnIdentity: turnIdentity,
                   ),
                 FButton(
                   variant: FButtonVariant.outline,
