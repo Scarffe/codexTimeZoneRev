@@ -321,9 +321,17 @@ class _LauncherApplicationState extends State<LauncherApplication> {
             child: Column(
               children: [
                 if (widget.offlineTrial)
-                  const Padding(
-                    padding: EdgeInsets.all(8),
-                    child: Text('离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。'),
+                  Container(
+                    width: double.infinity,
+                    color: DashboardPalette.of(context).soft,
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      '离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: DashboardPalette.of(context).foreground,
+                      ),
+                    ),
                   ),
                 Expanded(
                   child: WorkspaceShell(

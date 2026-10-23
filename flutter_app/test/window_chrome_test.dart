@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:codex_timezone/app/application.dart';
 import 'package:codex_timezone/app/dashboard_style.dart';
 import 'package:codex_timezone/app/monitor_presentation.dart';
+import 'package:codex_timezone/services/backend.dart';
 import 'package:codex_timezone/services/window_chrome.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +26,7 @@ void main() {
     'textHresult': 0,
     'borderHresult': 0,
   };
+  const offlineWarning = '离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。';
   Future<WindowChromeResult> light() => chrome.apply(
     dark: false,
     captionArgb: 0xfff5f6f8,
@@ -190,6 +194,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(find.text(offlineWarning), findsNothing);
         final palette = DashboardPalette.forBrightness(Brightness.light);
         expect(calls, hasLength(1));
         expect(calls.single.arguments, {
@@ -293,4 +298,91 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final initial in [Brightness.dark, Brightness.light]) {
+    testWidgets(
+      'offline warning paints readable surface from $initial through theme switch',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final capture = GlobalKey();
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: capture,
+            child: LauncherApplication(
+              preview: true,
+              backend: const PreviewBackend(),
+              offlineTrial: true,
+              initialAppearance: initial == Brightness.dark ? 'dark' : 'light',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final brightness in [
+          initial,
+          initial == Brightness.dark ? Brightness.light : Brightness.dark,
+        ]) {
+          if (brightness != initial) {
+            await tester.tap(find.byKey(const ValueKey('workspace-theme')));
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.text(brightness == Brightness.dark ? '深色' : '浅色').last,
+            );
+            await tester.pumpAndSettle();
+          }
+          final warning = find.text(offlineWarning);
+          expect(warning, findsOneWidget);
+          final paragraph = tester.renderObject<RenderParagraph>(warning);
+          final foreground = paragraph.text.style!.color!;
+          final y = tester.getRect(warning).center.dy.round();
+          final background = (await tester.runAsync(() async {
+            final boundary =
+                capture.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final frame = await boundary.toImage(pixelRatio: 1);
+            final pixels = (await frame.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!;
+            // Sample clear left padding on the actual painted banner row.
+            final offset = (y * frame.width + 2) * 4;
+            final color = Color.fromARGB(
+              pixels.getUint8(offset + 3),
+              pixels.getUint8(offset),
+              pixels.getUint8(offset + 1),
+              pixels.getUint8(offset + 2),
+            );
+            frame.dispose();
+            return color;
+          }))!;
+          expect(
+            background.a,
+            1,
+            reason: 'banner must paint its own opaque surface, including outside the text width',
+          );
+          final palette = DashboardPalette.forBrightness(brightness);
+          expect(background, palette.soft);
+          expect(foreground, palette.foreground);
+          final a = background.computeLuminance(),
+              b = foreground.computeLuminance();
+          final contrast = a > b
+              ? (a + .05) / (b + .05)
+              : (b + .05) / (a + .05);
+          expect(
+            contrast,
+            greaterThanOrEqualTo(4.5),
+            reason: 'offline warning must remain readable after theme changes',
+          );
+          await tester.pump(const Duration(seconds: 1));
+          expect(
+            tester.renderObject<RenderParagraph>(warning).text.style!.color,
+            foreground,
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 }
