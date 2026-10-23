@@ -75,6 +75,10 @@ class SessionMetricsPanel extends StatelessWidget {
           valid ? '${((value as int) / 1000).toStringAsFixed(3)} s' : '不可用';
       final choices = _choices();
       final info = controller.sourceInfo;
+      final listedSelection = controller.selectorValue;
+      final selectedMetadata = controller.sessions
+          .where((s) => s['path'] == listedSelection)
+          .firstOrNull;
       return FCard(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -238,6 +242,9 @@ class SessionMetricsPanel extends StatelessWidget {
                       Text('会话 ID：${info?['id'] ?? '未知'}'),
                       Text('日志：${controller.selected}'),
                       Text('上轮身份：${last?['turnId'] ?? '未知'}'),
+                      Text(
+                        '日志写入时间：${controller.activityLabel(selectedMetadata ?? const {})}',
+                      ),
                       Text(
                         '最近成功读取：${controller.lastRead?.toLocal().toString().split('.').first ?? '尚未成功读取'}',
                       ),

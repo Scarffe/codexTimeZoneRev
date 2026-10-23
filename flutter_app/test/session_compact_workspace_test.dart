@@ -98,6 +98,77 @@ void main() {
   );
 
   testWidgets(
+    'source details preserve selected log-write time distinct from last read',
+    (tester) async {
+      final c = SessionMetricsController(QualityBackend())
+        ..selected = sourcePath
+        ..data = compactFixture()
+        ..lastRead = DateTime(2026, 10, 23, 11, 12, 13)
+        ..sessions = [
+          {
+            'path': r'\\?\C:\fixture\private-project\sessions\original-session.jsonl',
+            'id': 'original-session-id',
+            'modifiedMs': DateTime(
+              2026,
+              10,
+              23,
+              8,
+              9,
+              10,
+            ).millisecondsSinceEpoch,
+          },
+          {
+            'path': 'other-log.jsonl',
+            'id': 'other-session',
+            'modifiedMs': DateTime(
+              2026,
+              10,
+              23,
+              1,
+              2,
+              3,
+            ).millisecondsSinceEpoch,
+          },
+        ];
+      addTearDown(c.dispose);
+      await tester.pumpWidget(panelApp(c));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('日志写入时间：'), findsNothing);
+      await openDetail(tester, 'session-source-details');
+      expect(find.text('日志写入时间：2026-10-23 08:09:10'), findsOneWidget);
+      expect(find.text('最近成功读取：2026-10-23 11:12:13'), findsOneWidget);
+      expect(find.text('日志写入时间：2026-10-23 11:12:13'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'source log-write time remains unknown without selected metadata',
+    (tester) async {
+      for (final sessions in <List<Map<String, dynamic>>>[
+        [],
+        [
+          {'path': sourcePath, 'id': 'original-session-id'},
+        ],
+      ]) {
+        final c = SessionMetricsController(QualityBackend())
+          ..selected = sourcePath
+          ..data = compactFixture()
+          ..lastRead = DateTime(2026, 10, 23, 11, 12, 13)
+          ..sessions = sessions;
+        await tester.pumpWidget(panelApp(c));
+        await tester.pumpAndSettle();
+        await openDetail(tester, 'session-source-details');
+        expect(find.text('日志写入时间：活动时间未知'), findsOneWidget);
+        expect(find.text('日志写入时间：2026-10-23 11:12:13'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        c.dispose();
+      }
+    },
+  );
+
+  testWidgets(
     'short duplicate labels keep path values and search full ID and path',
     (tester) async {
       final c = SessionMetricsController(QualityBackend());
