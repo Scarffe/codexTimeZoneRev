@@ -244,17 +244,40 @@ class ConfigurationChartSample {
     final identities = <(String, String, String, String), int>{};
     final evidence = <(String, String, String, String), List<Object?>>{};
     for (final row in quality.verifiedGroups) {
+      if (![
+        'sessionId',
+        'model',
+        'effort',
+        'serviceTier',
+      ].every((key) => _hasText(row[key]))) {
+        continue;
+      }
+      final identity = (
+        row['sessionId'] as String,
+        row['model'] as String,
+        row['effort'] as String,
+        row['serviceTier'] as String,
+      );
+      // Record contradictory evidence even when its metrics cannot be drawn.
+      final fields = <Object?>[
+        row['turnCount'],
+        row['outputTokens'],
+        row['durationMs'],
+      ];
+      final previous = identities[identity];
+      if (previous != null) {
+        if (!_sameFields(evidence[identity]!, fields)) samples[previous] = null;
+        continue;
+      }
+      final index = samples.length;
+      identities[identity] = index;
+      evidence[identity] = fields;
+      samples.add(null);
       final output = _safeInteger(row['outputTokens']);
       final duration = _safeInteger(row['durationMs']);
       final count = _safeInteger(row['turnCount']);
       final rate = row['tokensPerSecond'];
-      if (![
-            'sessionId',
-            'model',
-            'effort',
-            'serviceTier',
-          ].every((key) => _hasText(row[key])) ||
-          output == null ||
+      if (output == null ||
           duration == null ||
           duration == 0 ||
           count == null ||
@@ -269,30 +292,14 @@ class ConfigurationChartSample {
           (rate - expected).abs() > .000001 * (expected.abs() + 1)) {
         continue;
       }
-      final identity = (
-        row['sessionId'] as String,
-        row['model'] as String,
-        row['effort'] as String,
-        row['serviceTier'] as String,
-      );
-      final fields = <Object?>[count, output, duration];
-      final previous = identities[identity];
-      if (previous != null) {
-        if (!_sameFields(evidence[identity]!, fields)) samples[previous] = null;
-        continue;
-      }
-      identities[identity] = samples.length;
-      evidence[identity] = fields;
-      samples.add(
-        ConfigurationChartSample(
-          model: identity.$2,
-          effort: identity.$3,
-          serviceTier: identity.$4,
-          turnCount: count,
-          outputTokens: output,
-          durationMs: duration,
-          tokensPerSecond: expected,
-        ),
+      samples[index] = ConfigurationChartSample(
+        model: identity.$2,
+        effort: identity.$3,
+        serviceTier: identity.$4,
+        turnCount: count,
+        outputTokens: output,
+        durationMs: duration,
+        tokensPerSecond: expected,
       );
     }
     return List.unmodifiable(samples.whereType<ConfigurationChartSample>());

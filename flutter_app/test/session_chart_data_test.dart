@@ -276,6 +276,44 @@ void main() {
     }
   });
 
+  test('unsafe conflicting configuration duplicate suppresses identity', () {
+    final exact = chartFixture();
+    final exactGroups = exact['verifiedGroups'] as List;
+    exactGroups.add(Map<String, dynamic>.from(exactGroups.single as Map));
+    expect(
+      ConfigurationChartSample.fromQuality(
+        SessionMeasurementQuality.fromData(exact),
+      ).length,
+      1,
+    );
+
+    for (final unsafeFirst in [false, true]) {
+      final fixture = chartFixture();
+      final safe = Map<String, dynamic>.from(
+        (fixture['verifiedGroups'] as List).single as Map,
+      );
+      final unsafe = <String, dynamic>{
+        ...safe,
+        'turnCount': 2,
+        'outputTokens': 9007199254740992,
+        'durationMs': 4000,
+        'tokensPerSecond': 2251799813685248.0,
+      };
+      fixture['verifiedGroups'] = <Map<String, dynamic>>[
+        if (unsafeFirst) unsafe,
+        safe,
+        if (!unsafeFirst) unsafe,
+      ];
+      final quality = SessionMeasurementQuality.fromData(fixture);
+      expect(quality.verifiedGroups.length, 2);
+      expect(
+        ConfigurationChartSample.fromQuality(quality),
+        isEmpty,
+        reason: 'unsafeFirst=$unsafeFirst',
+      );
+    }
+  });
+
   test('malformed and duplicate identities fail closed', () {
     final fixture = chartFixture();
     fixture['terminals'] = [
