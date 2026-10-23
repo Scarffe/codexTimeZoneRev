@@ -1,0 +1,13 @@
+# Stage L1 — logged session activity timeline
+
+Version 0.2.4-rc.7+11 adds a collapsed activity timeline under 监控与工具 → 当前会话 for the selected turn's most recent completion. The four categories are message, reasoning, tool and other. Rows contain category, ordinal, recorded timestamps and timing reasons only. Prompts, commands, arguments, answers and internal item IDs are excluded from this new projection.
+
+The axis uses conservative epoch-second log bounds, with approximate first/last boundary regions. Its span is not the actual turn duration. Overlapping rows remain overlapping; zero, missing, reversed and out-of-bounds intervals remain textual facts without a bar. At most the chronological first 200 rows are displayed. Full H2 totals continue to include every accepted item. Missing/partial sources or omitted rows disable numerical gap interpretation. Unclassified time is unclassified; it is not labelled network wait.
+
+First-token timing refers to the logged first MODEL token, which may precede visible prose. Post-first-token duration is shown only for a valid logged first-token value within the actual duration. This does not measure server decode speed or generation tokens/s. Older DLLs and malformed timeline payloads retain the existing H2 summary and explain that the timeline is unavailable.
+
+Start-Trial.cmd opens the visible directory-isolated workspace; Stop-Trial.cmd explicitly exits that instance. Start-Monitor.cmd starts its isolated background mode. The launcher remains the default page and the pet remains paused. L1 introduces no new requests, credentials, session source, notification or polling controller.
+
+The candidate is separate from installed binaries and prior candidates. The packager selects environment/stage-l1-core/codex_timezone_core.dll, staged from the fresh reviewed Rust release, and includes applicable licenses and notices. It refuses dirty sources and existing candidate paths. The ZIP includes its exact source commit, runtime hashes and a per-file manifest, with a separate ZIP checksum. Settings, credentials, selections, synthetic fixtures, logs and debug symbols are excluded.
+
+scripts/test-session-timeline-l1.ps1 uses only new synthetic CODEX_HOME directories, read-only synthetic logs for DLL smoke, owned hidden helpers and exact-process cleanup. The original L1 baselines protect 22 file hashes and 15 process identities. Full test/build/package results are recorded in .superpowers/sdd/2026-10-23-session-activity-timeline-l1/task-3-report.md and new environment/stage-l1-* receipts after the integration gate. Physical chart layout, mouse navigation and notification visibility are NOT_RUN unless separately observed. M3 API UI and M4 real-endpoint acceptance remain pending.
