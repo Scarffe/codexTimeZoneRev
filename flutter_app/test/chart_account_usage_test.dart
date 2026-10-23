@@ -270,12 +270,22 @@ void main() {
     await controller.query('desktop');
     await tester.pumpWidget(_app(controller, launcher));
     await tester.pumpAndSettle();
+    final inspect = find.descendant(
+      of: find.byKey(const ValueKey('account-quota-chart')),
+      matching: find.text('查看数值'),
+    );
+    await tester.ensureVisible(inspect);
+    await tester.tap(inspect);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('5 小时额度：75 %'), findsOneWidget);
     service.failure = '未检测到已登录账号';
     await controller.query('desktop');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('account-quota-chart')), findsNothing);
     expect(find.text('1,234,567'), findsNothing);
     expect(find.textContaining('查询失败'), findsWidgets);
+    expect(find.text('图表数值'), findsNothing);
+    expect(find.textContaining('5 小时额度：75 %'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

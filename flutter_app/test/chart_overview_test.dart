@@ -119,6 +119,7 @@ Map<String, dynamic> overviewFixture({bool partial = false}) {
 class OverviewBackend extends PageBackend {
   Map<String, dynamic> value = overviewFixture();
   int sessionCalls = 0;
+  String? readFailure;
   @override
   Future<Map<String, dynamic>> call(
     String command, [
@@ -131,6 +132,7 @@ class OverviewBackend extends PageBackend {
         'sessions': [value['sourceInfo']],
       };
     }
+    if (readFailure != null) throw StateError(readFailure!);
     return value;
   }
 }
@@ -196,6 +198,38 @@ Future<void> chooseOverview(
 void main() {
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('session read failure dismisses open chart values', (
+    tester,
+  ) async {
+    final backend = OverviewBackend();
+    await tester.pumpWidget(overviewApplication(backend, PageUsage()));
+    await tester.pumpAndSettle();
+    await populateOverview(tester);
+    final controller = tester
+        .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
+        .controller;
+    final inspect = find.descendant(
+      of: find.byKey(const ValueKey('session-recent-chart')),
+      matching: find.text('查看数值'),
+    );
+    await tester.ensureVisible(inspect);
+    await tester.tap(inspect);
+    await tester.pumpAndSettle();
+    expect(find.text('图表数值'), findsOneWidget);
+    expect(find.textContaining('回合 terminal-0'), findsOneWidget);
+
+    backend.readFailure = 'synthetic read failure';
+    await controller.poll();
+    await tester.pumpAndSettle();
+
+    expect(controller.data, isNull);
+    expect(find.text('图表数值'), findsNothing);
+    expect(find.textContaining('回合 terminal-0'), findsNothing);
+    expect(find.textContaining('读取失败'), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'five direct graphs keep strict facts and distinguish recent completed from cancelled',

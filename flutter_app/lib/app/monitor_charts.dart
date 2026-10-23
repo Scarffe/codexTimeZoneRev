@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -180,9 +181,111 @@ class MonitorChartFrame extends StatelessWidget {
 }
 
 /// Native, local inspection works with keyboard, touch and screen readers.
-class _InspectValues extends StatelessWidget {
+class _InspectValues extends StatefulWidget {
   const _InspectValues({required this.records});
   final List<String> records;
+
+  @override
+  State<_InspectValues> createState() => _InspectValuesState();
+}
+
+class _InspectValuesState extends State<_InspectValues> {
+  RawDialogRoute<void>? _route;
+  NavigatorState? _navigator;
+
+  @override
+  void didUpdateWidget(_InspectValues oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!listEquals(oldWidget.records, widget.records)) _dismissInspection();
+  }
+
+  @override
+  void dispose() {
+    _dismissInspection();
+    super.dispose();
+  }
+
+  void _dismissInspection() {
+    final route = _route;
+    final navigator = _navigator;
+    _route = null;
+    _navigator = null;
+    if (route == null || navigator == null) return;
+    // Replacement and disposal can happen during build. Remove only our exact
+    // route after that frame, including when another overlay is above it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator.mounted &&
+          route.isActive &&
+          identical(route.navigator, navigator)) {
+        navigator.removeRoute(route);
+      }
+    });
+  }
+
+  void _openInspection() {
+    if (_route != null) return;
+    final records = widget.records;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    late final RawDialogRoute<void> route;
+    route = RawDialogRoute<void>(
+      barrierDismissible: true,
+      barrierLabel: '关闭图表数值',
+      barrierColor: const Color(0x80000000),
+      pageBuilder: (context, _, _) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 620,
+              maxHeight: MediaQuery.sizeOf(context).height * .85,
+            ),
+            child: FCard(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('图表数值', style: context.theme.typography.body.lg),
+                    const SizedBox(height: 12),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final record in records)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(record),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FButton(
+                      onPress: () {
+                        if (identical(_route, route)) _dismissInspection();
+                      },
+                      child: const Text('关闭'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    _route = route;
+    _navigator = navigator;
+    navigator.push<void>(route).whenComplete(() {
+      if (identical(_route, route)) {
+        _route = null;
+        _navigator = null;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) => Align(
@@ -191,54 +294,7 @@ class _InspectValues extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       variant: FButtonVariant.ghost,
       prefix: const Icon(FLucideIcons.table2, size: 16),
-      onPress: () => showGeneralDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        barrierLabel: '关闭图表数值',
-        pageBuilder: (context, _, _) => Padding(
-          padding: const EdgeInsets.all(16),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 620,
-                maxHeight: MediaQuery.sizeOf(context).height * .85,
-              ),
-              child: FCard(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('图表数值', style: context.theme.typography.body.lg),
-                      const SizedBox(height: 12),
-                      Flexible(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final record in records)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Text(record),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      FButton(
-                        onPress: () => Navigator.of(context).pop(),
-                        child: const Text('关闭'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      onPress: _openInspection,
       child: const Text('查看数值'),
     ),
   );
