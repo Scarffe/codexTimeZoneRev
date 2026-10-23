@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:codex_timezone/app/session_measurement_workspace.dart';
+import 'package:codex_timezone/app/monitor_presentation.dart';
 import 'package:codex_timezone/app/theme.dart';
 import 'package:codex_timezone/app/workspace_shell.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +25,101 @@ Widget host(Widget child) => WidgetsApp(
 );
 
 void main() {
+  testWidgets('shared icon action accepts touch near every target corner', (
+    tester,
+  ) async {
+    var activations = 0;
+    await tester.pumpWidget(
+      host(
+        Center(
+          child: MonitorIconAction(
+            key: const ValueKey('touch-action'),
+            label: '刷新观测',
+            icon: FLucideIcons.refreshCw,
+            onPress: () => activations++,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final center = tester.getCenter(find.byKey(const ValueKey('touch-action')));
+    for (final offset in const [
+      Offset(-21, -21),
+      Offset(21, -21),
+      Offset(-21, 21),
+      Offset(21, 21),
+    ]) {
+      await tester.tapAt(center + offset);
+      await tester.pumpAndSettle();
+    }
+    expect(
+      activations,
+      4,
+      reason: 'The outer touch area must activate the action',
+    );
+    expect(tester.takeException(), isNull);
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 600));
+  });
+
+  testWidgets('narrow rail touch corners navigate at 125 percent text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 700);
+    tester.platformDispatcher.textScaleFactorTestValue = 1.25;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    var activations = 0;
+    var monitor = false;
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, update) => WorkspaceShell(
+            monitorSelected: monitor,
+            onSelect: (value) => update(() {
+              monitor = value;
+              activations++;
+            }),
+            appearance: 'light',
+            onAppearance: (_) {},
+            launcher: const Text('launcher content'),
+            monitor: const Text('monitor content'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final action = find.byKey(const ValueKey('workspace-monitor'));
+    final center = tester.getCenter(action);
+    for (final offset in const [
+      Offset(-21, -21),
+      Offset(21, -21),
+      Offset(-21, 21),
+      Offset(21, 21),
+    ]) {
+      await tester.tapAt(center + offset);
+      await tester.pumpAndSettle();
+    }
+    expect(
+      activations,
+      4,
+      reason: 'The narrow rail must retain the whole touch area',
+    );
+    expect(monitor, isTrue);
+    expect(find.text('监控总览'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(milliseconds: 600));
+  });
+
   testWidgets('rail navigation announces the visible monitor overview', (
     tester,
   ) async {

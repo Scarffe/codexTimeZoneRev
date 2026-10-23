@@ -21,7 +21,7 @@ class MonitorIconAction extends StatelessWidget {
       semanticsTooltip: label,
       variant: FButtonVariant.ghost,
       onPress: onPress,
-      child: SizedBox(width: 38, height: 38, child: Icon(icon, size: 18)),
+      child: SizedBox(width: 44, height: 44, child: Icon(icon, size: 18)),
     ),
   );
 }

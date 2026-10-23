@@ -46,7 +46,7 @@ class WorkspaceShell extends StatelessWidget {
                 color: palette.rail,
                 border: Border(right: BorderSide(color: colors.border)),
               ),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 3),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               child: Column(
                 children: [
                   _RailEntry(
@@ -228,8 +228,8 @@ class _RailEntry extends StatelessWidget {
           variant: FButtonVariant.ghost,
           onPress: onPress,
           child: SizedBox(
-            width: 38,
-            height: 38,
+            width: 44,
+            height: 44,
             child: Icon(
               icon,
               size: 18,
