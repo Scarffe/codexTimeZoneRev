@@ -162,15 +162,17 @@ class SessionMetricsPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  controller.error != null && last != null
+                  '${controller.error != null && last != null
                       ? '保留的上轮样本 · 非当前状态'
                       : controller.data?['catchingUp'] == true
                       ? '正在读取历史 · 尚无可用上轮'
                       : last == null
                       ? '尚无完成回合'
-                      : '上轮指标',
+                      : '上轮指标'} · 含工具与等待',
+                  style: context.theme.typography.body.sm.copyWith(
+                    color: context.theme.colors.mutedForeground,
+                  ),
                 ),
-                const Text('回合均值 · 含工具与等待'),
                 const SizedBox(height: 8),
                 LayoutBuilder(
                   builder: (context, constraints) {
@@ -296,25 +298,50 @@ class _Metric extends StatelessWidget {
   final String label, value, valueKey;
   final String? note;
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [Icon(icon, size: 16), Text(label)],
-        ),
-        Text(
-          value,
-          key: ValueKey(valueKey),
-          style: context.theme.typography.display.sm,
-        ),
-        if (note != null) Text(note!),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final secondary = context.theme.typography.body.sm.copyWith(
+      color: context.theme.colors.mutedForeground,
+    );
+    final unitBoundary = value.lastIndexOf(' ');
+    return SizedBox(
+      width: width,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: context.theme.colors.mutedForeground),
+              Text(label, style: secondary),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: unitBoundary < 0
+                      ? value
+                      : value.substring(0, unitBoundary),
+                  style: context.theme.typography.display.xl2.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (unitBoundary >= 0)
+                  TextSpan(
+                    text: value.substring(unitBoundary),
+                    style: secondary,
+                  ),
+              ],
+            ),
+            key: ValueKey(valueKey),
+          ),
+          if (note != null) Text(note!, style: secondary),
+        ],
+      ),
+    );
+  }
 }
 
 class _MeasurementDetails extends StatelessWidget {

@@ -67,7 +67,8 @@ void main() {
             .widget<Text>(
               find.byKey(const ValueKey('session-first-token-value')),
             )
-            .data,
+            .textSpan!
+            .toPlainText(),
         '0.000 s',
       );
       expect(find.text('2.000 s'), findsOneWidget);
@@ -233,7 +234,8 @@ void main() {
         expect(
           tester
               .widget<Text>(find.byKey(const ValueKey('session-rate-value')))
-              .data,
+              .textSpan!
+              .toPlainText(),
           status == 'verified' ? '0.00 tokens/s' : '不可用',
         );
         expect(find.text('10.00 tokens/s'), findsNothing);
@@ -260,13 +262,15 @@ void main() {
             .widget<Text>(
               find.byKey(const ValueKey('session-first-token-value')),
             )
-            .data,
+            .textSpan!
+            .toPlainText(),
         '2.500 s',
       );
       expect(
         tester
             .widget<Text>(find.byKey(const ValueKey('session-duration-value')))
-            .data,
+            .textSpan!
+            .toPlainText(),
         '不可用',
       );
       await openDetail(tester, 'session-source-details');
