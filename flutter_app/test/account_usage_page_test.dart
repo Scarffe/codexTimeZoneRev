@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:codex_timezone/app/application.dart';
+import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/domain/settings.dart';
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/backend.dart';
@@ -61,6 +62,55 @@ class LiveUsage implements AccountUsageService {
     calls++;
     return result = await const NativeAccountUsageService(NativeBackend())
         .query(desktopPath);
+  }
+}
+
+MonitorBarChart quotaChart(WidgetTester tester) => tester
+    .widget<MonitorBarChart>(find.byKey(const ValueKey('account-quota-chart')));
+
+void expectQuotaBucket(WidgetTester tester, UsageBucket bucket) {
+  final chart = quotaChart(tester);
+  expect(chart.horizontal, isTrue);
+  expect(chart.unit, '%');
+  expect(chart.maxValue, 100);
+  final figure = find.byKey(const ValueKey('account-quota-chart'));
+  expect(find.descendant(of: figure, matching: find.text('%')), findsOneWidget);
+  expect(find.descendant(of: figure, matching: find.text('100')), findsWidgets);
+  expect(
+    chart.bars.map((bar) => bar.label),
+    bucket.windows.map((window) => window.label),
+  );
+  expect(
+    chart.bars.map((bar) => bar.value),
+    bucket.windows.map(
+      (window) => window.usedPercent == null ? null : 100 - window.usedPercent!,
+    ),
+  );
+}
+
+Future<void> expectAllQuotaBuckets(
+  WidgetTester tester,
+  AccountUsage expected,
+) async {
+  if (expected.buckets.isEmpty) {
+    expect(find.byKey(const ValueKey('account-quota-chart')), findsNothing);
+    expect(find.text('额度信息暂不可用'), findsWidgets);
+  }
+  for (final bucket in expected.buckets) {
+    if (expected.buckets.length > 1) {
+      tester
+          .widget<MonitorChoice>(
+            find.byKey(const ValueKey('account-quota-bucket')),
+          )
+          .onChanged(bucket.id);
+      await tester.pumpAndSettle();
+    }
+    if (bucket.windows.isEmpty) {
+      expect(find.byKey(const ValueKey('account-quota-chart')), findsNothing);
+      expect(find.text('额度信息暂不可用'), findsWidgets);
+    } else {
+      expectQuotaBucket(tester, bucket);
+    }
   }
 }
 
@@ -151,25 +201,24 @@ void main() {
           expect(service.selectedPath, contains('Codex.exe'));
           expect(find.text('5 小时额度'), findsOneWidget);
           expect(find.text('周额度'), findsOneWidget);
-          expect(find.text('已用 8%'), findsOneWidget);
-          expect(find.text('已用 5%'), findsOneWidget);
-          expect(find.text('1,234,567'), findsNothing);
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('account-details-toggle')),
+          expectQuotaBucket(
+            tester,
+            AccountUsage.fromJson(service.response).buckets.first,
           );
-          await tester.tap(
-            find.byKey(const ValueKey('account-details-toggle')),
-          );
-          await tester.pumpAndSettle();
+          expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
           expect(find.text('1,234,567'), findsOneWidget);
           expect(find.text('12,345'), findsOneWidget);
-          expect(find.byType(FDeterminateProgress), findsNWidgets(3));
+          expect(find.text('最近一天 · 2026-10-14'), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('account-details-toggle')),
+            findsNothing,
+          );
           final reset = DateTime.fromMillisecondsSinceEpoch(
             1791981390000,
             isUtc: true,
           );
           expect(
-            find.text(
+            find.textContaining(
               usageResetTime(const LauncherSettings(), reset, local: true),
             ),
             findsOneWidget,
@@ -187,7 +236,7 @@ void main() {
           await tester.tap(find.text('节点时间').last);
           await tester.pumpAndSettle();
           expect(
-            find.text(
+            find.textContaining(
               usageResetTime(const LauncherSettings(), reset, local: false),
             ),
             findsOneWidget,
@@ -204,9 +253,21 @@ void main() {
           await tester.tap(button);
           await tester.pumpAndSettle();
           expect(find.text('查询失败'), findsOneWidget);
-          expect(find.text('未检测到已登录账号'), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('account-quota-chart')),
+            findsNothing,
+          );
           expect(find.text('tester@example.com'), findsNothing);
           expect(find.text('1,234,567'), findsNothing);
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('account-usage-info')),
+          );
+          await tester.tap(find.byKey(const ValueKey('account-usage-info')));
+          await tester.pumpAndSettle();
+          expect(find.text('未检测到已登录账号'), findsOneWidget);
+          expect(find.text('tester@example.com'), findsNothing);
+          await tester.tap(find.text('关闭').last);
+          await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
         },
@@ -251,7 +312,11 @@ void main() {
       await tester.pump();
       service.pending!.complete(AccountUsage.fromJson(usageResponse()));
       await tester.pumpAndSettle();
-      expect(find.text('已用 8%'), findsOneWidget);
+      expectQuotaBucket(
+        tester,
+        AccountUsage.fromJson(service.response).buckets.first,
+      );
+      expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -283,15 +348,22 @@ void main() {
     await tester.ensureVisible(button);
     await tester.tap(button);
     await tester.pumpAndSettle();
-    expect(find.text('已用 8%'), findsOneWidget);
-    expect(find.text('当前版本不支持 token 统计'), findsOneWidget);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('account-details-toggle')),
+    expectQuotaBucket(
+      tester,
+      AccountUsage.fromJson(service.response).buckets.first,
     );
-    await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
-    await tester.pumpAndSettle();
+    expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
+    expect(find.text('token 更新失败 · 查看详情'), findsOneWidget);
     expect(find.text('暂无数据'), findsNWidgets(2));
-    expect(find.text('当前版本不支持 token 统计'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('account-usage-info')),
+    );
+    await tester.tap(find.byKey(const ValueKey('account-usage-info')));
+    await tester.pumpAndSettle();
+    expect(find.text('token：当前版本不支持 token 统计'), findsOneWidget);
+    expect(service.calls, 1);
+    await tester.tap(find.text('关闭').last);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
@@ -333,23 +405,10 @@ void main() {
         await tester.tap(button);
         await tester.pumpAndSettle();
         expect(find.text('查询失败'), findsNothing);
-        await tester.ensureVisible(
-          find.byKey(const ValueKey('account-details-toggle')),
-        );
-        await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
-        await tester.pumpAndSettle();
         expect(find.text(tokenCount(expected.lifetimeTokens)), findsWidgets);
         expect(find.text(tokenCount(expected.latestDailyTokens)), findsWidgets);
-        expect(
-          find.byType(FDeterminateProgress),
-          findsNWidgets(
-            expected.buckets.fold<int>(
-              0,
-              (n, b) =>
-                  n + b.windows.where((w) => w.usedPercent != null).length,
-            ),
-          ),
-        );
+        await expectAllQuotaBuckets(tester, expected);
+        expect(service.calls, 1);
         expect(tester.takeException(), isNull);
         await tester.drag(
           find.byType(SingleChildScrollView).first,
@@ -407,11 +466,6 @@ void main() {
         expect(service.calls, 1);
         expect(service.result, isNotNull);
         expect(find.text('查询失败'), findsNothing);
-        await tester.ensureVisible(
-          find.byKey(const ValueKey('account-details-toggle')),
-        );
-        await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
-        await tester.pumpAndSettle();
         expect(
           find.text(tokenCount(service.result!.lifetimeTokens)),
           findsOneWidget,
@@ -420,8 +474,8 @@ void main() {
           find.text(tokenCount(service.result!.latestDailyTokens)),
           findsOneWidget,
         );
-        expect(find.text('5 小时额度'), findsOneWidget);
-        expect(find.text('周额度'), findsOneWidget);
+        await expectAllQuotaBuckets(tester, service.result!);
+        expect(service.calls, 1);
         expect(tester.takeException(), isNull);
         await screenshot(tester, boundary, 'live-account-loaded');
         await tester.pumpWidget(const SizedBox());

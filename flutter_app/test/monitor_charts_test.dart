@@ -400,6 +400,7 @@ void main() {
                 onChanged: (_) {},
               ),
             ],
+            footnotes: const ['图表仅显示本地记录的已知数值。'],
             child: MonitorBarChart(
               bars: [
                 for (var i = 0; i < 20; i++)
@@ -408,7 +409,6 @@ void main() {
               unit: 'tokens',
               horizontal: true,
             ),
-            footnotes: const ['图表仅显示本地记录的已知数值。'],
           ),
           dark: dark,
           scale: 1.25,

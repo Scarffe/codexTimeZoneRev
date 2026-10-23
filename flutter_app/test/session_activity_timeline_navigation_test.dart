@@ -1,4 +1,5 @@
 import 'package:codex_timezone/app/application.dart';
+import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/session_metrics_panel.dart';
 import 'package:codex_timezone/services/network_info.dart';
 import 'package:flutter/widgets.dart';
@@ -33,7 +34,7 @@ void main() {
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
   testWidgets(
-    'ten main and API switches keep timeline owner expansion scroll selection and request counts; identity resets only list',
+    'ten main and API switches retain chart choice controller selection and request counts across turn epochs',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(760, 900);
@@ -56,18 +57,12 @@ void main() {
           .controller;
       controller.select(WorkspaceBackend.longPath);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('session-timeline-toggle')),
-      );
-      await tester.tap(find.byKey(const ValueKey('session-timeline-toggle')));
+      tester
+          .widget<MonitorChoice>(
+            find.byKey(const ValueKey('session-activity-view')),
+          )
+          .onChanged('duration');
       await tester.pumpAndSettle();
-      final list = find.byKey(const ValueKey('session-timeline-list'));
-      await tester.ensureVisible(list);
-      final scroll = tester.state<ScrollableState>(
-        find.descendant(of: list, matching: find.byType(Scrollable)),
-      );
-      scroll.position.jumpTo(120);
-      await tester.pump();
       final calls = backend.sessionCalls;
       for (var i = 0; i < 10; i++) {
         await tester.tap(
@@ -75,7 +70,7 @@ void main() {
         );
         await tester.pump();
         expect(
-          find.byKey(const ValueKey('session-timeline-chart')),
+          find.byKey(const ValueKey('session-activity-chart')),
           findsNothing,
         );
         await tester.tap(
@@ -94,35 +89,54 @@ void main() {
         );
         expect(controller.selected, WorkspaceBackend.longPath);
         expect(
-          find.byKey(const ValueKey('session-timeline-chart')),
+          find.byKey(const ValueKey('session-activity-chart')),
           findsOneWidget,
         );
-        expect(scroll.position.pixels, 120);
+        expect(
+          tester
+              .widget<MonitorChoice>(
+                find.byKey(const ValueKey('session-activity-view')),
+              )
+              .value,
+          'duration',
+        );
       }
       expect(backend.sessionCalls, calls);
       expect(usage.calls, 0);
       await controller.poll();
       await tester.pump();
       expect(
-        scroll.position.pixels,
-        120,
-        reason: 'same epoch/turn refresh must preserve position',
+        tester
+            .widget<MonitorChoice>(
+              find.byKey(const ValueKey('session-activity-view')),
+            )
+            .value,
+        'duration',
       );
       backend.turn = 'completed-b';
       await controller.poll();
       await tester.pump();
-      expect(scroll.position.pixels, 0);
       expect(
-        find.byKey(const ValueKey('session-timeline-chart')),
-        findsOneWidget,
+        tester
+            .widget<MonitorChoice>(
+              find.byKey(const ValueKey('session-activity-view')),
+            )
+            .value,
+        'duration',
       );
-      scroll.position.jumpTo(80);
       backend.epoch++;
       await controller.poll();
       await tester.pump();
-      expect(scroll.position.pixels, 0);
       expect(
-        find.byKey(const ValueKey('session-timeline-chart')),
+        tester
+            .widget<MonitorChoice>(
+              find.byKey(const ValueKey('session-activity-view')),
+            )
+            .value,
+        'duration',
+      );
+      expect(
+        find.byKey(const ValueKey('session-activity-chart')),
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);

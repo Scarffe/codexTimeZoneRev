@@ -358,17 +358,24 @@ void main() {
         expect(find.textContaining('其他无法核验'), findsOneWidget);
         expect(find.textContaining('future_reason'), findsNothing);
         expect(tester.takeException(), isNull);
-        await tester.runAsync(() async {
-          final boundary =
-              capture.currentContext!.findRenderObject()!
-                  as RenderRepaintBoundary;
-          final image = await boundary.toImage(pixelRatio: 1);
-          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-          await File(
-            '../environment/sidebar-task2/timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
-          ).writeAsBytes(bytes!.buffer.asUint8List());
-          image.dispose();
-        });
+        final captureDirectory =
+            Platform.environment['CHART_OVERVIEW_LEGACY_RENDER_DIR'];
+        if (captureDirectory != null) {
+          await tester.runAsync(() async {
+            final boundary =
+                capture.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final image = await boundary.toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            await Directory(captureDirectory).create(recursive: true);
+            await File(
+              '$captureDirectory/legacy-timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
       });
     }
   }

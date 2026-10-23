@@ -3,7 +3,6 @@ import 'package:codex_timezone/app/session_metrics_panel.dart';
 import 'package:codex_timezone/state/session_metrics_controller.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:forui/forui.dart';
 
 import 'session_activity_fixture.dart';
 import 'session_activity_timeline_widget_test.dart' show timelineApp;
@@ -40,7 +39,12 @@ Map<String, dynamic> compactFixture({String status = 'verified'}) {
 }
 
 Future<void> openDetail(WidgetTester tester, String key) async {
-  final target = find.byKey(ValueKey(key));
+  final close = find.byKey(const ValueKey('monitor-information-close'));
+  if (close.evaluate().isNotEmpty) {
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+  }
+  final target = find.byKey(const ValueKey('session-information'));
   await tester.ensureVisible(target);
   await tester.tap(target);
   await tester.pumpAndSettle();
@@ -73,7 +77,7 @@ void main() {
       );
       expect(find.text('2.000 s'), findsOneWidget);
       expect(find.textContaining('可能含推理'), findsOneWidget);
-      expect(find.text('重叠 1.000 s · 未归类 2.000 s（非等待判定）'), findsOneWidget);
+      expect(find.text('未归类 ≠ 等待'), findsOneWidget);
       expect(find.textContaining(sourcePath), findsNothing);
       expect(find.textContaining('Unix epoch'), findsNothing);
       expect(find.textContaining('÷'), findsNothing);
@@ -81,19 +85,14 @@ void main() {
       expect(find.text('日志：$sourcePath'), findsOneWidget);
       expect(find.text('会话 ID：original-session-id'), findsOneWidget);
       await openDetail(tester, 'session-measurement-details');
-      expect(find.textContaining('÷'), findsOneWidget);
+      expect(find.textContaining('÷'), findsNothing);
       await openDetail(tester, 'session-timing-details');
-      expect(find.textContaining('首模型 token 后的回合耗时'), findsOneWidget);
+      expect(find.textContaining('未归类时间：2.000 s'), findsOneWidget);
       await openDetail(tester, 'session-response-details');
       expect(find.textContaining('response-original'), findsOneWidget);
       await openDetail(tester, 'session-timeline-toggle');
       expect(find.textContaining('Unix epoch'), findsWidgets);
-      expect(
-        tester
-            .getSize(find.byKey(const ValueKey('session-timeline-list')))
-            .height,
-        lessThanOrEqualTo(220),
-      );
+      expect(find.textContaining('记录开始：'), findsNWidgets(4));
       expect(tester.takeException(), isNull);
     },
   );
@@ -187,12 +186,15 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('session-selector')));
       await tester.pumpAndSettle();
       expect(find.textContaining('C:/hidden/'), findsNothing);
-      final field = find.descendant(
-        of: find.byType(FTextField),
-        matching: find.byType(EditableText),
+      // Chart selectors add other EditableText fields; use Forui's popup
+      // search focus identity instead of traversal order. Filtering is sync.
+      final field = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText &&
+            widget.focusNode.debugLabel == 'search field',
       );
-      // The selector field is also editable; the last field is popup search.
-      await tester.enterText(field.last, 'same-prefix-beta');
+      expect(field, findsOneWidget);
+      await tester.enterText(field, 'same-prefix-beta');
       await tester.pumpAndSettle();
       final choices = find.textContaining('同名会话');
       expect(choices, findsOneWidget);
@@ -201,7 +203,8 @@ void main() {
       expect(c.selected, 'C:/hidden/beta/original.jsonl');
       await tester.tap(find.byKey(const ValueKey('session-selector')));
       await tester.pumpAndSettle();
-      await tester.enterText(field.last, 'C:/hidden/alpha/original.jsonl');
+      expect(field, findsOneWidget);
+      await tester.enterText(field, 'C:/hidden/alpha/original.jsonl');
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('同名会话').last);
       await tester.pumpAndSettle();
@@ -244,7 +247,7 @@ void main() {
   );
 
   testWidgets(
-    'known first token survives missing duration and retained sample is explicitly old on read failure',
+    'read failure suppresses retained summary and completed identity',
     (tester) async {
       final c = SessionMetricsController(QualityBackend())
         ..selected = sourcePath
@@ -256,7 +259,7 @@ void main() {
       await tester.pumpWidget(panelApp(c));
       await tester.pumpAndSettle();
       expect(find.textContaining('状态未知 · 读取失败'), findsOneWidget);
-      expect(find.textContaining('保留的上轮样本'), findsOneWidget);
+      expect(find.textContaining('最近完成 · 暂无样本'), findsOneWidget);
       expect(
         tester
             .widget<Text>(
@@ -264,7 +267,7 @@ void main() {
             )
             .textSpan!
             .toPlainText(),
-        '2.500 s',
+        '不可用',
       );
       expect(
         tester
@@ -274,7 +277,7 @@ void main() {
         '不可用',
       );
       await openDetail(tester, 'session-source-details');
-      expect(find.textContaining('previous-completed-turn'), findsOneWidget);
+      expect(find.textContaining('previous-completed-turn'), findsNothing);
     },
   );
 
@@ -326,15 +329,12 @@ void main() {
           find.byKey(const ValueKey('session-timeline-chart')),
           findsOneWidget,
         );
-        for (final key in [
-          'session-source-details',
-          'session-measurement-details',
-          'session-timing-details',
-          'session-timeline-toggle',
-        ]) {
-          await openDetail(tester, key);
-          expect(tester.takeException(), isNull);
-        }
+        await openDetail(tester, 'session-information');
+        expect(tester.takeException(), isNull);
+        await tester.tap(
+          find.byKey(const ValueKey('monitor-information-close')),
+        );
+        await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('停止会话采集'));
         await tester.tap(find.text('停止会话采集'));
         await tester.pumpAndSettle();

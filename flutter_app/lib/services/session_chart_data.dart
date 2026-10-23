@@ -61,13 +61,13 @@ List<T?> _window<T>(
 class SessionChartData {
   const SessionChartData._({
     required this.catchingUp,
-    required List<TerminalChartSample?> terminals,
+    required this._terminals,
     required this.responses,
     required this.activities,
     required this.coverage,
     required this.usageMatchesTurn,
     required this.timeline,
-  }) : _terminals = terminals;
+  });
 
   factory SessionChartData.fromData(Map<String, dynamic>? data) {
     final catchingUp = data?['catchingUp'] == true;

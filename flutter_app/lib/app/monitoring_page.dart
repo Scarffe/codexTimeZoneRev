@@ -4,10 +4,12 @@ import 'package:forui/forui.dart';
 import '../state/account_usage_controller.dart';
 import '../state/launcher_controller.dart';
 import '../state/session_metrics_controller.dart';
+import '../services/monitoring_guide.dart';
 import 'account_usage_panel.dart';
 import 'session_metrics_panel.dart';
 import 'session_measurement_workspace.dart';
 import 'monitor_presentation.dart';
+import 'monitor_information.dart';
 
 /// Account quota and local session observations retain separate data sources.
 /// Information hierarchy follows Win-CodexBar's ProviderGrid/MenuCard (MIT),
@@ -57,13 +59,44 @@ class MonitoringPage extends StatelessWidget {
                   ),
                 ],
               ),
-              MonitorDisclosure(
-                label: recentNotice.isEmpty ? '最近提醒：暂无' : '最近提醒：有新提醒',
-                toggleKey: const ValueKey('recent-monitor-notice'),
-                child: Text(
-                  '${recentNotice.isEmpty ? '暂无提醒。' : recentNotice}\n系统通知可能受勿扰设置影响。',
-                  style: context.theme.typography.body.sm,
-                ),
+              Wrap(
+                spacing: 12,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(recentNotice.isEmpty ? '最近提醒：暂无' : '最近提醒：有新提醒'),
+                  MonitorIconAction(
+                    key: const ValueKey('recent-monitor-notice'),
+                    label: '查看历史提醒',
+                    icon: FLucideIcons.bell,
+                    onPress: () => showMonitorInformation(
+                      context,
+                      title: '历史提醒',
+                      builder: (_) =>
+                          Text(recentNotice.isEmpty ? '暂无提醒。' : recentNotice),
+                    ),
+                  ),
+                  FButton(
+                    mainAxisSize: MainAxisSize.min,
+                    variant: FButtonVariant.ghost,
+                    key: const ValueKey('monitor-local-guide'),
+                    prefix: const Icon(FLucideIcons.bookOpen, size: 16),
+                    onPress: () async {
+                      try {
+                        await openMonitoringGuide();
+                      } catch (error) {
+                        if (context.mounted) {
+                          await showMonitorInformation(
+                            context,
+                            title: '本地监控说明',
+                            builder: (_) => Text('无法打开本地说明：$error'),
+                          );
+                        }
+                      }
+                    },
+                    child: const Text('监控说明'),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               AccountUsagePanel(

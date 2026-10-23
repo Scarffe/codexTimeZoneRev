@@ -1,5 +1,6 @@
 import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/app/application.dart';
+import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/monitor_settings_dialog.dart';
 import 'package:codex_timezone/app/workspace_shell.dart';
 import 'package:codex_timezone/app/theme.dart';
@@ -62,7 +63,7 @@ void main() {
   });
 
   testWidgets(
-    'account keeps quota and errors visible while token facts are disclosed',
+    'account keeps remaining quota token facts and distinct failure details available',
     (tester) async {
       final service = PageUsage();
       await tester.pumpWidget(
@@ -77,30 +78,46 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('query-account-usage')));
       await tester.pumpAndSettle();
-      expect(find.text('已用 8%'), findsOneWidget);
-      expect(find.text('1,234,567'), findsNothing);
-      expect(find.byKey(const ValueKey('usage-time-basis')), findsNothing);
-      final details = find.byKey(const ValueKey('account-details-toggle'));
-      await tester.ensureVisible(details);
-      await tester.tap(details);
-      await tester.pumpAndSettle();
+      final quota = tester.widget<MonitorBarChart>(
+        find.byKey(const ValueKey('account-quota-chart')),
+      );
+      expect(quota.bars.map((bar) => bar.value), [92, 95]);
+      expect(quota.unit, '%');
+      expect(quota.maxValue, 100);
       expect(find.text('1,234,567'), findsOneWidget);
       expect(find.text('12,345'), findsOneWidget);
       expect(find.byKey(const ValueKey('usage-time-basis')), findsOneWidget);
       final account = tester.widget<AccountUsagePanel>(
         find.byType(AccountUsagePanel),
       );
-      account.controller.preferencesError = '设置保存失败';
       service.failure = '网络暂不可用';
       account.controller.startMonitoring(() => account.launcher.effectivePath);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(details);
-      await tester.tap(details);
-      await tester.pumpAndSettle();
-      expect(find.text('设置保存失败'), findsOneWidget);
-      expect(find.text('网络暂不可用'), findsOneWidget);
+      await account.controller.settingsSaved;
+      account.controller.preferencesError = '设置保存失败';
+      account.controller.notifyListeners();
+      await tester.pump();
+      expect(find.text('监控设置保存失败 · 查看详情'), findsOneWidget);
+      expect(find.text('查询失败 · 上次观测'), findsOneWidget);
       expect(find.textContaining('失败退避中'), findsOneWidget);
-      expect(find.textContaining('上次成功结果'), findsOneWidget);
+      final retained = tester.widget<MonitorBarChart>(
+        find.byKey(const ValueKey('account-quota-chart')),
+      );
+      expect(retained.bars.map((bar) => bar.value), [92, 95]);
+      expect(find.text('1,234,567'), findsOneWidget);
+      final information = find.byKey(const ValueKey('account-usage-info'));
+      await tester.ensureVisible(information);
+      await tester.tap(information);
+      await tester.pumpAndSettle();
+      expect(find.text('账号用量详情'), findsOneWidget);
+      expect(find.text('设置保存失败'), findsOneWidget);
+      expect(find.textContaining('网络暂不可用'), findsOneWidget);
+      expect(find.textContaining('额度更新时间：'), findsOneWidget);
+      await tester.ensureVisible(find.text('关闭'));
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      account.controller.pause(persist: false);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -117,8 +134,8 @@ void main() {
           addTearDown(tester.view.resetPhysicalSize);
           addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
           final service = PageUsage();
-          service.response['account']['email'] =
-              '${List.filled(20, 'longidentity').join()}@example.com';
+          final email = '${List.filled(20, 'longidentity').join()}@example.com';
+          service.response['account']['email'] = email;
           await tester.pumpWidget(
             LauncherApplication(
               backend: WorkspaceBackend(),
@@ -137,14 +154,30 @@ void main() {
           );
           await account.controller.query(account.launcher.effectivePath);
           await tester.pumpAndSettle();
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('account-details-toggle')),
+          final quota = tester.widget<MonitorBarChart>(
+            find.byKey(const ValueKey('account-quota-chart')),
           );
-          await tester.tap(
-            find.byKey(const ValueKey('account-details-toggle')),
-          );
-          await tester.pumpAndSettle();
+          expect(quota.bars.first.value, 92);
+          expect(quota.maxValue, 100);
           expect(find.text('1,234,567'), findsOneWidget);
+          expect(find.text('12,345'), findsOneWidget);
+          expect(
+            find.byKey(const ValueKey('usage-time-basis')),
+            findsOneWidget,
+          );
+          expect(find.text(email), findsOneWidget);
+          final information = find.byKey(const ValueKey('account-usage-info'));
+          await tester.ensureVisible(information);
+          await tester.tap(information);
+          await tester.pumpAndSettle();
+          expect(find.text('账号用量详情'), findsOneWidget);
+          expect(find.text(email), findsWidgets);
+          expect(find.textContaining('额度更新时间：'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await tester.ensureVisible(find.text('关闭'));
+          await tester.tap(find.text('关闭'));
+          await tester.pumpAndSettle();
+          expect(find.text('账号用量详情'), findsNothing);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
         },

@@ -394,6 +394,18 @@ class MonitorBarChart extends StatelessWidget {
 
   String _value(double? value) =>
       _known(value) == null ? '未知' : '${_number(value!)} $unit';
+  String _visibleValue(double? value) {
+    final known = _known(value);
+    if (known == null) return '未知';
+    if (known == known.roundToDouble()) return _value(known);
+    if (known < .01) return '<0.01 $unit';
+    final number = known
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+    return '$number $unit';
+  }
+
   String _record(ChartBar bar) =>
       '${bar.label}${stacked ? ' · $primaryLabel' : ''}：${bar.cancelled ? '取消' : _value(bar.value)}'
       '${stacked ? ' · $secondaryLabel：${_value(bar.secondaryValue)}' : ''}'
@@ -486,6 +498,9 @@ class MonitorBarChart extends StatelessWidget {
                       if (bars.length <= 4)
                         Text(
                           bars[i].cancelled
+                              ? '取消'
+                              : '${_visibleValue(bars[i].value)}${stacked ? ' · ${_visibleValue(bars[i].secondaryValue)}' : ''}',
+                          semanticsLabel: bars[i].cancelled
                               ? '取消'
                               : '${_value(bars[i].value)}${stacked ? ' · ${_value(bars[i].secondaryValue)}' : ''}',
                           style: _labelStyle(context),

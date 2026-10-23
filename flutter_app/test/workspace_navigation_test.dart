@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/app/application.dart';
 import 'package:codex_timezone/app/launcher_page.dart';
+import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/session_metrics_panel.dart';
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/desktop_monitor.dart';
@@ -222,7 +223,12 @@ void main() {
       service.pending!.complete(AccountUsage.fromJson(usageResponse()));
       await query;
       await tester.pumpAndSettle();
-      expect(find.text('已用 8%'), findsOneWidget);
+      final quota = tester.widget<MonitorBarChart>(
+        find.byKey(const ValueKey('account-quota-chart')),
+      );
+      expect(quota.bars.first.value, 92);
+      expect(quota.unit, '%');
+      expect(quota.maxValue, 100);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -479,26 +485,36 @@ void main() {
         await tester.ensureVisible(find.text('会话回合统计'));
         await tester.pumpAndSettle();
         await tester.ensureVisible(
-          find.byKey(const ValueKey('session-measurement-details')),
+          find.byKey(const ValueKey('session-information')),
         );
-        await tester.tap(
-          find.byKey(const ValueKey('session-measurement-details')),
-        );
+        await tester.tap(find.byKey(const ValueKey('session-information')));
         await tester.pumpAndSettle();
         expect(find.textContaining('用于核对统计来源的长项目说明'), findsOneWidget);
         expect(find.textContaining('核验信息不完整，暂无法核验'), findsOneWidget);
         expect(find.textContaining('future_reason'), findsNothing);
         expect(tester.takeException(), isNull);
-        await tester.runAsync(() async {
-          final boundary =
-              capture.currentContext!.findRenderObject()!
-                  as RenderRepaintBoundary;
-          final image = await boundary.toImage(pixelRatio: 1);
-          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-          await File('../environment/m1-ui-$appearance-${width.toInt()}.png')
-              .writeAsBytes(bytes!.buffer.asUint8List());
-          image.dispose();
-        });
+        final captureDirectory =
+            Platform.environment['CHART_OVERVIEW_LEGACY_RENDER_DIR'];
+        if (captureDirectory != null) {
+          await tester.runAsync(() async {
+            final boundary =
+                capture.currentContext!.findRenderObject()!
+                    as RenderRepaintBoundary;
+            final image = await boundary.toImage(pixelRatio: 1);
+            final bytes = await image.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            await Directory(captureDirectory).create(recursive: true);
+            await File(
+              '$captureDirectory/workspace-$appearance-${width.toInt()}.png',
+            ).writeAsBytes(bytes!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+        await tester.tap(
+          find.byKey(const ValueKey('monitor-information-close')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey('measurement-independent-api')),
         );

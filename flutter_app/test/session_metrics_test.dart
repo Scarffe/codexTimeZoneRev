@@ -104,15 +104,10 @@ void main() {
       final c = SessionMetricsController(b)..select('a');
       await tester.pumpWidget(panelApp(c));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('session-timing-details')));
+      await tester.tap(find.byKey(const ValueKey('session-information')));
       await tester.pumpAndSettle();
       expect(find.textContaining('与回合总数：一致'), findsOneWidget);
       expect(find.text('未归类时间：3.000 s'), findsOneWidget);
-      expect(find.textContaining('模型生成速度不可用'), findsOneWidget);
-      expect(find.textContaining('response-fixture'), findsNothing);
-      await tester.ensureVisible(find.text('最近响应用量（最多 12 条）'));
-      await tester.tap(find.text('最近响应用量（最多 12 条）'));
-      await tester.pumpAndSettle();
       expect(find.textContaining('response-fixture'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
@@ -125,9 +120,9 @@ void main() {
     final c = SessionMetricsController(Backend())..select('a');
     await tester.pumpWidget(panelApp(c));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('session-timing-details')));
+    await tester.tap(find.byKey(const ValueKey('session-information')));
     await tester.pumpAndSettle();
-    expect(find.text('未归类时间：不可用'), findsOneWidget);
+    expect(find.text('未归类时间：不可用'), findsNothing);
     expect(find.textContaining('计时数据不完整'), findsOneWidget);
     expect(find.textContaining('未归类时间：0.000'), findsNothing);
     expect(tester.takeException(), isNull);

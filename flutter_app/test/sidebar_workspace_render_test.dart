@@ -146,10 +146,14 @@ void main() {
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('Sidebar candidate version is rc.8+12', () {
+  test('candidate metadata and local guide ship reviewable provenance', () {
     expect(
       File('pubspec.yaml').readAsStringSync(),
-      contains('version: 0.2.4-rc.8+12'),
+      matches(RegExp(r'version: \d+\.\d+\.\d+-rc\.\d+\+\d+')),
+    );
+    expect(
+      File('../docs/monitoring.md').readAsStringSync(),
+      contains('回合平均吞吐'),
     );
   });
 
@@ -278,7 +282,7 @@ void main() {
             '$appearance-${width.toInt()}-monitor',
           );
           await Scrollable.ensureVisible(
-            tester.element(find.text('上轮指标 · 含工具与等待')),
+            tester.element(find.text('最近完成 · 含工具与等待')),
             alignment: 0,
           );
           await tester.pumpAndSettle();
@@ -299,21 +303,10 @@ void main() {
             boundaryKey,
             '$appearance-${width.toInt()}-timeline',
           );
-          await tapAction(tester, 'session-timeline-toggle');
-          expect(
-            find.byKey(const ValueKey('session-timeline-list')),
-            findsOneWidget,
-          );
-          expect(
-            tester
-                .getSize(find.byKey(const ValueKey('session-timeline-list')))
-                .height,
-            lessThanOrEqualTo(220),
-          );
-          await tapAction(tester, 'session-source-details');
+          await tapAction(tester, 'session-information');
           expect(find.text('日志：${SidebarRenderBackend.path}'), findsOneWidget);
-          await tapAction(tester, 'session-timing-details');
-          await tapAction(tester, 'session-measurement-details');
+          expect(find.textContaining('记录开始：'), findsNWidgets(4));
+          await tapAction(tester, 'monitor-information-close');
           await tapAction(tester, 'monitor-settings');
           expect(find.byKey(const ValueKey('alerts-toggle')), findsOneWidget);
           expect(
