@@ -13,6 +13,11 @@ impl Collector {
     pub fn new() -> Self {
         Self::default()
     }
+    pub fn for_responses() -> Self {
+        let mut c = Self::new();
+        c.facts.responses = true;
+        c
+    }
 
     fn reject(&mut self, code: &'static str) -> Result<(), StreamError> {
         self.fail(code);
@@ -36,6 +41,12 @@ impl Collector {
             return self.reject("event_after_done");
         }
         match event {
+            StreamEvent::Scope { reasoning, tool } => {
+                self.facts.has_reasoning |= reasoning;
+                self.facts.has_tool |= tool;
+            }
+            StreamEvent::Invalidation(code) => self.fail(&code),
+            StreamEvent::ProtocolTerminal(kind) => self.facts.protocol_terminal = Some(kind),
             StreamEvent::Content {
                 kind,
                 first_chunk_tokens,
@@ -82,7 +93,12 @@ impl Collector {
                     self.facts.finish = Some(reason);
                 }
             }
-            StreamEvent::Done => self.facts.done = Some(at_ns),
+            StreamEvent::Done => {
+                self.facts.done = Some(at_ns);
+                if !self.facts.responses {
+                    self.facts.protocol_terminal = Some("chat_done".into());
+                }
+            }
         }
         Ok(())
     }

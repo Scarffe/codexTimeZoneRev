@@ -1,4 +1,6 @@
+use super::types::{SseMessage, StreamEvent};
 use super::{chat::ChatAdapter, collector::Collector, sse::SseDecoder, types::StreamError};
+use super::{replay, responses::ResponsesAdapter};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
@@ -22,6 +24,13 @@ struct StartRequest {
     #[serde(default = "default_idle")]
     idle_timeout_ms: u64,
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OfflineRequest {
+    mode: String,
+    protocol: String,
+    scenario_id: String,
+}
 fn default_tokens() -> u32 {
     256
 }
@@ -34,7 +43,10 @@ fn default_idle() -> u64 {
 
 // Intentionally no Debug/Serialize: prompt and URL never enter diagnostics.
 pub(super) struct Config {
-    endpoint: Url,
+    pub endpoint: Url,
+    pub protocol: String,
+    pub execution_mode: String,
+    pub scenario_id: Option<String>,
     pub model: String,
     prompt: String,
     max_output_tokens: u32,
@@ -43,12 +55,31 @@ pub(super) struct Config {
 }
 impl Config {
     pub fn parse(payload: Value) -> Result<Self, String> {
+        if payload.get("mode").and_then(Value::as_str) == Some("live") {
+            return Err("live_execution_disabled".into());
+        }
+        if payload.get("mode").and_then(Value::as_str) == Some("offline_replay") {
+            let request: OfflineRequest =
+                serde_json::from_value(payload).map_err(|_| "invalid_benchmark_request")?;
+            replay::validate(&request.protocol, &request.scenario_id)?;
+            return Ok(Self {
+                endpoint: Url::parse("http://127.0.0.1:1").expect("literal URL"),
+                protocol: request.protocol,
+                execution_mode: request.mode,
+                scenario_id: Some(request.scenario_id),
+                model: "fixture-model".into(),
+                prompt: "Synthetic offline measurement".into(),
+                max_output_tokens: 256,
+                timeout: Duration::from_secs(10),
+                idle: Duration::from_secs(5),
+            });
+        }
         let request: StartRequest =
             serde_json::from_value(payload).map_err(|_| "invalid_benchmark_request")?;
         if request.mode != "local_replay" {
             return Err("unsupported_execution_mode".into());
         }
-        if request.protocol != "chat_completions" {
+        if request.protocol != "chat_completions" && request.protocol != "responses" {
             return Err("unsupported_protocol".into());
         }
         if request.model.is_empty()
@@ -64,16 +95,42 @@ impl Config {
             return Err("invalid_benchmark_limits".into());
         }
         Ok(Self {
-            endpoint: super::proxy_route::replay_endpoint(
-                &request.base_url,
-                &request.resolved_proxy,
-            )?,
+            endpoint: if request.protocol == "chat_completions" {
+                super::proxy_route::replay_endpoint(&request.base_url, &request.resolved_proxy)?
+            } else {
+                super::proxy_route::protocol_endpoint(
+                    &request.base_url,
+                    &request.resolved_proxy,
+                    &request.protocol,
+                )?
+            },
+            protocol: request.protocol,
+            execution_mode: request.mode,
+            scenario_id: None,
             model: request.model,
             prompt: request.prompt,
             max_output_tokens: request.max_output_tokens,
             timeout: Duration::from_millis(request.timeout_ms),
             idle: Duration::from_millis(request.idle_timeout_ms),
         })
+    }
+}
+enum Adapter {
+    Chat(ChatAdapter),
+    Responses(ResponsesAdapter),
+}
+impl Adapter {
+    fn accept(&mut self, message: SseMessage) -> Result<Vec<StreamEvent>, StreamError> {
+        match self {
+            Self::Chat(a) => a.accept(message),
+            Self::Responses(a) => a.accept(message),
+        }
+    }
+    fn response_model(&self) -> Option<&str> {
+        match self {
+            Self::Chat(a) => a.response_model(),
+            Self::Responses(a) => a.response_model(),
+        }
     }
 }
 
@@ -95,8 +152,16 @@ pub(super) async fn run(
     mut cancel: watch::Receiver<bool>,
     mut publish: impl FnMut(Progress),
 ) -> Outcome {
-    let mut collector = Collector::new();
-    let mut adapter = ChatAdapter::new();
+    let mut collector = if config.protocol == "responses" {
+        Collector::for_responses()
+    } else {
+        Collector::new()
+    };
+    let mut adapter = if config.protocol == "responses" {
+        Adapter::Responses(ResponsesAdapter::new())
+    } else {
+        Adapter::Chat(ChatAdapter::new())
+    };
     let outcome = drive(
         &config,
         &mut cancel,
@@ -118,7 +183,7 @@ async fn drive(
     config: &Config,
     cancel: &mut watch::Receiver<bool>,
     collector: &mut Collector,
-    adapter: &mut ChatAdapter,
+    adapter: &mut Adapter,
     publish: &mut impl FnMut(Progress),
 ) -> Result<(), StreamError> {
     let client = reqwest::Client::builder()
@@ -130,8 +195,12 @@ async fn drive(
         .pool_max_idle_per_host(0)
         .build()
         .map_err(|_| StreamError::new("transport_setup"))?;
-    let body = json!({"model":config.model,"messages":[{"role":"user","content":config.prompt}],
-        "max_completion_tokens":config.max_output_tokens,"n":1,"stream":true,"stream_options":{"include_usage":true},"store":false});
+    let body = if config.protocol == "responses" {
+        json!({"model":config.model,"input":config.prompt,"max_output_tokens":config.max_output_tokens,"stream":true,"store":false})
+    } else {
+        json!({"model":config.model,"messages":[{"role":"user","content":config.prompt}],
+        "max_completion_tokens":config.max_output_tokens,"n":1,"stream":true,"stream_options":{"include_usage":true},"store":false})
+    };
     let request = client
         .post(config.endpoint.clone())
         .header(reqwest::header::ACCEPT, "text/event-stream")

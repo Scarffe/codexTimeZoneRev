@@ -268,6 +268,48 @@ fn ffi_owned_replay_lifecycle_and_transport_boundaries() {
     assert!(!frozen.to_string().contains("SENSITIVE_FIXTURE_PROMPT"));
     clear(next);
 
+    // Responses keeps local_replay's exact literal loopback/DIRECT admission,
+    // uses its own request schema, and does not confuse protocol terminal with EOF.
+    let responses_bytes = b"event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":4,\"response\":{\"id\":\"r\",\"model\":\"response-model\",\"status\":\"in_progress\",\"output\":[]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":8,\"response\":{\"id\":\"r\",\"model\":\"response-model\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"total_tokens\":10,\"output_tokens_details\":{\"reasoning_tokens\":0}}}}\n\n";
+    let responses = Fixture::new(SSE, vec![(0, responses_bytes.to_vec())], true);
+    let mut response_request = request(&responses.base);
+    response_request["protocol"] = json!("responses");
+    let run = ok("benchmark_start", response_request.clone());
+    let rid = run["runId"].as_str().unwrap();
+    let pending = wait_for(rid, |s| s["protocolTerminal"] == "response.completed");
+    assert_eq!(pending["state"], "streaming");
+    assert_eq!(pending["successfulSample"], false);
+    assert!(pending["timingsNs"]["httpEnd"].is_null());
+    let captured = responses.requests.lock().unwrap()[0].clone();
+    assert!(captured.starts_with("POST /v1/responses HTTP/1.1\r\n"));
+    assert!(!captured.to_ascii_lowercase().contains("authorization:"));
+    let body: Value = serde_json::from_str(captured.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["input"], "SENSITIVE_FIXTURE_PROMPT");
+    assert_eq!(body["max_output_tokens"], 256);
+    assert_eq!(body["store"], false);
+    assert_eq!(body["stream"], true);
+    assert!(body.get("messages").is_none());
+    drop(responses);
+    let finished = terminal(rid);
+    assert_eq!(finished["state"], "completed");
+    assert_eq!(finished["usage"]["outputTokens"], 0);
+    clear(rid);
+    for base in [
+        "http://localhost:1/v1",
+        "http://127.1:1/v1",
+        "http://2130706433:1/v1",
+        "http://192.0.2.1/v1",
+        "http://127.0.0.1:1/v1/responses",
+        "http://127.0.0.1:1/v1/chat/completions",
+    ] {
+        response_request["baseUrl"] = json!(base);
+        assert_eq!(
+            call("benchmark_start", response_request.clone())["ok"],
+            false,
+            "{base}"
+        );
+    }
+
     // Valid zero and one-token completions retain reported whole-request rates.
     for tokens in [0, 1] {
         let mut data = if tokens == 0 {
@@ -344,7 +386,7 @@ fn ffi_owned_replay_lifecycle_and_transport_boundaries() {
     }
     for (field, value) in [
         ("mode", json!("live")),
-        ("protocol", json!("responses")),
+        ("protocol", json!("unsupported_protocol")),
         ("resolvedProxy", json!("PROXY 127.0.0.1:9")),
         ("apiKey", json!("SENSITIVE_FIXTURE_KEY")),
         ("maxOutputTokens", json!(0)),

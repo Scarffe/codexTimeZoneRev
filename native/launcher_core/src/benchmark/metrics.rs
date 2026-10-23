@@ -10,6 +10,8 @@ pub const ENGINE_VERSION: &str = "m2-rust-v1+aiperf-b1746a84";
 
 #[derive(Default)]
 pub(crate) struct Facts {
+    pub responses: bool,
+    pub protocol_terminal: Option<String>,
     pub first_content: Option<u64>,
     pub last_content: Option<u64>,
     pub first_visible: Option<u64>,
@@ -196,10 +198,25 @@ pub(crate) fn snapshot(f: &Facts) -> Value {
             full = unavailable(&scope);
         }
     }
-    json!({"engineVersion":ENGINE_VERSION,"successfulSample":successful,"reasons":reasons,
+    let mut result = json!({"engineVersion":ENGINE_VERSION,"successfulSample":successful,"reasons":reasons,
         "timingsNs":{"start":0,"firstContent":f.first_content,"lastContent":f.last_content,
             "firstVisible":f.first_visible,"lastVisible":f.last_visible,"usage":f.usage_at,"done":f.done,"httpEnd":f.http_end},
         "usage":f.usage.as_ref().map(|u|json!({"inputTokens":u.input_tokens,"outputTokens":u.output_tokens,"reasoningTokens":u.reasoning_tokens})),
         "metrics":{"ttftMs":latency(f.first_content,"missing_content"),"ttfoMs":latency(f.first_visible,"missing_visible_text"),
-            "streamTokensPerSecond":stream,"e2eTokensPerSecond":e2e,"fullResponseTokensPerSecond":full}})
+            "streamTokensPerSecond":stream,"e2eTokensPerSecond":e2e,"fullResponseTokensPerSecond":full}});
+    result["protocolTerminal"] = json!(f.protocol_terminal);
+    if f.responses {
+        result["engineVersion"] = json!("m3-rust-v1+aiperf-b1746a84");
+        for name in [
+            "streamTokensPerSecond",
+            "e2eTokensPerSecond",
+            "fullResponseTokensPerSecond",
+        ] {
+            if let Some(source) = result["metrics"][name]["countSource"].as_str() {
+                let source = source.replace("completion_tokens", "output_tokens");
+                result["metrics"][name]["countSource"] = json!(source);
+            }
+        }
+    }
+    result
 }

@@ -24,6 +24,12 @@ pub enum FinishReason {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamEvent {
+    Scope {
+        reasoning: bool,
+        tool: bool,
+    },
+    Invalidation(String),
+    ProtocolTerminal(String),
     Content {
         kind: ContentKind,
         first_chunk_tokens: Option<u64>,

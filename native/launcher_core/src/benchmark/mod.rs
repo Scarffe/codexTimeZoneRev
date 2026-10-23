@@ -4,6 +4,8 @@ mod collector;
 mod manager;
 mod metrics;
 mod proxy_route;
+mod replay;
+mod responses;
 mod sse;
 mod transport;
 mod types;

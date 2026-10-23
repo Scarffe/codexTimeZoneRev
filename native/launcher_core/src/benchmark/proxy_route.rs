@@ -3,6 +3,9 @@ use std::net::IpAddr;
 use url::Url;
 
 pub fn replay_endpoint(base: &str, route: &str) -> Result<Url, String> {
+    protocol_endpoint(base, route, "chat_completions")
+}
+pub fn protocol_endpoint(base: &str, route: &str, protocol: &str) -> Result<Url, String> {
     if route != "DIRECT" {
         return Err("invalid_proxy_route".into());
     }
@@ -43,10 +46,15 @@ pub fn replay_endpoint(base: &str, route: &str) -> Result<Url, String> {
         return Err("invalid_replay_url".into());
     }
     let path = url.path().trim_end_matches('/');
-    if path.ends_with("/chat/completions") {
+    if path.ends_with("/chat/completions") || path.ends_with("/responses") {
         return Err("duplicate_endpoint_suffix".into());
     }
-    let path = format!("{path}/chat/completions");
+    let suffix = match protocol {
+        "chat_completions" => "chat/completions",
+        "responses" => "responses",
+        _ => return Err("unsupported_protocol".into()),
+    };
+    let path = format!("{path}/{suffix}");
     url.set_path(&path);
     Ok(url)
 }
