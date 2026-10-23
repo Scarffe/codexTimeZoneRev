@@ -47,11 +47,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final lightTheme = tester.element(find.text('Codex 时区启动器')).theme;
+      final lightTheme = tester
+          .element(find.byKey(const ValueKey('workspace-theme')))
+          .theme;
       final light = lightTheme.colors;
       expect(
         tester
-            .element(find.text('Codex 时区启动器'))
+            .element(find.byKey(const ValueKey('workspace-theme')))
             .theme
             .scaffoldStyle
             .backgroundColor
@@ -72,7 +74,9 @@ void main() {
       final effect = calls.lastWhere((call) => call.method == 'SetEffect');
       expect(effect.arguments['dark'], true);
       expect(effect.arguments['effect'], 4);
-      final darkTheme = tester.element(find.text('Codex 时区启动器')).theme;
+      final darkTheme = tester
+          .element(find.byKey(const ValueKey('workspace-theme')))
+          .theme;
       expect(darkTheme.colors.card.a, 1);
       expect(
         (darkTheme.cardStyle.decoration as ShapeDecoration).color!.a,

@@ -30,7 +30,7 @@ class LauncherPage extends StatelessWidget {
     List<Widget> children,
   ) => FCard(
     child: Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -47,7 +47,7 @@ class LauncherPage extends StatelessWidget {
               color: context.theme.colors.mutedForeground,
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
           ...children,
         ],
       ),
@@ -69,7 +69,7 @@ class LauncherPage extends StatelessWidget {
           },
         ),
       ),
-      const SizedBox(height: 20),
+      const SizedBox(height: 12),
       if (settings.mode == 'zone')
         FSelect<String>.search(
           label: const Text('地区时区'),
@@ -113,7 +113,7 @@ class LauncherPage extends StatelessWidget {
         ),
       ],
       const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+        padding: EdgeInsets.symmetric(vertical: 12),
         child: FDivider(),
       ),
       _PathField(launcher: launcher),
@@ -141,7 +141,7 @@ class LauncherPage extends StatelessWidget {
         ),
       ),
       const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
+        padding: EdgeInsets.symmetric(vertical: 12),
         child: FDivider(),
       ),
       FSwitch(
@@ -187,8 +187,9 @@ class LauncherPage extends StatelessWidget {
     ]);
 
     return FScaffold(
+      childPad: false,
       footer: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -301,9 +302,9 @@ class LauncherPage extends StatelessWidget {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          settingCard,
-                          const SizedBox(height: 20),
                           clock,
+                          const SizedBox(height: 12),
+                          settingCard,
                         ],
                       );
                     }
@@ -311,13 +312,13 @@ class LauncherPage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(flex: 3, child: settingCard),
-                        const SizedBox(width: 20),
+                        const SizedBox(width: 12),
                         Expanded(flex: 2, child: clock),
                       ],
                     );
                   },
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
                 _section(
                   context,
                   '网络位置参考',
@@ -339,7 +340,7 @@ class LauncherPage extends StatelessWidget {
                         child: Text(network.busy ? '正在查询…' : '刷新网络信息'),
                       ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final domestic = _NetworkRegion(
@@ -372,7 +373,7 @@ class LauncherPage extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(child: domestic),
-                            const SizedBox(width: 20),
+                            const SizedBox(width: 12),
                             Expanded(child: international),
                           ],
                         );
@@ -382,7 +383,7 @@ class LauncherPage extends StatelessWidget {
                       Text(network.errors['cache']!),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
                 Text(
                   '启动前请完全退出正在运行的 Codex。本工具不会更改系统全局时区。',
                   style: context.theme.typography.body.sm.copyWith(
@@ -519,7 +520,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
       return FCard(
         key: const ValueKey('time-preview-card'),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -616,7 +617,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     return FCard(
       key: const ValueKey('time-preview-card'),
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -626,7 +627,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
             Text(
               widget.settings.mode == 'zone' ? widget.settings.zoneId : '固定偏移',
               style: context.theme.typography.body.sm,
@@ -638,7 +639,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
               child: Text(
                 target?.time ?? '--:--:--',
                 style: context.theme.typography.display.xl.copyWith(
-                  fontSize: 48,
+                  fontSize: 36,
                   fontWeight: FontWeight.w600,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
@@ -652,7 +653,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
               child: FBadge(child: Text(target?.offset ?? '无效时区')),
             ),
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
+              padding: EdgeInsets.symmetric(vertical: 12),
               child: FDivider(),
             ),
             Text(

@@ -232,7 +232,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,
-          width < 600 ? 56 : 72,
+          width <= 620 ? 45 : 56,
         );
         final rail = tester.getRect(
           find.byKey(const ValueKey('workspace-rail')),

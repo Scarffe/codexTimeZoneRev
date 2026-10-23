@@ -128,6 +128,16 @@ void main() {
   final captureDirectory = Platform.environment['SIDEBAR_RENDER_DIR'];
   setUpAll(() async {
     timezone.initializeTimeZones();
+    for (final (family, filename) in [
+      ('Segoe UI Variable Text', 'SegUIVar.ttf'),
+      ('Segoe UI', 'segoeui.ttf'),
+    ]) {
+      final font = File('C:/Windows/Fonts/$filename');
+      await (FontLoader(family)..addFont(
+            font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+          ))
+          .load();
+    }
     for (final (family, asset) in [
       ('packages/forui/Inter', 'packages/forui/assets/fonts/inter/Inter.ttf'),
       (
@@ -190,7 +200,7 @@ void main() {
   }
 
   for (final appearance in ['light', 'dark']) {
-    for (final width in [320.0, 600.0, 760.0, 1280.0]) {
+    for (final width in [320.0, 600.0, 760.0, 1024.0, 1280.0]) {
       testWidgets(
         '$appearance full application $width at 125% text keeps actions usable',
         (tester) async {
@@ -228,7 +238,7 @@ void main() {
                 .scale(16),
             20,
           );
-          if (width >= 600) {
+          if (width >= 320) {
             await capture(
               tester,
               boundaryKey,
@@ -238,7 +248,7 @@ void main() {
           await tapAction(tester, 'workspace-monitor');
           expect(
             tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,
-            width < 600 ? 56 : 72,
+            width <= 620 ? 45 : 56,
           );
           final account = tester.widget<AccountUsagePanel>(
             find.byType(AccountUsagePanel),

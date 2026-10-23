@@ -31,6 +31,16 @@ void main() {
   final captureDirectory = Platform.environment['CAPTURE_THEME_UI_DIR'];
   setUpAll(() async {
     if (captureDirectory == null) return;
+    for (final (family, filename) in [
+      ('Segoe UI Variable Text', 'SegUIVar.ttf'),
+      ('Segoe UI', 'segoeui.ttf'),
+    ]) {
+      final font = File('C:/Windows/Fonts/$filename');
+      await (FontLoader(family)..addFont(
+            font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+          ))
+          .load();
+    }
     final fonts = FontLoader('packages/forui/Inter')
       ..addFont(rootBundle.load('packages/forui/assets/fonts/inter/Inter.ttf'));
     await fonts.load();

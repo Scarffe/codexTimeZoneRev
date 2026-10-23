@@ -16,12 +16,12 @@ class MonitorIconAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FTooltip(
     tipBuilder: (context, _) => Text(label),
-    child: FButton.icon(
+    child: FButton.raw(
       semanticsLabel: label,
       semanticsTooltip: label,
       variant: FButtonVariant.ghost,
       onPress: onPress,
-      child: Icon(icon),
+      child: SizedBox(width: 38, height: 38, child: Icon(icon, size: 18)),
     ),
   );
 }

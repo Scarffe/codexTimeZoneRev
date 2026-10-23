@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import 'dashboard_style.dart';
+
 /// Keeps local observations mounted when the separate API entry is selected.
 class SessionMeasurementWorkspace extends StatefulWidget {
   const SessionMeasurementWorkspace({
@@ -28,31 +30,55 @@ class _SessionMeasurementWorkspaceState
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            children: [
-              FButton(
-                key: const ValueKey('measurement-current-session'),
-                mainAxisSize: MainAxisSize.min,
-                variant: api ? FButtonVariant.outline : FButtonVariant.primary,
-                onPress: () =>
-                    (widget.independentApiSelected ?? _localSelection).value =
-                        false,
-                prefix: const Icon(FLucideIcons.messagesSquare),
-                child: const Text('当前会话'),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: DashboardPalette.of(context).soft,
+                border: Border.all(color: DashboardPalette.of(context).border),
+                borderRadius: BorderRadius.circular(7),
               ),
-              FButton(
-                key: const ValueKey('measurement-independent-api'),
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
-                variant: api ? FButtonVariant.primary : FButtonVariant.outline,
-                onPress: () =>
-                    (widget.independentApiSelected ?? _localSelection).value =
-                        true,
-                prefix: const Icon(FLucideIcons.activity),
-                child: const Text('独立 API'),
+                children: [
+                  MergeSemantics(
+                    child: Semantics(
+                      selected: !api,
+                      child: FButton(
+                        key: const ValueKey('measurement-current-session'),
+                        semanticsLabel: '当前会话',
+                        mainAxisSize: MainAxisSize.min,
+                        selected: !api,
+                        variant: FButtonVariant.ghost,
+                        onPress: () =>
+                            (widget.independentApiSelected ?? _localSelection)
+                                    .value =
+                                false,
+                        child: const Text('当前会话'),
+                      ),
+                    ),
+                  ),
+                  MergeSemantics(
+                    child: Semantics(
+                      selected: api,
+                      child: FButton(
+                        key: const ValueKey('measurement-independent-api'),
+                        semanticsLabel: '独立 API',
+                        mainAxisSize: MainAxisSize.min,
+                        selected: api,
+                        variant: FButtonVariant.ghost,
+                        onPress: () =>
+                            (widget.independentApiSelected ?? _localSelection)
+                                    .value =
+                                true,
+                        child: const Text('独立 API'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
         Expanded(

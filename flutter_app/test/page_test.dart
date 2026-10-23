@@ -47,7 +47,11 @@ void main() {
     await tester.tap(find.text('深色').last);
     await tester.pumpAndSettle();
     expect(
-      tester.element(find.text('Codex 时区启动器')).theme.colors.brightness,
+      tester
+          .element(find.byKey(const ValueKey('workspace-theme')))
+          .theme
+          .colors
+          .brightness,
       Brightness.dark,
     );
     await tester.tap(find.text('地区时区').first);
@@ -83,7 +87,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Codex 时区启动器'), findsOneWidget);
+        expect(find.text('启动器'), findsOneWidget);
         expect(find.text('保存并启动'), findsOneWidget);
         expect(find.text('演示模式'), findsOneWidget);
         expect(tester.takeException(), isNull);

@@ -84,6 +84,18 @@ class WorkspaceBackend extends PageBackend {
 void main() {
   setUpAll(() async {
     timezone.initializeTimeZones();
+    for (final (family, filename) in [
+      ('Segoe UI Variable Text', 'SegUIVar.ttf'),
+      ('Segoe UI', 'segoeui.ttf'),
+    ]) {
+      final font = File('C:/Windows/Fonts/$filename');
+      if (await font.exists()) {
+        await (FontLoader(family)..addFont(
+              font.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+            ))
+            .load();
+      }
+    }
     // Readable offline render evidence on Windows; no font download or install.
     final cjkFont = File('C:/Windows/Fonts/msyh.ttc');
     if (await cjkFont.exists()) {
