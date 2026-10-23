@@ -18,6 +18,7 @@ pub struct ResponsesAdapter {
     parts: BTreeMap<(u64, bool, u64), String>,
     closed_items: BTreeSet<u64>,
     closed_parts: BTreeSet<(u64, bool, u64)>,
+    observed_text_parts: BTreeSet<(u64, u64)>,
     terminal: bool,
 }
 impl ResponsesAdapter {
@@ -120,25 +121,8 @@ impl ResponsesAdapter {
                 if self.closed_items.contains(&index) {
                     return Err(err("responses_item_after_done"));
                 }
-                let id = text(item, "id")?;
-                let ty = text(item, "type")?;
                 scope_item(item, &mut events)?;
-                if let Some(old) = self.items.get(&index) {
-                    if old.id != id || old.kind != ty {
-                        return Err(err("responses_item_identity_changed"));
-                    }
-                } else {
-                    if self.items.len() >= 4096 || self.items.values().any(|i| i.id == id) {
-                        return Err(schema());
-                    }
-                    self.items.insert(
-                        index,
-                        Item {
-                            id: id.into(),
-                            kind: ty.into(),
-                        },
-                    );
-                }
+                self.snapshot_item(index, item)?;
                 if kind.ends_with(".done") {
                     self.closed_items.insert(index);
                 }
@@ -275,6 +259,9 @@ impl ResponsesAdapter {
                 };
                 let data = v.get(field).and_then(Value::as_str).ok_or_else(schema)?;
                 if delta && !data.is_empty() {
+                    if content == ContentKind::Text {
+                        self.observed_text_parts.insert((output, part_index));
+                    }
                     events.push(StreamEvent::Content {
                         kind: content,
                         first_chunk_tokens: None,
@@ -347,7 +334,62 @@ impl ResponsesAdapter {
         }
         Ok(index)
     }
-    fn output(&self, r: &Value, events: &mut Vec<StreamEvent>, terminal: bool) -> Result<()> {
+    fn snapshot_item(&mut self, index: u64, item: &Value) -> Result<()> {
+        let id = text(item, "id")?;
+        let kind = text(item, "type")?;
+        if let Some(old) = self.items.get(&index) {
+            if old.id != id || old.kind != kind {
+                return Err(err("responses_item_identity_changed"));
+            }
+        } else {
+            if self.items.len() >= 4096 || self.items.values().any(|old| old.id == id) {
+                return Err(schema());
+            }
+            self.items.insert(
+                index,
+                Item {
+                    id: id.into(),
+                    kind: kind.into(),
+                },
+            );
+        }
+        // Every present item is a snapshot of its already established parts,
+        // including intermediate snapshots. Missing items are only forbidden
+        // at terminal; a present item may not erase a known part association.
+        for ((known_item, summary, part_index), kind) in &self.parts {
+            if *known_item == index {
+                let field = if *summary { "summary" } else { "content" };
+                let part = item
+                    .get(field)
+                    .and_then(Value::as_array)
+                    .and_then(|parts| parts.get(*part_index as usize))
+                    .ok_or_else(schema)?;
+                if text(part, "type")? != kind {
+                    return Err(schema());
+                }
+            }
+        }
+        let fields: &[(&str, bool)] = match kind {
+            "message" => &[("content", false)],
+            "reasoning" => &[("summary", true), ("content", false)],
+            _ => &[],
+        };
+        for (field, summary) in fields {
+            if let Some(parts) = item.get(*field).filter(|v| !v.is_null()) {
+                for (part_index, part) in parts.as_array().ok_or_else(schema)?.iter().enumerate() {
+                    if self.parts.len() >= 4096 {
+                        return Err(schema());
+                    }
+                    self.parts.insert(
+                        (index, *summary, part_index as u64),
+                        text(part, "type")?.into(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+    fn output(&mut self, r: &Value, events: &mut Vec<StreamEvent>, terminal: bool) -> Result<()> {
         let output = r
             .get("output")
             .and_then(Value::as_array)
@@ -361,10 +403,20 @@ impl ResponsesAdapter {
                 return Err(schema());
             }
             scope_item(item, events)?;
-            if terminal {
-                if let Some(old) = self.items.get(&(index as u64)) {
-                    if old.id != text(item, "id")? || old.kind != text(item, "type")? {
-                        return Err(err("responses_item_identity_changed"));
+            self.snapshot_item(index as u64, item)?;
+            if text(item, "type")? == "message" {
+                for (part_index, part) in item["content"]
+                    .as_array()
+                    .ok_or_else(schema)?
+                    .iter()
+                    .enumerate()
+                {
+                    if part["text"].as_str().is_some_and(|s| !s.is_empty())
+                        && !self
+                            .observed_text_parts
+                            .contains(&(index as u64, part_index as u64))
+                    {
+                        events.push(StreamEvent::TextBoundaryUnknown);
                     }
                 }
             }
@@ -372,22 +424,6 @@ impl ResponsesAdapter {
         if terminal {
             if self.items.keys().any(|i| *i as usize >= output.len()) {
                 return Err(err("missing_responses_output_item"));
-            }
-            for ((item, _summary, part), ty) in &self.parts {
-                let item = output.get(*item as usize).ok_or_else(schema)?;
-                let field = if ty == "summary_text" {
-                    "summary"
-                } else {
-                    "content"
-                };
-                let part = item
-                    .get(field)
-                    .and_then(Value::as_array)
-                    .and_then(|p| p.get(*part as usize))
-                    .ok_or_else(schema)?;
-                if text(part, "type")? != ty {
-                    return Err(schema());
-                }
             }
         }
         Ok(())
@@ -460,6 +496,19 @@ fn scope_item(item: &Value, events: &mut Vec<StreamEvent>) -> Result<()> {
                     || part.get("text").and_then(Value::as_str).is_none()
                 {
                     return Err(schema());
+                }
+            }
+            if let Some(content) = item.get("content").filter(|v| !v.is_null()) {
+                let content = content.as_array().ok_or_else(schema)?;
+                if content.len() > 4096 {
+                    return Err(schema());
+                }
+                for part in content {
+                    if text(part, "type")? != "reasoning_text"
+                        || part.get("text").and_then(Value::as_str).is_none()
+                    {
+                        return Err(schema());
+                    }
                 }
             }
             events.push(StreamEvent::Scope {

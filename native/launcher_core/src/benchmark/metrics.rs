@@ -24,6 +24,7 @@ pub(crate) struct Facts {
     pub first_chunk_tokens: Option<u64>,
     pub has_reasoning: bool,
     pub has_tool: bool,
+    pub unobserved_text: bool,
     pub reasons: Vec<String>,
 }
 
@@ -157,6 +158,9 @@ pub(crate) fn snapshot(f: &Facts) -> Value {
         }
         if f.has_tool {
             reason(&mut scope, "tool_token_scope_unknown");
+        }
+        if f.unobserved_text {
+            reason(&mut scope, "text_generation_boundary_unknown");
         }
         if scope.is_empty() {
             let exact = f.first_chunk_tokens.is_some() && u.reasoning_tokens == Some(0);

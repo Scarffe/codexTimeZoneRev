@@ -24,6 +24,7 @@ pub enum FinishReason {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamEvent {
+    TextBoundaryUnknown,
     Scope {
         reasoning: bool,
         tool: bool,

@@ -41,6 +41,7 @@ impl Collector {
             return self.reject("event_after_done");
         }
         match event {
+            StreamEvent::TextBoundaryUnknown => self.facts.unobserved_text = true,
             StreamEvent::Scope { reasoning, tool } => {
                 self.facts.has_reasoning |= reasoning;
                 self.facts.has_tool |= tool;

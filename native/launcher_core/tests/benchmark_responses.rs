@@ -471,3 +471,232 @@ fn responses_utf8_sse_and_zero_one_token_edges() {
         assert!(v["metrics"]["e2eTokensPerSecond"]["value"].is_number());
     }
 }
+
+// I1: final usage can include text outside the observed nonempty-delta scope.
+// That scope cannot borrow the earlier message's generation window.
+fn assert_unobserved_final_text_scope(output: Value) {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    created(&mut a, &mut c);
+    item(&mut a, &mut c, 0, "message", "msg");
+    delta(
+        &mut a,
+        &mut c,
+        2,
+        500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    delta(
+        &mut a,
+        &mut c,
+        3,
+        2_500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    let before = c.snapshot();
+    terminal(
+        &mut a,
+        &mut c,
+        4,
+        "response.completed",
+        output,
+        usage(json!(0)),
+    );
+    c.http_end(4_000_000_000).unwrap();
+    let after = c.snapshot();
+    assert_eq!(after["successfulSample"], true);
+    assert_eq!(after["usage"]["outputTokens"], 100);
+    assert_eq!(after["metrics"]["e2eTokensPerSecond"]["value"], 25.0);
+    assert_eq!(
+        after["metrics"]["e2eTokensPerSecond"]["quality"],
+        "reported"
+    );
+    for field in ["firstContent", "lastContent", "firstVisible", "lastVisible"] {
+        assert_eq!(after["timingsNs"][field], before["timingsNs"][field]);
+    }
+    for name in ["streamTokensPerSecond", "fullResponseTokensPerSecond"] {
+        assert!(after["metrics"][name]["value"].is_null());
+        assert_eq!(after["metrics"][name]["quality"], "unavailable");
+        assert!(after["metrics"][name]["reasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r == "text_generation_boundary_unknown"));
+    }
+}
+#[test]
+fn final_only_additional_message_does_not_borrow_observed_text_window() {
+    assert_unobserved_final_text_scope(json!([
+        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"}]},
+        {"id":"final-only","type":"message","role":"assistant","content":[{"type":"output_text","text":"unobserved final text"}]}
+    ]));
+}
+#[test]
+fn final_only_additional_part_does_not_borrow_observed_text_window() {
+    assert_unobserved_final_text_scope(json!([
+        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"},{"type":"output_text","text":"unobserved final text"}]}
+    ]));
+}
+
+// I2: a contradictory intermediate snapshot is a stream failure even if a later
+// terminal snapshot restores the original identity and supplies valid usage.
+#[test]
+fn intermediate_item_contradiction_cannot_be_repaired_into_success() {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    created(&mut a, &mut c);
+    item(&mut a, &mut c, 0, "message", "msg");
+    delta(
+        &mut a,
+        &mut c,
+        2,
+        500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    delta(
+        &mut a,
+        &mut c,
+        3,
+        2_500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    let bad = json!({"type":"response.in_progress","sequence_number":4,"response":{"id":"r","model":"fixture","status":"in_progress","output":[{"id":"other","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"}]}]}});
+    let error = a
+        .accept(SseMessage {
+            event: Some("response.in_progress".into()),
+            data: bad.to_string(),
+        })
+        .expect_err("intermediate item identity contradiction must fail");
+    c.fail(&error.code);
+    terminal(
+        &mut a,
+        &mut c,
+        5,
+        "response.completed",
+        text_output(),
+        usage(json!(0)),
+    );
+    c.http_end(4_000_000_000).unwrap();
+    assert_eq!(c.snapshot()["successfulSample"], false);
+    assert_eq!(c.snapshot()["usage"]["outputTokens"], 100);
+}
+#[test]
+fn snapshot_introduced_identity_constrains_later_item_events() {
+    for event_type in ["response.created", "response.in_progress"] {
+        let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+        if event_type == "response.in_progress" {
+            created(&mut a, &mut c);
+        }
+        let sequence = if event_type == "response.created" {
+            0
+        } else {
+            1
+        };
+        event(
+            &mut a,
+            &mut c,
+            0,
+            json!({"type":event_type,"sequence_number":sequence,"response":{"id":"r","model":"fixture","status":"in_progress","output":[{"id":"snapshot-msg","type":"message","role":"assistant","content":[]}]}}),
+        );
+        let changed = json!({"type":"response.output_item.added","sequence_number":sequence+1,"output_index":0,"item":{"id":"changed","type":"message","role":"assistant","content":[]}});
+        assert!(a
+            .accept(SseMessage {
+                event: None,
+                data: changed.to_string()
+            })
+            .is_err());
+    }
+}
+#[test]
+fn intermediate_present_item_cannot_omit_an_observed_part() {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    created(&mut a, &mut c);
+    item(&mut a, &mut c, 0, "message", "msg");
+    delta(
+        &mut a,
+        &mut c,
+        2,
+        500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    let bad = json!({"type":"response.in_progress","sequence_number":3,"response":{"id":"r","model":"fixture","status":"in_progress","output":[{"id":"msg","type":"message","role":"assistant","content":[]}]}});
+    assert!(a
+        .accept(SseMessage {
+            event: None,
+            data: bad.to_string()
+        })
+        .is_err());
+}
+
+// I2 constraints apply both when reading later response snapshots and when a
+// later item-level snapshot tries to erase a part introduced by created.
+#[test]
+fn snapshot_introduced_part_constrains_later_item_snapshot() {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    event(
+        &mut a,
+        &mut c,
+        0,
+        json!({"type":"response.created","sequence_number":0,"response":{"id":"r","model":"fixture","status":"in_progress","output":[{"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":""}]}]}}),
+    );
+    let bad = json!({"type":"response.output_item.done","sequence_number":1,"output_index":0,"item":{"id":"msg","type":"message","role":"assistant","content":[]}});
+    assert!(a
+        .accept(SseMessage {
+            event: None,
+            data: bad.to_string()
+        })
+        .is_err());
+}
+
+// A valid snapshot's prefix has no observed arrival time. Later deltas in the
+// same part do not retroactively establish the missing initial boundary.
+#[test]
+fn intermediate_unobserved_text_boundary_remains_unknown_after_later_deltas() {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    event(
+        &mut a,
+        &mut c,
+        0,
+        json!({"type":"response.created","sequence_number":0,"response":{"id":"r","model":"fixture","status":"in_progress","output":[{"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"initial unobserved text"}]}]}}),
+    );
+    delta(
+        &mut a,
+        &mut c,
+        1,
+        500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    delta(
+        &mut a,
+        &mut c,
+        2,
+        2_500_000_000,
+        "response.output_text.delta",
+        "msg",
+        0,
+    );
+    terminal(
+        &mut a,
+        &mut c,
+        3,
+        "response.completed",
+        text_output(),
+        usage(json!(0)),
+    );
+    c.http_end(4_000_000_000).unwrap();
+    let v = c.snapshot();
+    assert_eq!(v["successfulSample"], true);
+    assert_eq!(v["metrics"]["e2eTokensPerSecond"]["value"], 25.0);
+    assert_eq!(v["timingsNs"]["firstContent"], 500_000_000u64);
+    assert!(v["metrics"]["streamTokensPerSecond"]["value"].is_null());
+}
