@@ -4,18 +4,19 @@ use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::sync::Mutex;
 
+mod account_usage;
+mod benchmark;
 #[path = "platform/common.rs"]
 mod common;
-mod account_usage;
-mod session_metrics;
 #[cfg(target_os = "macos")]
 #[path = "platform/mac/mod.rs"]
 mod macos;
 #[cfg(windows)]
+mod proxy;
+mod session_metrics;
+#[cfg(windows)]
 #[path = "platform/win/mod.rs"]
 mod windows;
-#[cfg(windows)]
-mod proxy;
 
 static REQUEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -39,7 +40,13 @@ fn dispatch(request: &str) -> Result<Value, String> {
         return proxy::resolve(request.payload["url"].as_str().unwrap_or_default())
             .map(|proxy| json!({"proxy": proxy}));
     }
-    if request.command == "session_metrics" { return session_metrics::execute(request.payload); }
+    if request.command == "session_metrics" {
+        return session_metrics::execute(request.payload);
+    }
+    // Benchmark jobs own a separate runtime; never wait on REQUEST_LOCK.
+    if request.command.starts_with("benchmark_") {
+        return benchmark::execute(&request.command, request.payload);
+    }
     // Account reads can wait on the network. Never hold the settings/launch lock.
     if request.command == "account_usage" {
         #[cfg(windows)]
@@ -50,16 +57,37 @@ fn dispatch(request: &str) -> Result<Value, String> {
         return Err("仅支持 Windows 和 macOS。".into());
     }
     // Reject unknown commands before initializing OS services or touching files.
-    if !["bootstrap", "discover", "validate", "save", "launch", "check_launch", "repair_launch", "create_shortcut", "launch_dream_skin", "reapply_dream_skin"].contains(&request.command.as_str()) {
+    if ![
+        "bootstrap",
+        "discover",
+        "validate",
+        "save",
+        "launch",
+        "check_launch",
+        "repair_launch",
+        "create_shortcut",
+        "launch_dream_skin",
+        "reapply_dream_skin",
+    ]
+    .contains(&request.command.as_str())
+    {
         return Err(format!("未知命令：{}", request.command));
     }
-    let _guard = REQUEST_LOCK.lock().map_err(|_| "系统功能锁不可用，请重启启动器。".to_string())?;
+    let _guard = REQUEST_LOCK
+        .lock()
+        .map_err(|_| "系统功能锁不可用，请重启启动器。".to_string())?;
     #[cfg(windows)]
-    { windows::execute(&request.command, request.payload) }
+    {
+        windows::execute(&request.command, request.payload)
+    }
     #[cfg(target_os = "macos")]
-    { macos::execute(&request.command, request.payload) }
+    {
+        macos::execute(&request.command, request.payload)
+    }
     #[cfg(not(any(windows, target_os = "macos")))]
-    { Err("仅支持 Windows 和 macOS。".into()) }
+    {
+        Err("仅支持 Windows 和 macOS。".into())
+    }
 }
 
 fn response(request: &str) -> String {
@@ -73,7 +101,9 @@ fn response(request: &str) -> String {
 }
 
 #[no_mangle]
-pub extern "C" fn launcher_abi_version() -> u32 { 1 }
+pub extern "C" fn launcher_abi_version() -> u32 {
+    1
+}
 
 /// Returns an owned UTF-8 JSON string. Free exactly once with launcher_free.
 ///
@@ -91,14 +121,18 @@ pub unsafe extern "C" fn launcher_call(request: *const c_char) -> *mut c_char {
         }
     };
     // JSON serialization escapes all embedded NULs.
-    CString::new(value).expect("JSON contains no raw NUL").into_raw()
+    CString::new(value)
+        .expect("JSON contains no raw NUL")
+        .into_raw()
 }
 
 /// # Safety
 /// pointer must be null or an unfreed pointer returned by launcher_call.
 #[no_mangle]
 pub unsafe extern "C" fn launcher_free(pointer: *mut c_char) {
-    if !pointer.is_null() { drop(CString::from_raw(pointer)); }
+    if !pointer.is_null() {
+        drop(CString::from_raw(pointer));
+    }
 }
 
 #[cfg(test)]
@@ -106,8 +140,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn benchmark_fast_path_and_stalled_body_leave_settings_lock_available() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let request = json!({"version":1,"command":"benchmark_start","payload":{
+            "mode":"local_replay","protocol":"chat_completions","baseUrl":format!("http://{}/v1",listener.local_addr().unwrap()),
+            "model":"fixture","prompt":"synthetic","resolvedProxy":"DIRECT","timeoutMs":2000,"idleTimeoutMs":1000}}).to_string();
+        let guard = REQUEST_LOCK.lock().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let _ = tx.send(dispatch(&request));
+        });
+        let result = rx.recv_timeout(Duration::from_millis(200));
+        // Always release before join/assert, including when regression blocks.
+        drop(guard);
+        thread.join().unwrap();
+        let result = result
+            .expect("benchmark_start blocked behind REQUEST_LOCK")
+            .unwrap();
+        let id = result["runId"].as_str().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut socket = loop {
+            if let Ok((socket, _)) = listener.accept() {
+                break socket;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        // Windows accepted sockets inherit the nonblocking listener mode.
+        // Use a bounded blocking read so connect-before-POST is not a race.
+        socket.set_nonblocking(false).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        let mut buffer = [0; 4096];
+        socket.read(&mut buffer).unwrap();
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let snapshot = benchmark::execute("benchmark_status", json!({"runId":id})).unwrap();
+            if snapshot["state"] == "streaming" {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let settings_available = REQUEST_LOCK.try_lock().is_ok();
+        benchmark::execute("benchmark_shutdown", json!({"runId":id})).unwrap();
+        assert!(
+            settings_available,
+            "stalled HTTP body must not own settings lock"
+        );
+    }
+
+    #[test]
     fn invalid_requests_are_errors_without_platform_side_effects() {
-        for request in ["not json", r#"{"version":2,"command":"bootstrap"}"#, r#"{"version":1,"command":"invalid"}"#] {
+        for request in [
+            "not json",
+            r#"{"version":2,"command":"bootstrap"}"#,
+            r#"{"version":1,"command":"invalid"}"#,
+        ] {
             let value: Value = serde_json::from_str(&response(request)).unwrap();
             assert_eq!(value["ok"], false);
             assert_eq!(value["version"], 1);
@@ -121,7 +221,8 @@ mod tests {
             for _ in 0..100 {
                 let request = CString::new(r#"{"version":1,"command":"中文未知命令"}"#).unwrap();
                 let pointer = launcher_call(request.as_ptr());
-                let result: Value = serde_json::from_str(CStr::from_ptr(pointer).to_str().unwrap()).unwrap();
+                let result: Value =
+                    serde_json::from_str(CStr::from_ptr(pointer).to_str().unwrap()).unwrap();
                 assert!(result["error"].as_str().unwrap().contains("中文未知命令"));
                 launcher_free(pointer);
             }
@@ -136,7 +237,7 @@ mod tests {
     fn timezone_contract_preserves_posix_sign_and_bounds() {
         let mut settings = common::Settings::default();
         settings.mode = "offset".into();
-        for (offset, expected) in [(-12,"Etc/GMT+12"),(0,"Etc/UTC"),(14,"Etc/GMT-14")] {
+        for (offset, expected) in [(-12, "Etc/GMT+12"), (0, "Etc/UTC"), (14, "Etc/GMT-14")] {
             settings.offset = offset;
             assert_eq!(common::tz(&settings).unwrap(), expected);
         }
