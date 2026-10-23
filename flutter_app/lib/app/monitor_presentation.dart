@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import 'dashboard_motion.dart';
+
 /// Compact actions retain native focus, an accessible name and a hover label.
 class MonitorIconAction extends StatelessWidget {
   const MonitorIconAction({
@@ -16,12 +18,15 @@ class MonitorIconAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FTooltip(
     tipBuilder: (context, _) => Text(label),
-    child: FButton.raw(
-      semanticsLabel: label,
-      semanticsTooltip: label,
-      variant: FButtonVariant.ghost,
-      onPress: onPress,
-      child: SizedBox(width: 44, height: 44, child: Icon(icon, size: 18)),
+    child: DashboardMotionFeedback(
+      enabled: onPress != null,
+      child: FButton.raw(
+        semanticsLabel: label,
+        semanticsTooltip: label,
+        variant: FButtonVariant.ghost,
+        onPress: onPress,
+        child: SizedBox(width: 44, height: 44, child: Icon(icon, size: 18)),
+      ),
     ),
   );
 }

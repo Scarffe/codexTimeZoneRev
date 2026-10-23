@@ -28,6 +28,18 @@ class MonitorSettingsDialog extends StatelessWidget {
                     const SizedBox(height: 12),
                     const Text('修改立即生效，并保存到当前程序文件夹。'),
                     const SizedBox(height: 12),
+                    FButton(
+                      key: const ValueKey('reduced-motion'),
+                      variant: FButtonVariant.outline,
+                      onPress: () => controller.setReducedMotion(
+                        !controller.reducedMotion,
+                      ),
+                      child: Text(
+                        '减少动态效果：${controller.reducedMotion ? '开启' : '关闭'}',
+                      ),
+                    ),
+                    const Text('关闭悬停位移、光晕与点击波纹；系统减少动态效果设置也会生效。'),
+                    const SizedBox(height: 12),
                     const Text('自动刷新间隔'),
                     FSelect<int>(
                       items: const {

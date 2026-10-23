@@ -17,6 +17,7 @@ import 'launcher_page.dart';
 import 'monitoring_page.dart';
 import 'monitor_settings_dialog.dart';
 import 'workspace_shell.dart';
+import 'dashboard_motion.dart';
 import 'theme.dart';
 import '../state/session_metrics_controller.dart';
 import '../state/benchmark_controller.dart';
@@ -123,7 +124,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       bindings: {
         if (monitorSelected && api) ...{
           const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
-            if (_navigator.currentState?.canPop() != true && benchmark.canStart) {
+            if (_navigator.currentState?.canPop() != true &&
+                benchmark.canStart) {
               benchmark.start();
             }
           },
@@ -264,7 +266,15 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               style: theme.typography.body.md.copyWith(
                 color: theme.colors.foreground,
               ),
-              child: _benchmarkKeyboard(child!),
+              child: ListenableBuilder(
+                listenable: usage,
+                child: _benchmarkKeyboard(child!),
+                builder: (context, child) => DashboardMotionScope(
+                  reducedMotion:
+                      usage.reducedMotion || !usage.mainWindowVisible,
+                  child: child!,
+                ),
+              ),
             ),
           ),
         ),

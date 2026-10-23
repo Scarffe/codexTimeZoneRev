@@ -135,7 +135,7 @@ void main() {
     expect(find.byKey(const ValueKey('alerts-toggle')), findsOneWidget);
     expect(find.byKey(const ValueKey('session-alerts-toggle')), findsOneWidget);
     expect(find.byKey(const ValueKey('pet-roles')), findsNothing);
-    expect(find.byKey(const ValueKey('reduced-motion')), findsNothing);
+    expect(find.byKey(const ValueKey('reduced-motion')), findsOneWidget);
     expect(find.textContaining('桌宠'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import 'dashboard_motion.dart';
+
 import '../domain/settings.dart';
 import '../services/clocks.dart';
 import '../services/desktop_services.dart';
@@ -120,15 +122,17 @@ class LauncherPage extends StatelessWidget {
       const SizedBox(height: 12),
       Align(
         alignment: Alignment.centerLeft,
-        child: FButton(
-          mainAxisSize: MainAxisSize.min,
-          variant: FButtonVariant.outline,
-          onPress:
-              launcher.editable && !launcher.preview && !launcher.offlineTrial
-              ? _browse
-              : null,
-          prefix: const Icon(FLucideIcons.folderOpen),
-          child: const Text('选择客户端'),
+        child: _motionButton(
+          FButton(
+            mainAxisSize: MainAxisSize.min,
+            variant: FButtonVariant.outline,
+            onPress:
+                launcher.editable && !launcher.preview && !launcher.offlineTrial
+                ? _browse
+                : null,
+            prefix: const Icon(FLucideIcons.folderOpen),
+            child: const Text('选择客户端'),
+          ),
         ),
       ),
       const SizedBox(height: 12),
@@ -157,23 +161,31 @@ class LauncherPage extends StatelessWidget {
         spacing: 10,
         runSpacing: 10,
         children: [
-          FButton(
-            mainAxisSize: MainAxisSize.min,
-            variant: FButtonVariant.outline,
-            onPress:
-                launcher.editable && !launcher.preview && !launcher.offlineTrial
-                ? () => launcher.action('launch_dream_skin')
-                : null,
-            child: const Flexible(child: Text('打开 Dream Skin')),
+          _motionButton(
+            FButton(
+              mainAxisSize: MainAxisSize.min,
+              variant: FButtonVariant.outline,
+              onPress:
+                  launcher.editable &&
+                      !launcher.preview &&
+                      !launcher.offlineTrial
+                  ? () => launcher.action('launch_dream_skin')
+                  : null,
+              child: const Flexible(child: Text('打开 Dream Skin')),
+            ),
           ),
-          FButton(
-            mainAxisSize: MainAxisSize.min,
-            variant: FButtonVariant.outline,
-            onPress:
-                launcher.editable && !launcher.preview && !launcher.offlineTrial
-                ? () => launcher.action('reapply_dream_skin')
-                : null,
-            child: const Flexible(child: Text('重新注入皮肤')),
+          _motionButton(
+            FButton(
+              mainAxisSize: MainAxisSize.min,
+              variant: FButtonVariant.outline,
+              onPress:
+                  launcher.editable &&
+                      !launcher.preview &&
+                      !launcher.offlineTrial
+                  ? () => launcher.action('reapply_dream_skin')
+                  : null,
+              child: const Flexible(child: Text('重新注入皮肤')),
+            ),
           ),
         ],
       ),
@@ -220,42 +232,50 @@ class LauncherPage extends StatelessWidget {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 if (launcher.repairPackage != null)
-                  FButton(
-                    mainAxisSize: MainAxisSize.min,
-                    onPress: launcher.canSave
-                        ? () => launcher.action('repair_launch')
-                        : null,
-                    child: Text(
-                      launcher.busyCommand == 'repair_launch'
-                          ? '正在修复…'
-                          : '一键修复并重试',
+                  _motionButton(
+                    FButton(
+                      mainAxisSize: MainAxisSize.min,
+                      onPress: launcher.canSave
+                          ? () => launcher.action('repair_launch')
+                          : null,
+                      child: Text(
+                        launcher.busyCommand == 'repair_launch'
+                            ? '正在修复…'
+                            : '一键修复并重试',
+                      ),
                     ),
                   ),
-                FButton(
-                  mainAxisSize: MainAxisSize.min,
-                  onPress: launcher.canLaunch
-                      ? () => launcher.action('launch')
-                      : null,
-                  prefix: const Icon(FLucideIcons.play),
-                  child: Text(
-                    launcher.busyCommand == 'launch' ? '正在启动…' : '保存并启动',
+                _motionButton(
+                  FButton(
+                    mainAxisSize: MainAxisSize.min,
+                    onPress: launcher.canLaunch
+                        ? () => launcher.action('launch')
+                        : null,
+                    prefix: const Icon(FLucideIcons.play),
+                    child: Text(
+                      launcher.busyCommand == 'launch' ? '正在启动…' : '保存并启动',
+                    ),
                   ),
                 ),
-                FButton(
-                  mainAxisSize: MainAxisSize.min,
-                  variant: FButtonVariant.outline,
-                  onPress: launcher.canSave
-                      ? () => launcher.action('save')
-                      : null,
-                  child: const Text('保存设置'),
+                _motionButton(
+                  FButton(
+                    mainAxisSize: MainAxisSize.min,
+                    variant: FButtonVariant.outline,
+                    onPress: launcher.canSave
+                        ? () => launcher.action('save')
+                        : null,
+                    child: const Text('保存设置'),
+                  ),
                 ),
-                FButton(
-                  mainAxisSize: MainAxisSize.min,
-                  variant: FButtonVariant.ghost,
-                  onPress: launcher.editable && !launcher.preview
-                      ? () => launcher.action('create_shortcut')
-                      : null,
-                  child: const Text('创建快捷方式'),
+                _motionButton(
+                  FButton(
+                    mainAxisSize: MainAxisSize.min,
+                    variant: FButtonVariant.ghost,
+                    onPress: launcher.editable && !launcher.preview
+                        ? () => launcher.action('create_shortcut')
+                        : null,
+                    child: const Text('创建快捷方式'),
+                  ),
                 ),
                 if (launcher.dirty) FBadge(child: const Text('未保存修改')),
                 if (launcher.preview) FBadge(child: const Text('演示模式')),
@@ -285,10 +305,12 @@ class LauncherPage extends StatelessWidget {
                   const SizedBox(height: 12),
                 ],
                 if (launcher.bootstrapFailed) ...[
-                  FButton(
-                    mainAxisSize: MainAxisSize.min,
-                    onPress: launcher.initialize,
-                    child: const Text('重新读取设置'),
+                  _motionButton(
+                    FButton(
+                      mainAxisSize: MainAxisSize.min,
+                      onPress: launcher.initialize,
+                      child: const Text('重新读取设置'),
+                    ),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -326,18 +348,20 @@ class LauncherPage extends StatelessWidget {
                   [
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: FButton(
-                        mainAxisSize: MainAxisSize.min,
-                        variant: FButtonVariant.outline,
-                        onPress:
-                            network.busy ||
-                                network.offlineTrial ||
-                                launcher.preview ||
-                                launcher.busy
-                            ? null
-                            : network.refresh,
-                        prefix: const Icon(FLucideIcons.refreshCw),
-                        child: Text(network.busy ? '正在查询…' : '刷新网络信息'),
+                      child: _motionButton(
+                        FButton(
+                          mainAxisSize: MainAxisSize.min,
+                          variant: FButtonVariant.outline,
+                          onPress:
+                              network.busy ||
+                                  network.offlineTrial ||
+                                  launcher.preview ||
+                                  launcher.busy
+                              ? null
+                              : network.refresh,
+                          prefix: const Icon(FLucideIcons.refreshCw),
+                          child: Text(network.busy ? '正在查询…' : '刷新网络信息'),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -764,31 +788,35 @@ class _NetworkRegionState extends State<_NetworkRegion> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              FButton(
-                mainAxisSize: MainAxisSize.min,
-                variant: FButtonVariant.outline,
-                onPress: widget.launcher.preview || widget.launcher.busy
-                    ? null
-                    : _copy,
-                child: Text(copyLabel),
+              _motionButton(
+                FButton(
+                  mainAxisSize: MainAxisSize.min,
+                  variant: FButtonVariant.outline,
+                  onPress: widget.launcher.preview || widget.launcher.busy
+                      ? null
+                      : _copy,
+                  child: Text(copyLabel),
+                ),
               ),
-              FButton(
-                mainAxisSize: MainAxisSize.min,
-                variant: FButtonVariant.ghost,
-                onPress: supported && widget.launcher.editable
-                    ? () {
-                        widget.launcher.update(
-                          widget.launcher.settings.copyWith(
-                            mode: 'zone',
-                            zoneId: info.timezone,
-                          ),
-                        );
-                        widget.launcher.report(
-                          '已选择 ${info.timezone}，保存并启动后生效。',
-                        );
-                      }
-                    : null,
-                child: Text(supported ? '应用识别时区' : '暂不支持此时区'),
+              _motionButton(
+                FButton(
+                  mainAxisSize: MainAxisSize.min,
+                  variant: FButtonVariant.ghost,
+                  onPress: supported && widget.launcher.editable
+                      ? () {
+                          widget.launcher.update(
+                            widget.launcher.settings.copyWith(
+                              mode: 'zone',
+                              zoneId: info.timezone,
+                            ),
+                          );
+                          widget.launcher.report(
+                            '已选择 ${info.timezone}，保存并启动后生效。',
+                          );
+                        }
+                      : null,
+                  child: Text(supported ? '应用识别时区' : '暂不支持此时区'),
+                ),
               ),
             ],
           ),
@@ -803,3 +831,6 @@ class _NetworkRegionState extends State<_NetworkRegion> {
     super.dispose();
   }
 }
+
+Widget _motionButton(FButton button) =>
+    DashboardMotionFeedback(enabled: button.onPress != null, child: button);

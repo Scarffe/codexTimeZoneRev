@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import 'dashboard_motion.dart';
+
 import 'dashboard_style.dart';
 
 /// Keeps local observations mounted when the separate API entry is selected.
@@ -45,34 +47,38 @@ class _SessionMeasurementWorkspaceState
                   MergeSemantics(
                     child: Semantics(
                       selected: !api,
-                      child: FButton(
-                        key: const ValueKey('measurement-current-session'),
-                        semanticsLabel: '当前会话',
-                        mainAxisSize: MainAxisSize.min,
-                        selected: !api,
-                        variant: FButtonVariant.ghost,
-                        onPress: () =>
-                            (widget.independentApiSelected ?? _localSelection)
-                                    .value =
-                                false,
-                        child: const Text('当前会话'),
+                      child: _motionButton(
+                        FButton(
+                          key: const ValueKey('measurement-current-session'),
+                          semanticsLabel: '当前会话',
+                          mainAxisSize: MainAxisSize.min,
+                          selected: !api,
+                          variant: FButtonVariant.ghost,
+                          onPress: () =>
+                              (widget.independentApiSelected ?? _localSelection)
+                                      .value =
+                                  false,
+                          child: const Text('当前会话'),
+                        ),
                       ),
                     ),
                   ),
                   MergeSemantics(
                     child: Semantics(
                       selected: api,
-                      child: FButton(
-                        key: const ValueKey('measurement-independent-api'),
-                        semanticsLabel: '独立 API',
-                        mainAxisSize: MainAxisSize.min,
-                        selected: api,
-                        variant: FButtonVariant.ghost,
-                        onPress: () =>
-                            (widget.independentApiSelected ?? _localSelection)
-                                    .value =
-                                true,
-                        child: const Text('独立 API'),
+                      child: _motionButton(
+                        FButton(
+                          key: const ValueKey('measurement-independent-api'),
+                          semanticsLabel: '独立 API',
+                          mainAxisSize: MainAxisSize.min,
+                          selected: api,
+                          variant: FButtonVariant.ghost,
+                          onPress: () =>
+                              (widget.independentApiSelected ?? _localSelection)
+                                      .value =
+                                  true,
+                          child: const Text('独立 API'),
+                        ),
                       ),
                     ),
                   ),
@@ -137,3 +143,6 @@ class _SessionMeasurementWorkspaceState
     super.dispose();
   }
 }
+
+Widget _motionButton(FButton button) =>
+    DashboardMotionFeedback(enabled: button.onPress != null, child: button);
