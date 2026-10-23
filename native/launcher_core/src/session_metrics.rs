@@ -305,10 +305,9 @@ impl Reader {
             .collect();
         let catching_up = self.offset < meta.len();
         let quality_of = |t: &Turn| {
-            let a = t.timing.report(t.duration, t.output);
             let mut quality = t.evidence.quality(
                 t.duration,
-                a["boundsValid"] == true,
+                t.timing.bounds_valid(t.duration),
                 session.as_deref(),
                 self.incomplete || catching_up,
             );
@@ -320,7 +319,17 @@ impl Reader {
             }
             quality
         };
-        let last = latest.map(|(id,t)| { let quality=quality_of(t); json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":t.timing.report(t.duration,t.output),"tokensPerSecond":session_quality::rate(t.output,t.duration),"verifiedTokensPerSecond":if quality["status"]=="verified" {session_quality::rate(t.output,t.duration)} else {None},"quality":quality}) });
+        let last = latest.map(|(id, t)| {
+            let quality = quality_of(t);
+            // Build the full analysis only for the selected completed turn.
+            // Reader-wide evidence cannot be recovered from Timing alone.
+            let mut analysis = t.timing.report(t.duration, t.output);
+            if self.incomplete || catching_up || self.missing_identity || quality["status"] == "conflict" {
+                analysis["timeline"]["sourcePartial"] = json!(true);
+                analysis["timeline"]["coverageInterpretation"] = json!("unavailable");
+            }
+            json!({"turnId":id,"outputTokens":t.output,"reasoningTokens":t.reasoning,"durationMs":t.duration,"firstTokenMs":t.first,"analysis":analysis,"tokensPerSecond":session_quality::rate(t.output,t.duration),"verifiedTokensPerSecond":if quality["status"]=="verified" {session_quality::rate(t.output,t.duration)} else {None},"quality":quality})
+        });
         let quality = latest
             .map(|(_, t)| quality_of(t))
             .unwrap_or_else(|| {
@@ -429,6 +438,80 @@ mod tests {
             writeln!(f, "{v}").unwrap();
         }
         Reader::default().poll(f.path().to_path_buf()).unwrap()
+    }
+    fn timeline_records() -> Vec<Value> {
+        let mut records = m1_records("a", 20, 2000);
+        records.push(json!({"type":"event_msg","payload":{"type":"item_completed","turn_id":"a","started_at_ms":1000,"completed_at_ms":2000,"item":{"id":"PRIVATE","type":"AgentMessage","content":"PRIVATE"}}}));
+        records
+    }
+    #[test]
+    fn session_timeline_reader_global_incomplete_missing_identity_and_conflict_overlay() {
+        for cause in ["incomplete", "identity", "conflict"] {
+            let mut records = timeline_records();
+            if cause == "identity" {
+                records.push(json!({"type":"event_msg","payload":{"type":"item_completed","item":{"id":"unowned","type":"AgentMessage"}}}));
+            }
+            if cause == "conflict" {
+                let mut conflicting = records[3].clone();
+                conflicting["payload"]["duration_ms"] = json!(3000);
+                records.push(conflicting);
+            }
+            let mut f = tempfile::NamedTempFile::new().unwrap();
+            for record in records {
+                writeln!(f, "{record}").unwrap();
+            }
+            if cause == "incomplete" {
+                writeln!(f, "malformed synthetic record").unwrap();
+            }
+            let v = Reader::default().poll(f.path().to_path_buf()).unwrap();
+            let a = &v["last"]["analysis"];
+            assert_eq!(a["partial"], false, "original H2 partial stays unchanged");
+            assert_eq!(a["timeline"]["sourcePartial"], true, "{cause}");
+            assert_eq!(
+                a["timeline"]["coverageInterpretation"], "unavailable",
+                "{cause}"
+            );
+            assert_eq!(a["observedMs"], 1000);
+        }
+    }
+    #[test]
+    fn session_timeline_reader_catching_up_keeps_facts_but_disables_coverage() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        for record in timeline_records() {
+            writeln!(f, "{record}").unwrap();
+        }
+        // A pending append is catchingUp evidence even before it becomes parseable.
+        write!(f, "{{\"type\":\"event_msg\"").unwrap();
+        let v = Reader::default().poll(f.path().to_path_buf()).unwrap();
+        assert_eq!(v["catchingUp"], true);
+        assert_eq!(v["last"]["analysis"]["timeline"]["sourcePartial"], true);
+        assert_eq!(
+            v["last"]["analysis"]["timeline"]["items"][0]["drawable"],
+            true
+        );
+        assert_eq!(
+            v["last"]["analysis"]["timeline"]["coverageInterpretation"],
+            "unavailable"
+        );
+    }
+    #[test]
+    fn session_timeline_reader_new_epoch_discards_previous_projection() {
+        let mut first = tempfile::NamedTempFile::new().unwrap();
+        for record in timeline_records() {
+            writeln!(first, "{record}").unwrap();
+        }
+        let mut second = tempfile::NamedTempFile::new().unwrap();
+        for record in m1_records("b", 40, 4000) {
+            writeln!(second, "{record}").unwrap();
+        }
+        let mut reader = Reader::default();
+        let a = reader.poll(first.path().to_path_buf()).unwrap();
+        assert_eq!(a["last"]["analysis"]["timeline"]["totalItems"], 1);
+        let b = reader.poll(second.path().to_path_buf()).unwrap();
+        assert_ne!(a["logEpoch"], b["logEpoch"]);
+        assert_eq!(b["last"]["turnId"], "b");
+        assert_eq!(b["last"]["analysis"]["timeline"]["totalItems"], 0);
+        assert_eq!(b["last"]["analysis"]["timeline"]["items"], json!([]));
     }
     #[test]
     fn session_m1_verified_replay_and_reasoning_are_not_double_counted() {
