@@ -4,6 +4,7 @@
 #include <flutter_windows.h>
 
 #include "resource.h"
+#include "window_chrome.h"
 
 namespace {
 
@@ -144,6 +145,7 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  window_chrome::SetOwnWindowIdentity(window);
   UpdateTheme(window);
 
   return OnCreate();
@@ -167,6 +169,11 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
     EnableFullDpiSupportIfAvailable(window);
     that->window_handle_ = window;
   } else if (Win32Window* that = GetThisFromHandle(window)) {
+    // Palette and property lifetime belong to the top-level HWND even when a
+    // Flutter plugin consumes a theme/destruction message before the base class.
+    if (message == WM_DWMCOLORIZATIONCOLORCHANGED || message == WM_THEMECHANGED)
+      UpdateTheme(window);
+    if (message == WM_DESTROY) window_chrome::ReleaseWindow(window);
     return that->MessageHandler(window, message, wparam, lparam);
   }
 
@@ -180,6 +187,8 @@ Win32Window::MessageHandler(HWND hwnd,
                             LPARAM const lparam) noexcept {
   switch (message) {
     case WM_DESTROY:
+      // Clear owned Shell properties while this actual HWND is still valid.
+      window_chrome::ReleaseWindow(hwnd);
       window_handle_ = nullptr;
       Destroy();
       if (quit_on_close_) {
@@ -208,13 +217,14 @@ Win32Window::MessageHandler(HWND hwnd,
     }
 
     case WM_ACTIVATE:
+      UpdateTheme(hwnd);
       if (child_content_ != nullptr) {
         SetFocus(child_content_);
       }
       return 0;
 
     case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
+    case WM_THEMECHANGED:
       return 0;
   }
 
@@ -225,6 +235,7 @@ void Win32Window::Destroy() {
   OnDestroy();
 
   if (window_handle_) {
+    window_chrome::ReleaseWindow(window_handle_);
     DestroyWindow(window_handle_);
     window_handle_ = nullptr;
   }
@@ -273,6 +284,9 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
+  // Flutter's resolved app palette wins over the system preference, including
+  // solid-background mode. Colorization messages must not replace it.
+  if (window_chrome::ReapplyAppearance(window)) return;
   DWORD light_mode;
   DWORD light_mode_size = sizeof(light_mode);
   LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,

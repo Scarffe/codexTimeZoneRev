@@ -1,0 +1,3 @@
+# Canonical brand generator digest must survive Windows checkout.
+generate-brand-icons.cjs text eol=lf
+verify-brand-icons.cjs text eol=lf

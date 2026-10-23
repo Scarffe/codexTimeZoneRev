@@ -10,10 +10,12 @@ class MonitorIconAction extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onPress,
+    this.glyph,
   });
   final String label;
   final IconData icon;
   final VoidCallback? onPress;
+  final Widget? glyph;
 
   @override
   Widget build(BuildContext context) => FTooltip(
@@ -25,7 +27,11 @@ class MonitorIconAction extends StatelessWidget {
         semanticsTooltip: label,
         variant: FButtonVariant.ghost,
         onPress: onPress,
-        child: SizedBox(width: 44, height: 44, child: Icon(icon, size: 18)),
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: glyph == null ? Icon(icon, size: 18) : Center(child: glyph),
+        ),
       ),
     ),
   );

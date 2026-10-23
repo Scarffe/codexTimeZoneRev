@@ -35,6 +35,7 @@ class FlutterWindow : public Win32Window {
   bool bridge_ready_ = false;
   bool close_pending_ = false;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> monitor_channel_;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> window_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

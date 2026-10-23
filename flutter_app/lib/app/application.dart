@@ -11,6 +11,7 @@ import '../services/session_selection.dart';
 import '../services/desktop_services.dart';
 import '../services/network_info.dart';
 import '../services/window_material.dart';
+import '../services/window_chrome.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
@@ -18,6 +19,7 @@ import 'monitoring_page.dart';
 import 'monitor_settings_dialog.dart';
 import 'workspace_shell.dart';
 import 'dashboard_motion.dart';
+import 'dashboard_style.dart';
 import 'theme.dart';
 import '../state/session_metrics_controller.dart';
 import '../state/benchmark_controller.dart';
@@ -93,6 +95,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late final appearance = ValueNotifier(widget.initialAppearance);
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
+  final windowChrome = WindowChrome();
+  bool? chromeDark;
   DesktopMonitor? monitor;
   bool monitorSelected = false;
   String recentNotice = '';
@@ -111,6 +115,23 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       } catch (_) {
         if (mounted) setState(() => acrylicEnabled = false);
       }
+    });
+  }
+
+  void _syncChrome(bool dark) {
+    if (chromeDark == dark) return;
+    chromeDark = dark;
+    final palette = DashboardPalette.forBrightness(
+      dark ? Brightness.dark : Brightness.light,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      windowChrome.apply(
+        dark: dark,
+        captionArgb: palette.background.toARGB32(),
+        textArgb: palette.foreground.toARGB32(),
+        borderArgb: palette.border.toARGB32(),
+      );
     });
   }
 
@@ -255,6 +276,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           (appearance.value == 'system' &&
               MediaQuery.platformBrightnessOf(context) == Brightness.dark);
       _syncMaterial(dark);
+      _syncChrome(dark);
       final theme = acrylicEnabled
           ? (dark ? darkAcrylicTheme : lightAcrylicTheme)
           : (dark ? darkLauncherTheme : lightLauncherTheme);

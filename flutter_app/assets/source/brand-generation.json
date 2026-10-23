@@ -1,0 +1,83 @@
+{
+  "artwork": "Original CodexTimeZone Soft Orbit; clock, open orbit and four-point star",
+  "canonicalGenerator": "scripts/generate-brand-icons.cjs",
+  "canonicalGeneratorSha256": "4b6e6ca2475d34cb7b21d2931c2e8f24520c5a874e60d3090fed421780ab10c4",
+  "rasterizer": "sharp/libvips SVG; density 288; Lanczos3 resize",
+  "rendererVersions": {
+    "aom": "3.15.1",
+    "archive": "3.8.9",
+    "cairo": "1.18.6",
+    "cgif": "0.5.4",
+    "exif": "0.6.26",
+    "expat": "2.8.5",
+    "ffi": "3.8.0",
+    "fontconfig": "2.18.3",
+    "freetype": "2.14.3",
+    "fribidi": "1.0.17",
+    "glib": "2.90.0",
+    "harfbuzz": "14.5.0",
+    "heif": "1.23.5",
+    "highway": "1.4.0",
+    "imagequant": "2.4.1",
+    "lcms": "2.19.1",
+    "mozjpeg": "0826579",
+    "pango": "1.58.2",
+    "pixman": "0.46.4",
+    "png": "1.6.58",
+    "proxy-libintl": "0.5",
+    "rsvg": "2.63.2",
+    "tiff": "4.7.2",
+    "uhdr": "2.0.2",
+    "vips": "8.18.7",
+    "webp": "1.6.0",
+    "xml2": "2.15.4",
+    "zlib-ng": "2.3.3",
+    "sharp": "0.35.5"
+  },
+  "sizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "palette": {
+    "navy": "#18243a",
+    "blue": "#92b7ff",
+    "cyan": "#8ce0d4",
+    "white": "#edf4ff"
+  },
+  "generated": {
+    "flutter_app/assets/source/soft_orbit_app.svg": {
+      "sha256": "4a02632ab9352c7657d4ee6104fd35f415a9bd730822cd94b51fa5cde47e9698",
+      "bytes": 7004
+    },
+    "flutter_app/assets/source/soft_orbit_app_small.svg": {
+      "sha256": "e96711a46f9f24d6da895d86299ea7cc6a646d159284cfc7b6cf8fd86a9c4787",
+      "bytes": 7004
+    },
+    "flutter_app/assets/app_icon.png": {
+      "sha256": "fe57e5af44b690e2500fc94cf539725b06fd4ca013e4486d2fde160abe32f3bf",
+      "bytes": 8089
+    },
+    "flutter_app/windows/runner/resources/app_icon.ico": {
+      "sha256": "6fac33e102502e7f1f5264a05fe15a31c4b3832c6f00468bb2a4e2d415f73ed4",
+      "bytes": 18066
+    },
+    "flutter_app/assets/source/soft_orbit_tray.svg": {
+      "sha256": "7cc93c59e0e8963cc452aeef81767a8c0e6a50769c219451a3f087334c725db2",
+      "bytes": 7004
+    },
+    "flutter_app/assets/source/soft_orbit_tray_small.svg": {
+      "sha256": "1b56c432257a87b12725b80c5b5aaad1448a242ef2ccfa5f3ba414f05ff992af",
+      "bytes": 7004
+    },
+    "flutter_app/windows/runner/resources/tray_icon.ico": {
+      "sha256": "b7adc717ea2081f11dfaed79d3d449911d53db89c901c7abfa97caa404f6ed18",
+      "bytes": 18494
+    }
+  }
+}

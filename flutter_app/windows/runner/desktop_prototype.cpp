@@ -1,6 +1,8 @@
 #include "desktop_prototype.h"
 #include "pet_geometry.h"
 #include "app_instance.h"
+#include "resource.h"
+#include "window_chrome.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -36,7 +38,7 @@ constexpr UINT kTestQuota=1123,kTestSession=1124,kTestClick=1125,kTestClose=1126
 constexpr UINT kSuspendTest=114,kResumeTest=115,kDpi100=116,kDpi150=117,kDpi200=118;
 struct State {
   HWND owner = nullptr, pet = nullptr, host = nullptr;
-  bool tray = false, dragging = false;
+  bool tray = false, dragging = false, trayIconLoaded = false;
   POINT drag{}, origin{};
   bool moved=false;
   int mode=1;
@@ -172,6 +174,9 @@ void Report() {
         << ",\"roleWidth\":" << s.roleWidth << ",\"roleHeight\":" << s.roleHeight
         << ",\"petClicks\":" << s.petClicks << ",\"hostClicks\":" << s.hostClicks
         << ",\"restores\":" << s.restores << ",\"tray\":" << (s.tray ? "true" : "false")
+        << ",\"trayIconResource\":" << IDI_TRAY_ICON
+        << ",\"trayIconLoaded\":" << (s.trayIconLoaded ? "true" : "false")
+        << ",\"nativeChrome\":" << window_chrome::DescribeWindow(s.mainWindow)
         << ",\"visible\":" << (IsWindowVisible(s.pet) ? "true" : "false")
         << ",\"foregroundPid\":" << foregroundPid
         << ",\"hostForeground\":" << (GetForegroundWindow() == s.host ? "true" : "false")
@@ -221,7 +226,11 @@ void Report() {
 bool InstallTray() {
   NOTIFYICONDATAW icon{}; icon.cbSize = sizeof(icon); icon.hWnd = current->owner;
   icon.uID = 1; icon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-  icon.uCallbackMessage = kTray; icon.hIcon = LoadIconW(nullptr, IDI_INFORMATION);
+  icon.uCallbackMessage = kTray;
+  icon.hIcon = reinterpret_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(IDI_TRAY_ICON),
+      IMAGE_ICON,GetSystemMetrics(SM_CXSMICON),GetSystemMetrics(SM_CYSMICON),LR_SHARED));
+  current->trayIconLoaded=icon.hIcon!=nullptr;
+  if (!icon.hIcon) return false;
   wcsncpy_s(icon.szTip, current->live ? current->caption.c_str() : L"Codex Stage A | DEMO 72% left | no account queries", _TRUNCATE);
   current->tray = Shell_NotifyIconW(NIM_ADD, &icon) != FALSE;
   return current->tray;

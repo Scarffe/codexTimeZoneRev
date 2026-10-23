@@ -10,6 +10,7 @@
 #include "desktop_prototype.h"
 #include "app_instance.h"
 #include "local_clock_environment.h"
+#include "window_chrome.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -22,6 +23,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
   int bootstrap = package_context::Prepare(arguments);
   if (bootstrap != -1) return bootstrap;
+  // Own Shell grouping is independent of the package identity used to launch.
+  // Apply after package handoff and before any launcher/prototype UI.
+  window_chrome::InitializeProcessIdentity();
   if (desktop_prototype::Requested(arguments)) {
     return desktop_prototype::Run(arguments);
   }

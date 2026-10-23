@@ -157,8 +157,16 @@ class WorkspaceShell extends StatelessWidget {
                             ],
                             builder: (context, controller, _) =>
                                 MonitorIconAction(
+                                  key: const ValueKey('workspace-about'),
                                   label: '应用信息',
                                   icon: FLucideIcons.info,
+                                  glyph: Image.asset(
+                                    'assets/app_icon.png',
+                                    key: const ValueKey('workspace-brand-mark'),
+                                    width: 28,
+                                    height: 28,
+                                    excludeFromSemantics: true,
+                                  ),
                                   onPress: controller.toggle,
                                 ),
                           ),

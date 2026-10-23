@@ -7,6 +7,7 @@
 #include "desktop_prototype.h"
 #include <flutter/standard_method_codec.h>
 #include "utils.h"
+#include "window_chrome.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project, bool monitor)
     : project_(project), monitor_(monitor) {}
@@ -30,6 +31,42 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  window_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "codex_timezone/window",
+      &flutter::StandardMethodCodec::GetInstance());
+  window_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() != "setAppearance") { result->NotImplemented(); return; }
+    const auto* map=std::get_if<flutter::EncodableMap>(call.arguments());
+    if (!map) { result->Error("invalid_appearance","Expected appearance map"); return; }
+    const auto field=[&](const char* key)->const flutter::EncodableValue* {
+      const auto found=map->find(flutter::EncodableValue(key));
+      return found==map->end()?nullptr:&found->second;
+    };
+    const auto argb=[&](const char* key)->std::optional<std::uint32_t> {
+      const auto* value=field(key);
+      if (!value) return std::nullopt;
+      int64_t number=-1;
+      if (const auto* small=std::get_if<int32_t>(value)) number=*small;
+      else if (const auto* large=std::get_if<int64_t>(value)) number=*large;
+      if (number<0 || number>0xffffffffLL) return std::nullopt;
+      return static_cast<std::uint32_t>(number);
+    };
+    const auto* dark_value=field("dark");
+    const auto* dark=dark_value?std::get_if<bool>(dark_value):nullptr;
+    const auto caption=argb("captionArgb"),text=argb("textArgb"),border=argb("borderArgb");
+    if (!dark || !caption || !text || !border) {
+      result->Error("invalid_appearance","Expected dark and 32-bit ARGB palette"); return;
+    }
+    const auto applied=window_chrome::ApplyAppearance(GetHandle(),{*dark,*caption,*text,*border});
+    flutter::EncodableMap reply;
+    reply[flutter::EncodableValue("status")]=flutter::EncodableValue(applied.Status());
+    reply[flutter::EncodableValue("darkHresult")]=flutter::EncodableValue(static_cast<int64_t>(applied.dark));
+    reply[flutter::EncodableValue("captionHresult")]=flutter::EncodableValue(static_cast<int64_t>(applied.caption));
+    reply[flutter::EncodableValue("textHresult")]=flutter::EncodableValue(static_cast<int64_t>(applied.text));
+    reply[flutter::EncodableValue("borderHresult")]=flutter::EncodableValue(static_cast<int64_t>(applied.border));
+    result->Success(flutter::EncodableValue(reply));
+    desktop_prototype::ReportMonitorState();
+  });
   {
     monitor_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
         flutter_controller_->engine()->messenger(), "codex_timezone/monitor",
@@ -121,6 +158,7 @@ void FlutterWindow::OnDestroy() {
   // survive that initial cleanup; only tear down an attached monitor channel.
   if(monitor_channel_) desktop_prototype::DetachMonitor();
   monitor_channel_.reset();
+  window_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
