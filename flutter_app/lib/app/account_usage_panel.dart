@@ -207,6 +207,10 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
             ],
           ),
           const SizedBox(height: 10),
+          if (data.buckets.length == 1) ...[
+            Text(bucket!.label, style: context.theme.typography.body.sm),
+            const SizedBox(height: 8),
+          ],
           Wrap(
             spacing: 12,
             runSpacing: 8,

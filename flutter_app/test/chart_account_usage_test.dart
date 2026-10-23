@@ -177,6 +177,41 @@ void main() {
     },
   );
 
+  testWidgets(
+    'single non-Codex bucket stays identified initially and after fallback',
+    (tester) async {
+      const other = UsageBucket(
+        id: 'other',
+        label: '专用额度',
+        windows: [UsageWindow(usedPercent: 42, durationMinutes: 60)],
+      );
+      service.result = _data(buckets: [other]);
+      await controller.query('desktop');
+      await tester.pumpWidget(_app(controller, launcher));
+      await tester.pumpAndSettle();
+      expect(find.text('专用额度'), findsWidgets);
+      expect(find.byKey(const ValueKey('account-quota-bucket')), findsNothing);
+      expect(_chart(tester).bars.single.label, '1 小时额度');
+      expect(_chart(tester).bars.single.value, 58);
+
+      service.result = _data(buckets: [_data().buckets.first, other]);
+      await controller.query('desktop');
+      await tester.pumpAndSettle();
+      await _choose(tester, 'account-quota-bucket', 'codex');
+      expect(_chart(tester).bars.first.value, 75);
+
+      service.result = _data(buckets: [other]);
+      await controller.query('desktop');
+      await tester.pumpAndSettle();
+      expect(find.text('专用额度'), findsWidgets);
+      expect(find.byKey(const ValueKey('account-quota-bucket')), findsNothing);
+      expect(_chart(tester).bars.single.label, '1 小时额度');
+      expect(_chart(tester).bars.single.value, 58);
+      expect(service.calls, 3);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('empty windows and null values never fabricate a quota', (
     tester,
   ) async {
