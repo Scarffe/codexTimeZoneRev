@@ -1,4 +1,4 @@
-param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31','W','M1','L1')][string]$Stage = 'D')
+param([string]$Name = '', [ValidateSet('D','E','E34','F','G','H1','H2','I','I31','W','M1','L1','Sidebar')][string]$Stage = 'D')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $gitArguments = @('-c', "safe.directory=$($root.Replace('\','/'))", '-C', $root)
@@ -12,7 +12,7 @@ $artifacts = Join-Path $root 'environment\artifacts'
 $output = Join-Path $artifacts $Name
 $zip = "$output.zip"
 if ((Test-Path -LiteralPath $output) -or (Test-Path -LiteralPath $zip)) { throw 'Candidate already exists; do not overwrite it.' }
-if ($Stage -eq 'L1' -and (Test-Path -LiteralPath "$zip.sha256")) { throw 'L1 checksum already exists; do not overwrite it.' }
+if ($Stage -in @('L1','Sidebar') -and (Test-Path -LiteralPath "$zip.sha256")) { throw "$Stage checksum already exists; do not overwrite it." }
 $source = Join-Path $root 'flutter_app\build\windows\x64\runner\Release'
 $coreTarget = if ($Stage -in @('E34','F','G','H1','H2','I','I31')) { 'stage-e34-cargo' } else { 'stage-b-cargo' }
 if ($Stage -eq 'H1') { $coreTarget = 'stage-h1-cargo' }
@@ -22,11 +22,13 @@ if ($Stage -eq 'I31') { $coreTarget = 'stage-i31-cargo' }
 if ($Stage -eq 'W') { $coreTarget = 'stage-w-cargo' }
 if ($Stage -eq 'M1') { $coreTarget = 'stage-m1-cargo' }
 $library = Join-Path $root "environment\$coreTarget\release\codex_timezone_core.dll"
-if ($Stage -eq 'L1') { $library = Join-Path $root 'environment\stage-l1-core\codex_timezone_core.dll' }
-if ($Stage -eq 'L1') {
-    if ((Get-Content -LiteralPath (Join-Path $root 'flutter_app\pubspec.yaml') -Raw) -notmatch '(?m)^version: 0\.2\.4-rc\.7\+11\s*$') { throw 'L1 requires version 0.2.4-rc.7+11.' }
+if ($Stage -in @('L1','Sidebar')) { $library = Join-Path $root 'environment\stage-l1-core\codex_timezone_core.dll' }
+if ($Stage -in @('L1','Sidebar')) {
+    $appVersion = if ($Stage -eq 'Sidebar') { '0.2.4-rc.8+12' } else { '0.2.4-rc.7+11' }
+    if ((Get-Content -LiteralPath (Join-Path $root 'flutter_app\pubspec.yaml') -Raw) -notmatch ('(?m)^version: ' + [regex]::Escape($appVersion) + '\s*$')) { throw "$Stage requires version $appVersion." }
+    if ($Stage -eq 'Sidebar' -and (Get-FileHash -LiteralPath $library).Hash -ne '11FEAD54EA59C219B3868DE65BB294BD46810CC6D349A72FCC5313A429AE12B8') { throw 'Sidebar requires the exact accepted L1 core hash.' }
     foreach ($required in @('THIRD_PARTY_NOTICES.md','licenses\AIPerf-Apache-2.0.txt','licenses\Win-CodexBar-MIT.txt','licenses\ccusage-MIT.txt')) {
-        if (!(Test-Path -LiteralPath (Join-Path $root $required) -PathType Leaf)) { throw "Missing L1 attribution input: $required" }
+        if (!(Test-Path -LiteralPath (Join-Path $root $required) -PathType Leaf)) { throw "Missing $Stage attribution input: $required" }
     }
 }
 foreach ($required in @((Join-Path $source 'codex_timezone.exe'),(Join-Path $source 'flutter_windows.dll'),(Join-Path $source 'data\app.so'),$library)) {
@@ -44,7 +46,7 @@ foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -File) {
 }
 Copy-Item -LiteralPath $library -Destination (Join-Path $output 'codex_timezone_core.dll') -Force
 foreach ($document in @('LICENSE',"STAGE-$Stage.md")) { Copy-Item -LiteralPath (Join-Path $root $document) -Destination $output }
-if ($Stage -in @('M1','L1') -and (Test-Path -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md'))) {
+if ($Stage -in @('M1','L1','Sidebar') -and (Test-Path -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md'))) {
     Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination $output
     Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $output -Recurse
 }
@@ -55,7 +57,7 @@ if ($Stage -in @('H1','H2','I','I31')) {
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Trial.cmd') -Encoding ascii
 }
-if ($Stage -in @('W','M1','L1')) {
+if ($Stage -in @('W','M1','L1','Sidebar')) {
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Monitor.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --desktop-monitor --isolated-instance --monitor-exit') | Set-Content -LiteralPath (Join-Path $output 'Stop-Monitor.cmd') -Encoding ascii
     @('@echo off','start "" "%~dp0codex_timezone.exe" --isolated-instance') | Set-Content -LiteralPath (Join-Path $output 'Start-Trial.cmd') -Encoding ascii
@@ -66,6 +68,10 @@ $buildInfo = @{stage=$Stage;kind='local-release-candidate';sourceCommit=$commit;
     coreSha256=(Get-FileHash (Join-Path $output 'codex_timezone_core.dll')).Hash;
     systemReplacementPerformed=$false;published=$false}
 if ($Stage -eq 'L1') { $buildInfo.appVersion = '0.2.4-rc.7+11' }
+if ($Stage -eq 'Sidebar') {
+    $buildInfo.appVersion = '0.2.4-rc.8+12'
+    $buildInfo.aotSha256 = (Get-FileHash -LiteralPath (Join-Path $output 'data/app.so')).Hash
+}
 $buildInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output 'BUILD-INFO.json') -Encoding utf8
 $manifest = @(Get-ChildItem -LiteralPath $output -Recurse -File | Sort-Object FullName | ForEach-Object {
     [ordered]@{path=[IO.Path]::GetRelativePath($output,$_.FullName).Replace('\','/');bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName).Hash}

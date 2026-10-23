@@ -1,19 +1,41 @@
 param(
  [string]$RuntimeDirectory='', [string]$NativeLibrary='', [string]$Archive='',
  [switch]$FfiOnly, [switch]$FfiChild, [string]$ReceiptPath='', [switch]$InjectChildStall,
- [string]$VerifiedFfiReceipt=''
+ [string]$VerifiedFfiReceipt='',
+ [ValidateSet('L1','Sidebar')][string]$Stage='L1', [string]$PreservationBaseline=''
 )
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $root=Split-Path -Parent $PSScriptRoot
+$baseline=$null;$baselineSha256=''
+if($Stage -eq 'Sidebar'){
+ if(!$PreservationBaseline){throw 'Sidebar requires PreservationBaseline; use the frozen pre-launch identity baseline'}
+ $PreservationBaseline=(Resolve-Path -LiteralPath $PreservationBaseline).Path
+ $baseline=Get-Content -LiteralPath $PreservationBaseline -Raw|ConvertFrom-Json
+ if(!($baseline.PSObject.Properties.Name -contains 'files') -or !($baseline.PSObject.Properties.Name -contains 'processes') -or $baseline.files -isnot [array] -or $baseline.processes -isnot [array] -or @($baseline.files).Count -eq 0 -or @($baseline.processes).Count -eq 0){throw 'Sidebar baseline requires nonempty files and processes arrays'}
+ $filePaths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ foreach($entry in @($baseline.files)){
+  if(!($entry.PSObject.Properties.Name -contains 'path') -or !($entry.PSObject.Properties.Name -contains 'sha256') -or ![IO.Path]::IsPathFullyQualified([string]$entry.path) -or $entry.sha256 -notmatch '^[0-9A-Fa-f]{64}$' -or !$filePaths.Add([IO.Path]::GetFullPath($entry.path))){throw 'Invalid Sidebar protected file identity'}
+ }
+ $processIds=[Collections.Generic.HashSet[int]]::new()
+ foreach($entry in @($baseline.processes)){
+  if(!($entry.PSObject.Properties.Name -contains 'id') -or !($entry.PSObject.Properties.Name -contains 'path') -or !($entry.PSObject.Properties.Name -contains 'startUtcTicks') -or $entry.id -le 0 -or ![IO.Path]::IsPathFullyQualified([string]$entry.path) -or $entry.startUtcTicks -le 0 -or !$processIds.Add($entry.id)){throw 'Invalid Sidebar protected process identity'}
+ }
+ $baselineSha256=(Get-FileHash -LiteralPath $PreservationBaseline).Hash
+}elseif($PreservationBaseline){throw 'PreservationBaseline is only supported for Sidebar; retain original L1 baselines'}
+if($FfiChild -and $VerifiedFfiReceipt){throw 'FfiChild cannot reuse a receipt'}
 $fresh=Join-Path $root 'environment/stage-l1-core/codex_timezone_core.dll'
 if(!$NativeLibrary){$NativeLibrary=$fresh}
 $NativeLibrary=(Resolve-Path -LiteralPath $NativeLibrary).Path
 if($NativeLibrary -ne (Resolve-Path -LiteralPath $fresh).Path){throw 'L1 requires the exact newly staged L1 core'}
+if($Stage -eq 'Sidebar' -and (Get-FileHash -LiteralPath $NativeLibrary).Hash -ne '11FEAD54EA59C219B3868DE65BB294BD46810CC6D349A72FCC5313A429AE12B8'){throw 'Sidebar requires the exact accepted L1 core hash'}
 $checks=[Collections.Generic.List[string]]::new()
 function Assert-That([bool]$condition,[string]$description){if(!$condition){throw $description};$checks.Add($description)}
 function Write-Json($value,[string]$path){$value|ConvertTo-Json -Depth 30|Set-Content -LiteralPath $path -Encoding utf8}
 function Read-Json([string]$path){Get-Content -LiteralPath $path -Raw|ConvertFrom-Json}
+function Test-NotificationPublication($value,[string]$kind,[int]$attemptsBefore,[int]$acceptedBefore){
+ return $value.notificationKind -eq $kind -and $value.notificationAttempts -eq ($attemptsBefore+1) -and $value.notificationShellAccepted -eq ($acceptedBefore+1)
+}
 function Write-Fixture([string]$fixtureHome,[string]$name,[int]$count=4,[switch]$Partial,[switch]$InvalidRows){
  $sessions=Join-Path $fixtureHome 'sessions/2026/10/23'
  New-Item -ItemType Directory -Path $sessions -Force|Out-Null
@@ -93,11 +115,23 @@ public sealed class L1Ffi : IDisposable {
  Write-Json @{stage='L1';checks=$checks.ToArray();dllSha256=(Get-FileHash -LiteralPath $NativeLibrary).Hash;syntheticHome=$fixtureHome;liveApiRequests=0;realSessionReads=0} $ReceiptPath
  return
 }
-$directory=Join-Path $root ('environment/stage-l1-validation-'+[guid]::NewGuid().ToString('N'))
+$directory=Join-Path $root ('environment/stage-'+$Stage.ToLowerInvariant()+'-validation-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $directory|Out-Null
 $receipt=Join-Path $directory 'ffi.json'
 $owned=[Collections.Generic.List[object]]::new();$failure=$null;$forcedCleanup=$false;$runtimeExe='';$child=$null
 function Compare-Preservation {
+ if($Stage -eq 'Sidebar'){
+  if((Get-FileHash -LiteralPath $PreservationBaseline).Hash -ne $baselineSha256){throw 'Frozen Sidebar baseline changed during acceptance'}
+  $hashes=@(foreach($entry in @($baseline.files)){
+   $actual=if(Test-Path -LiteralPath $entry.path -PathType Leaf){(Get-FileHash -LiteralPath $entry.path).Hash}else{''}
+   [ordered]@{path=$entry.path;expected=$entry.sha256;actual=$actual;unchanged=($actual -eq $entry.sha256)}
+  })
+  $processes=@(foreach($entry in @($baseline.processes)){
+   $p=Get-Process -Id $entry.id -ErrorAction SilentlyContinue
+   [ordered]@{id=$entry.id;path=$entry.path;startUtcTicks=$entry.startUtcTicks;preserved=($null -ne $p -and $p.Path -and [IO.Path]::GetFullPath($p.Path) -eq [IO.Path]::GetFullPath($entry.path) -and $p.StartTime.ToUniversalTime().Ticks -eq $entry.startUtcTicks)}
+  })
+  return @{hashes=$hashes;processes=$processes}
+ }
  $hashes=@(foreach($kind in @('installed','packages','m2files')){foreach($entry in @(Read-Json (Join-Path $root "environment/l1-before-$kind.json"))){
   $actual=if(Test-Path -LiteralPath $entry.Path -PathType Leaf){(Get-FileHash -LiteralPath $entry.Path).Hash}else{''}
   [ordered]@{path=$entry.Path;expected=$entry.Hash;actual=$actual;unchanged=($actual -eq $entry.Hash)}
@@ -109,6 +143,11 @@ function Compare-Preservation {
  return @{hashes=$hashes;processes=$processes}
 }
 function Assert-Preservation($value){
+ if($Stage -eq 'Sidebar'){
+  Assert-That ($value.hashes.Count -eq @($baseline.files).Count -and @($value.hashes|Where-Object {!$_.unchanged}).Count -eq 0) "All $(@($baseline.files).Count) frozen Sidebar file hashes preserved"
+  Assert-That ($value.processes.Count -eq @($baseline.processes).Count -and @($value.processes|Where-Object {!$_.preserved}).Count -eq 0) "All $(@($baseline.processes).Count) frozen Sidebar process IDs, paths and UTC ticks preserved"
+  return
+ }
  Assert-That ($value.hashes.Count -eq 22 -and @($value.hashes|Where-Object {!$_.unchanged}).Count -eq 0) 'All 22 protected L1 file hashes preserved'
  Assert-That ($value.processes.Count -eq 15 -and @($value.processes|Where-Object {!$_.preserved}).Count -eq 0) 'All 15 baseline process IDs, paths and UTC ticks preserved'
 }
@@ -141,7 +180,7 @@ function Cleanup-Exact {
  if($cleanupErrors.Count){throw ($cleanupErrors -join '; ')}
 }
 try{
- foreach($kind in @('installed','packages','m2files','processes')){Assert-That ((@(Read-Json (Join-Path $root "environment/l1-before-$kind.json"))).Count -gt 0) "Original nonempty L1 baseline: $kind"}
+ if($Stage -eq 'L1'){foreach($kind in @('installed','packages','m2files','processes')){Assert-That ((@(Read-Json (Join-Path $root "environment/l1-before-$kind.json"))).Count -gt 0) "Original nonempty L1 baseline: $kind"}}
  $before=Compare-Preservation;Write-Json $before (Join-Path $directory 'preservation-before.json');Assert-Preservation $before
  if($VerifiedFfiReceipt){
   if($InjectChildStall){throw 'Fault injection requires a fresh child'}
@@ -179,8 +218,10 @@ try{
    }
    foreach($file in Get-ChildItem -LiteralPath $runtime -Recurse -File){$relative=[IO.Path]::GetRelativePath($runtime,$file.FullName).Replace('\','/');if($relative -ne 'FILES-SHA256.json' -and !$covered.Contains($relative)){throw 'Uncovered archive file'}}
    $build=Read-Json (Join-Path $runtime 'BUILD-INFO.json')
-   Assert-That ($build.stage -eq 'L1' -and $build.sourceCommit -match '^[0-9a-f]{40}$' -and $build.appVersion -eq '0.2.4-rc.7+11') 'Candidate declares L1 version and exact source commit'
-   foreach($required in @('codex_timezone.exe','codex_timezone_core.dll','flutter_windows.dll','data/app.so','Start-Trial.cmd','Stop-Trial.cmd','STAGE-L1.md','THIRD_PARTY_NOTICES.md','licenses/AIPerf-Apache-2.0.txt','licenses/Win-CodexBar-MIT.txt','licenses/ccusage-MIT.txt')){Assert-That ($covered.Contains($required)) "Required candidate input: $required"}
+   $expectedVersion=if($Stage -eq 'Sidebar'){'0.2.4-rc.8+12'}else{'0.2.4-rc.7+11'}
+   Assert-That ($build.stage -eq $Stage -and $build.sourceCommit -match '^[0-9a-f]{40}$' -and $build.appVersion -eq $expectedVersion) "Candidate declares $Stage version and exact source commit"
+   foreach($required in @('codex_timezone.exe','codex_timezone_core.dll','flutter_windows.dll','data/app.so','Start-Trial.cmd','Stop-Trial.cmd',"STAGE-$Stage.md",'THIRD_PARTY_NOTICES.md','licenses/AIPerf-Apache-2.0.txt','licenses/Win-CodexBar-MIT.txt','licenses/ccusage-MIT.txt')){Assert-That ($covered.Contains($required)) "Required candidate input: $required"}
+   if($Stage -eq 'Sidebar'){Assert-That ($build.aotSha256 -eq (Get-FileHash -LiteralPath (Join-Path $runtime 'data/app.so')).Hash) 'Sidebar AOT hash matches build identity'}
    Assert-That ($build.exeSha256 -eq (Get-FileHash -LiteralPath (Join-Path $runtime 'codex_timezone.exe')).Hash -and $build.coreSha256 -eq (Get-FileHash -LiteralPath $NativeLibrary).Hash) 'Candidate runtime hashes match build identity and new L1 DLL'
    Assert-That ((Get-Content -LiteralPath (Join-Path $runtime 'Start-Trial.cmd') -Raw) -match '--isolated-instance' -and (Get-Content -LiteralPath (Join-Path $runtime 'Start-Trial.cmd') -Raw) -notmatch '--desktop-monitor') 'User trial entry opens normal isolated main window'
    Assert-That ((Get-Content -LiteralPath (Join-Path $runtime 'Stop-Trial.cmd') -Raw) -match '--isolated-instance --monitor-exit') 'Trial stop explicitly exits its isolated owner'
@@ -223,6 +264,45 @@ try{
    Assert-That ($script:last.pid -eq $p.Id -and $script:last.attempts -eq 0 -and $script:last.sessionAlertsShown -eq 0) 'Same owned process, zero quota calls and no history completion notices retained'
    Assert-That ($script:last.backgroundNotices -eq 1 -and $script:last.notificationAttempts -eq 1 -and $script:last.notificationKind -eq 'background') 'Existing first-close background notice is distinct from a session completion replay'
    Write-Json $script:last (Join-Path $directory 'runtime-retained.json')
+   if($Stage -eq 'Sidebar'){
+    # Reuse Stage W's synthetic notification/control contract, with this
+    # harness's frozen Sidebar baseline and exact-owned process cleanup.
+    $peer=Start-Exact $runtimeExe @('--isolated-instance','--desktop-monitor')
+    Wait-Exit $peer 15000 'Sidebar background cross-launch did not forward'
+    Wait-State {param($v) $v.pid -eq $p.Id} 'Sidebar cross-launch retains original owner'
+    Assert-That (@($owned|Where-Object {$_.path -eq $runtimeExe -and !$_.handle.HasExited}).Count -eq 1) 'Sidebar cross-launch retains one exact owned runtime'
+    function Add-SidebarEvent([string]$kind,[string]$turn){
+     $homePrefix=[IO.Path]::GetFullPath($fixtureHome)+[IO.Path]::DirectorySeparatorChar
+     if(![IO.Path]::GetFullPath($session).StartsWith($homePrefix,[StringComparison]::OrdinalIgnoreCase)){throw 'Synthetic append target escaped owned fixture home'}
+     $event=@{type='event_msg';payload=@{type=$kind;turn_id=$turn;started_at=1;completed_at=3;duration_ms=2000;time_to_first_token_ms=100}}|ConvertTo-Json -Compress
+     (Get-Item -LiteralPath $session).IsReadOnly=$false
+     try{[IO.File]::AppendAllText($session,$event+"`n",[Text.UTF8Encoding]::new($false))}
+     finally{(Get-Item -LiteralPath $session).IsReadOnly=$true}
+    }
+    Control 'close';Wait-State {param($v) !$v.mainVisible -and $v.keepAlive} 'Sidebar selected collector remains active while hidden'
+    $noticeBase=$script:last.notificationAttempts;$acceptedBase=$script:last.notificationShellAccepted
+    Add-SidebarEvent 'task_started' 'sidebar-live'
+    Wait-State {param($v) $v.sessionStatus -eq 1} 'Sidebar hidden synthetic live turn observed'
+    Add-SidebarEvent 'task_complete' 'sidebar-live'
+    Wait-State {param($v) $v.sessionStatus -eq 2 -and (Test-NotificationPublication $v 'session' $noticeBase $acceptedBase)} 'Sidebar synthetic completion notice accepted by shell'
+    Assert-That ($script:last.notificationKeptFocus -and !$script:last.mainVisible -and !$script:last.visible) 'Sidebar session notice preserves focus and hidden surfaces'
+    Write-Json $script:last (Join-Path $directory 'sidebar-session-notice.json')
+    $noticeCount=$script:last.notificationAttempts
+    Add-SidebarEvent 'task_complete' 'sidebar-live';Start-Sleep -Seconds 4
+    Wait-State {param($v) $v.sessionStatus -eq 2} 'Sidebar duplicate completion consumed'
+    Assert-That ($script:last.notificationAttempts -eq $noticeCount) 'Sidebar duplicate completion stays silent'
+    Control 'click'
+    Wait-State {param($v) $v.mainVisible -and $v.workspace -eq 'monitor' -and $v.notificationClickRoute -eq 'sessionDetails'} 'Sidebar injected session callback routes to monitor session details'
+    Assert-That ($script:last.notificationClickInjections -eq 1) 'Sidebar session callback is explicitly recorded as an injection'
+    Write-Json $script:last (Join-Path $directory 'sidebar-session-click-injected.json')
+    $quotaAcceptedBase=$script:last.notificationShellAccepted
+    Control 'quota'
+    Wait-State {param($v) Test-NotificationPublication $v 'quota' $noticeCount $quotaAcceptedBase} 'Sidebar synthetic quota notice accepted by shell'
+    Control 'click'
+    Wait-State {param($v) $v.mainVisible -and $v.workspace -eq 'monitor' -and $v.notificationClickRoute -eq 'monitorDetails'} 'Sidebar injected quota callback routes to monitor account details'
+    Assert-That ($script:last.notificationClickInjections -eq 2 -and $script:last.notificationKeptFocus -and $script:last.attempts -eq 0 -and $script:last.petPaused -and !$script:last.visible) 'Sidebar quota callback injection retains zero quota reads and paused pet'
+    Write-Json $script:last (Join-Path $directory 'sidebar-quota-click-injected.json')
+   }
   }finally{try{Stop-Runtime}finally{$env:CODEX_HOME=$oldHome;$env:CODEX_TZ_NATIVE_LIBRARY=$oldLibrary}}
  }
 }catch{$failure=$_.ToString()}
@@ -233,7 +313,8 @@ finally{
  $remaining=@($owned|Where-Object {!$_.handle.HasExited}).Count
  if($remaining -and !$failure){$failure='Owned process remains'}
  $identities=@($owned|ForEach-Object {[ordered]@{id=$_.id;path=$_.path;startedUtcTicks=$_.startedUtcTicks;exited=$_.handle.HasExited}})
- Write-Json @{passed=(!$failure);failure=$failure;checks=$checks.ToArray();directory=$directory;forcedCleanup=$forcedCleanup;ownedProcessesRemaining=$remaining;ownedProcessIdentities=$identities;verifiedFfiReceipt=$VerifiedFfiReceipt;stagedCoreSha256=(Get-FileHash -LiteralPath $NativeLibrary).Hash;physicalChartLayout='NOT_RUN';physicalMouseNavigation='NOT_RUN';physicalNotificationDisplay='NOT_RUN';physicalNotificationClick='NOT_RUN';source='read-only synthetic logs and injected native controls';liveApiRequests=0;realSessionReads=0} (Join-Path $directory 'ACCEPTANCE.json')
+ $evidenceSource=if($Stage -eq 'Sidebar'){'read-only synthetic FFI receipt, owned append-only runtime fixture and injected native controls'}else{'read-only synthetic logs and injected native controls'}
+ Write-Json @{stage=$Stage;preservationBaseline=$PreservationBaseline;preservationBaselineSha256=$baselineSha256;passed=(!$failure);failure=$failure;checks=$checks.ToArray();directory=$directory;forcedCleanup=$forcedCleanup;ownedProcessesRemaining=$remaining;ownedProcessIdentities=$identities;verifiedFfiReceipt=$VerifiedFfiReceipt;stagedCoreSha256=(Get-FileHash -LiteralPath $NativeLibrary).Hash;physicalChartLayout='NOT_RUN';physicalMouseNavigation='NOT_RUN';physicalNotificationDisplay='NOT_RUN';physicalNotificationClick='NOT_RUN';source=$evidenceSource;liveApiRequests=0;realSessionReads=0} (Join-Path $directory 'ACCEPTANCE.json')
 }
 if($failure){throw "$failure; evidence: $directory"}
 Write-Output "PASS: $($checks.Count) parent assertions; evidence: $directory"
