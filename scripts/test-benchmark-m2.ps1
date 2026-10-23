@@ -1,4 +1,4 @@
-param([string]$NativeLibrary='', [switch]$ReplayChild, [string]$ReceiptPath='')
+param([string]$NativeLibrary='', [switch]$ReplayChild, [string]$ReceiptPath='', [switch]$InjectChildStall)
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $root=Split-Path -Parent $PSScriptRoot
@@ -31,13 +31,33 @@ if(!$ReplayChild){
  $log="$ReceiptPath.stdout.txt"; $errorLog="$ReceiptPath.stderr.txt"
  $exe=(Get-Process -Id $PID).Path
  $arguments=@('-NoLogo','-NoProfile','-File',('"'+$PSCommandPath+'"'),'-ReplayChild','-NativeLibrary',('"'+$NativeLibrary+'"'),'-ReceiptPath',('"'+$ReceiptPath+'"'))
+ if($InjectChildStall){$arguments+='-InjectChildStall'}
  $child=Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError $errorLog
- $failure=$null
+ # Identity comes from the original owned handle, before waiting or cleanup.
+ $childIdentity=[ordered]@{id=$child.Id;path=[IO.Path]::GetFullPath($exe);startedUtcTicks=$child.StartTime.ToUniversalTime().Ticks}
+ $failure=$null;$cleanupFailure=$null;$preservationFailed=$false
+ $cooperativeExitRequested=$false;$forcedCleanup=$false
  try {
   if(!$child.WaitForExit(30000)){throw 'Owned replay child did not exit within 30s; no unrelated process touched'}
   if($child.ExitCode -ne 0){throw "Replay child failed; see $errorLog"}
  }catch{$failure=$_}
  finally {
+  try {
+   if(!$child.HasExited){
+    $sameHandle=($child.Id -eq $childIdentity.id -and $child.Path -eq $childIdentity.path -and $child.StartTime.ToUniversalTime().Ticks -eq $childIdentity.startedUtcTicks)
+    if(!$sameHandle){throw 'Owned child handle identity mismatch; no process terminated'}
+    # A hidden console normally has no main window. Give a bounded cooperative
+    # exit opportunity before forcing only this exact original process handle.
+    $cooperativeExitRequested=$child.CloseMainWindow()
+    if(!$child.WaitForExit(250)){
+     $current=Get-Process -Id $childIdentity.id -ErrorAction SilentlyContinue
+     $sameProcess=($null -ne $current -and $current.Path -eq $childIdentity.path -and $current.StartTime.ToUniversalTime().Ticks -eq $childIdentity.startedUtcTicks)
+     if(!$sameProcess){throw 'Owned child live identity mismatch; no process terminated'}
+     $child.Kill();$forcedCleanup=$true
+     if(!$child.WaitForExit(2000)){throw 'Exact owned child did not exit after bounded forced cleanup'}
+    }
+   }
+  }catch{$cleanupFailure=$_.Exception.Message}
   $hashes=Compare-M2Files
   $originalContinuity=@(foreach($entry in $originalProcesses){
    $process=Get-Process -Id $entry.Id -ErrorAction SilentlyContinue
@@ -48,10 +68,11 @@ if(!$ReplayChild){
    [ordered]@{id=$entry.id;path=$entry.path;startedUtcTicks=$entry.startedUtcTicks;preserved=($null -ne $process -and $process.Path -eq $entry.path -and $process.StartTime.ToUniversalTime().Ticks -eq $entry.startedUtcTicks)}
   })
   $remaining=if($child.HasExited){0}else{1}
-  [ordered]@{hashes=$hashes;currentProcesses=$processes;originalProcessContinuity=$originalContinuity;originalContinuityProven=(@($originalContinuity|Where-Object {!$_.preserved}).Count -eq 0);ownedClientProcessesRemaining=$remaining}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath "$ReceiptPath.preservation.json" -Encoding utf8
-  if(@($hashes|Where-Object {!$_.unchanged}).Count -or @($processes|Where-Object {!$_.preserved}).Count -or $remaining){throw 'M2 preservation or owned-child cleanup check failed; see preservation receipt'}
+  [ordered]@{hashes=$hashes;currentProcesses=$processes;originalProcessContinuity=$originalContinuity;originalContinuityProven=(@($originalContinuity|Where-Object {!$_.preserved}).Count -eq 0);ownedChildIdentity=$childIdentity;cooperativeExitRequested=$cooperativeExitRequested;forcedCleanup=$forcedCleanup;cleanupError=$cleanupFailure;originalFailure=$(if($failure){$failure.Exception.Message}else{$null});ownedClientProcessesRemaining=$remaining}|ConvertTo-Json -Depth 6|Set-Content -LiteralPath "$ReceiptPath.preservation.json" -Encoding utf8
+  $preservationFailed=(@($hashes|Where-Object {!$_.unchanged}).Count -or @($processes|Where-Object {!$_.preserved}).Count -or $remaining -or $null -ne $cleanupFailure)
  }
  if($failure){throw $failure}
+ if($preservationFailed){throw 'M2 preservation or owned-child cleanup check failed; see preservation receipt'}
  Get-Content -LiteralPath $ReceiptPath -Raw
  return
 }
@@ -103,6 +124,11 @@ function Invoke-M2([string]$command,$payload){
  if(!$response.ok){throw "$command failed: $($response.error)"};return $response.data
 }
 try {
+ if($InjectChildStall){
+  $self=Get-Process -Id $PID
+  [ordered]@{id=$PID;path=$self.Path;startedUtcTicks=$self.StartTime.ToUniversalTime().Ticks;fixturePort=$fixture.Port}|ConvertTo-Json|Set-Content -LiteralPath "$ReceiptPath.stall-ready.json" -Encoding utf8
+  [Threading.Thread]::Sleep([Threading.Timeout]::Infinite)
+ }
  $invalid=$ffi.Invoke('{"version":1,"command":"unknown_m2_smoke","payload":{}}')|ConvertFrom-Json
  Assert-That (!$invalid.ok -and $invalid.version -eq 1) 'Existing version-1 error envelope preserved'
  $session=Invoke-M2 'session_metrics' @{action='list'}
