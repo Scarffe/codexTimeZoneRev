@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../services/session_activity_timeline.dart';
+import 'dashboard_style.dart';
 
 /// A display sample. Null remains unknown; cancellation never becomes zero.
 @immutable
@@ -38,20 +39,12 @@ TextStyle _labelStyle(BuildContext context) =>
 /// Quantitative series identity is independent of the neutral application chrome.
 class _ChartPalette {
   const _ChartPalette(this.blue, this.purple, this.teal, this.amber);
-  factory _ChartPalette.of(BuildContext context) =>
-      context.theme.colors.background.computeLuminance() < .5
-      ? const _ChartPalette(
-          Color(0xff60a5fa),
-          Color(0xffc084fc),
-          Color(0xff2dd4bf),
-          Color(0xfffbbf24),
-        )
-      : const _ChartPalette(
-          Color(0xff2563eb),
-          Color(0xff9333ea),
-          Color(0xff0f766e),
-          Color(0xffb45309),
-        );
+  factory _ChartPalette.of(BuildContext context) => _ChartPalette(
+    DashboardPalette.of(context).accent,
+    DashboardPalette.of(context).reasoning,
+    DashboardPalette.of(context).tool,
+    DashboardPalette.of(context).muted,
+  );
   final Color blue, purple, teal, amber;
   Color category(String category) => switch (category) {
     'reasoning' => purple,
@@ -129,7 +122,7 @@ class MonitorChartFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FCard(
     child: Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
       child: LayoutBuilder(
         builder: (context, constraints) => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -149,24 +142,24 @@ class MonitorChartFrame extends StatelessWidget {
               ],
             ),
             if (controls.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 12,
-                runSpacing: 10,
+                spacing: 8,
+                runSpacing: 6,
                 children: [
                   for (final control in controls)
                     SizedBox(
-                      width: math.min(180, constraints.maxWidth),
+                      width: math.min(142, constraints.maxWidth),
                       child: control,
                     ),
                 ],
               ),
             ],
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             child,
             for (final note in footnotes)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(top: 5),
                 child: Text(
                   note,
                   style: _labelStyle(context)
@@ -359,6 +352,91 @@ class _Scale {
   }
 }
 
+/// Pointer inspection is attached to actual marks, never an estimated chart bin.
+/// It adds no focus nodes; the chart's numeric inspector remains the touch and
+/// keyboard path. Portal ownership keeps disposal independent of other routes.
+class _HoverMark extends StatefulWidget {
+  const _HoverMark({required this.record, required this.child});
+  final String record;
+  final Widget child;
+  @override
+  State<_HoverMark> createState() => _HoverMarkState();
+}
+
+class _HoverMarkState extends State<_HoverMark> {
+  final _portal = OverlayPortalController();
+  void _clear() {
+    if (!_portal.isShowing) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _portal.hide();
+    });
+  }
+
+  @override
+  void didUpdateWidget(_HoverMark oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.record != widget.record) _clear();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!TickerMode.valuesOf(context).enabled) _clear();
+  }
+
+  @override
+  Widget build(BuildContext context) => OverlayPortal(
+    controller: _portal,
+    overlayChildBuilder: (context) {
+      final box = this.context.findRenderObject()! as RenderBox;
+      final overlayBox =
+          Overlay.of(this.context).context.findRenderObject()! as RenderBox;
+      final position = box.localToGlobal(Offset.zero, ancestor: overlayBox);
+      final screen = overlayBox.size;
+      final width = math.min(330.0, math.max(80.0, screen.width - 24));
+      return Positioned(
+        left: position.dx.clamp(
+          12.0,
+          math.max(12.0, screen.width - width - 12),
+        ),
+        top: (position.dy + box.size.height + 6).clamp(
+          12.0,
+          math.max(12.0, screen.height - 150),
+        ),
+        width: width,
+        child: IgnorePointer(
+          child: DecoratedBox(
+            key: const ValueKey('monitor-chart-hover'),
+            decoration: BoxDecoration(
+              color: DashboardPalette.of(context).panel,
+              border: Border.all(color: DashboardPalette.of(context).border),
+              borderRadius: BorderRadius.circular(7),
+              boxShadow: const [
+                BoxShadow(color: Color(0x22000000), blurRadius: 8),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Text(
+                widget.record,
+                style: _labelStyle(context)
+                    .copyWith(color: DashboardPalette.of(context).foreground),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+    child: MouseRegion(
+      onEnter: (_) {
+        if (TickerMode.valuesOf(context).enabled) _portal.show();
+      },
+      onExit: (_) => _portal.hide(),
+      child: widget.child,
+    ),
+  );
+}
+
 class _Grid extends CustomPainter {
   const _Grid({
     required this.color,
@@ -444,11 +522,16 @@ class MonitorBarChart extends StatelessWidget {
     this.maxValue,
     this.primaryLabel = '数值',
     this.secondaryLabel = '补充数值',
+    this.line = false,
+    this.compactMeters = false,
   });
   final List<ChartBar> bars;
   final String unit, xLabel, primaryLabel, secondaryLabel;
   final bool horizontal, integers, stacked;
   final double height;
+
+  /// View-only presentations. Existing callers retain their original chart.
+  final bool line, compactMeters;
 
   /// Optional requested domain (e.g. 100%). Valid actual data is never clipped.
   final double? maxValue;
@@ -516,7 +599,9 @@ class MonitorBarChart extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          if (horizontal) ...[
+          if (compactMeters && horizontal)
+            _meters(context, scale)
+          else if (horizontal) ...[
             for (var i = 0; i < bars.length; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 14),
@@ -537,7 +622,7 @@ class MonitorBarChart extends StatelessWidget {
                         child: LayoutBuilder(
                           builder: (context, constraints) => CustomPaint(
                             painter: _Grid(
-                              color: context.theme.colors.border,
+                              color: DashboardPalette.of(context).grid,
                               divisions: scale.ticks.length - 1,
                             ),
                             child: Stack(
@@ -596,7 +681,16 @@ class MonitorBarChart extends StatelessWidget {
     double max,
   ) {
     final bar = bars[index];
-    if (bar.cancelled) return [const Center(child: Text('×'))];
+    if (bar.cancelled) {
+      return [
+        Center(
+          child: _HoverMark(
+            record: _record(bar),
+            child: Text('×', key: ValueKey('monitor-bar-$index-cancelled')),
+          ),
+        ),
+      ];
+    }
     final primary = _known(bar.value), secondary = _known(bar.secondaryValue);
     return [
       if (primary != null)
@@ -605,26 +699,112 @@ class MonitorBarChart extends StatelessWidget {
           top: 2,
           height: 20,
           width: width * primary / max,
-          child: ColoredBox(
-            key: ValueKey('monitor-bar-$index-primary'),
-            color: _BarSeriesColors.of(context).primary,
+          child: _HoverMark(
+            record: _record(bar),
+            child: ColoredBox(
+              key: ValueKey('monitor-bar-$index-primary'),
+              color: _BarSeriesColors.of(context).primary,
+            ),
           ),
         )
       else
-        const Align(alignment: Alignment.centerLeft, child: Text('—')),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _HoverMark(
+            record: _record(bar),
+            child: Text('—', key: ValueKey('monitor-bar-$index-unknown')),
+          ),
+        ),
       if (stacked && secondary != null)
         Positioned(
           left: width * (primary ?? 0) / max,
           top: 2,
           height: 20,
           width: width * secondary / max,
-          child: ColoredBox(
-            key: ValueKey('monitor-bar-$index-secondary'),
-            color: _BarSeriesColors.of(context).secondary,
+          child: _HoverMark(
+            record: _record(bar),
+            child: ColoredBox(
+              key: ValueKey('monitor-bar-$index-secondary'),
+              color: _BarSeriesColors.of(context).secondary,
+            ),
           ),
         ),
     ];
   }
+
+  Widget _meters(BuildContext context, _Scale scale) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = constraints.maxWidth > 440
+          ? (constraints.maxWidth - 20) / 2
+          : constraints.maxWidth;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 20,
+            runSpacing: 10,
+            children: [
+              for (var i = 0; i < bars.length; i++)
+                SizedBox(
+                  width: width,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        spacing: 8,
+                        children: [
+                          Text(bars[i].label, style: _labelStyle(context)),
+                          Text(
+                            bars[i].cancelled
+                                ? '取消'
+                                : _visibleValue(bars[i].value),
+                            style: context.theme.typography.body.md.copyWith(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w600,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      SizedBox(
+                        height: 24,
+                        child: LayoutBuilder(
+                          builder: (context, inner) => ColoredBox(
+                            color: DashboardPalette.of(context).soft,
+                            child: Stack(
+                              children: _horizontalMarks(
+                                context,
+                                i,
+                                inner.maxWidth,
+                                scale.max,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _HorizontalTicks(scale: scale),
+                      if (bars[i].detail != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: Text(
+                            bars[i].detail!,
+                            style: _labelStyle(context),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
 
   Widget _columns(BuildContext context, _Scale scale) {
     final plotHeight = math.max(100.0, height - 70);
@@ -669,13 +849,26 @@ class MonitorBarChart extends StatelessWidget {
                     height: plotHeight,
                     child: CustomPaint(
                       painter: _Grid(
-                        color: context.theme.colors.border,
+                        color: DashboardPalette.of(context).grid,
                         divisions: scale.ticks.length - 1,
                         horizontal: false,
                       ),
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
+                          if (line)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  key: const ValueKey('monitor-duration-line'),
+                                  painter: _DurationLine(
+                                    bars,
+                                    scale.max,
+                                    _BarSeriesColors.of(context).primary,
+                                  ),
+                                ),
+                              ),
+                            ),
                           for (var i = 0; i < bars.length; i++) ...[
                             if (bars[i].cancelled ||
                                 _known(bars[i].value) == null)
@@ -686,27 +879,49 @@ class MonitorBarChart extends StatelessWidget {
                                 child: Semantics(
                                   label: _record(bars[i]),
                                   child: Center(
-                                    child: Text(
-                                      bars[i].cancelled ? '×' : '—',
-                                      style: _labelStyle(context),
+                                    child: _HoverMark(
+                                      record: _record(bars[i]),
+                                      child: Text(
+                                        bars[i].cancelled ? '×' : '—',
+                                        key: ValueKey(
+                                          'monitor-bar-$i-${bars[i].cancelled ? 'cancelled' : 'unknown'}',
+                                        ),
+                                        style: _labelStyle(context),
+                                      ),
                                     ),
                                   ),
                                 ),
                               )
                             else
                               Positioned(
-                                left: slot * i + (slot - markWidth) / 2,
-                                width: markWidth,
-                                bottom: 0,
-                                height:
-                                    plotHeight *
-                                    _known(bars[i].value)! /
-                                    scale.max,
+                                left:
+                                    slot * i +
+                                    (slot -
+                                            (line
+                                                ? math.min(8.0, slot)
+                                                : markWidth)) /
+                                        2,
+                                width: line ? math.min(8.0, slot) : markWidth,
+                                bottom: line
+                                    ? plotHeight *
+                                              _known(bars[i].value)! /
+                                              scale.max -
+                                          4
+                                    : 0,
+                                height: line
+                                    ? 8
+                                    : plotHeight *
+                                          _known(bars[i].value)! /
+                                          scale.max,
                                 child: Semantics(
                                   label: _record(bars[i]),
-                                  child: ColoredBox(
-                                    key: ValueKey('monitor-bar-$i-primary'),
-                                    color: _BarSeriesColors.of(context).primary,
+                                  child: _HoverMark(
+                                    record: _record(bars[i]),
+                                    child: ColoredBox(
+                                      key: ValueKey('monitor-bar-$i-primary'),
+                                      color: _BarSeriesColors.of(context)
+                                          .primary,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -724,9 +939,13 @@ class MonitorBarChart extends StatelessWidget {
                                     plotHeight *
                                     _known(bars[i].secondaryValue)! /
                                     scale.max,
-                                child: ColoredBox(
-                                  key: ValueKey('monitor-bar-$i-secondary'),
-                                  color: _BarSeriesColors.of(context).secondary,
+                                child: _HoverMark(
+                                  record: _record(bars[i]),
+                                  child: ColoredBox(
+                                    key: ValueKey('monitor-bar-$i-secondary'),
+                                    color: _BarSeriesColors.of(context)
+                                        .secondary,
+                                  ),
                                 ),
                               ),
                             if (stacked &&
@@ -835,6 +1054,40 @@ class _Legend extends StatelessWidget {
       Text(label, style: _labelStyle(context)),
     ],
   );
+}
+
+class _DurationLine extends CustomPainter {
+  const _DurationLine(this.bars, this.max, this.color);
+  final List<ChartBar> bars;
+  final double max;
+  final Color color;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke;
+    Offset? previous;
+    for (var i = 0; i < bars.length; i++) {
+      final value = bars[i].cancelled ? null : _known(bars[i].value);
+      if (value == null) {
+        previous = null;
+        continue;
+      }
+      final point = Offset(
+        size.width * (i + .5) / bars.length,
+        size.height * (1 - value / max),
+      );
+      if (previous != null) canvas.drawLine(previous, point, paint);
+      previous = point;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DurationLine oldDelegate) =>
+      oldDelegate.bars != bars ||
+      oldDelegate.max != max ||
+      oldDelegate.color != color;
 }
 
 class MonitorCoverageChart extends StatelessWidget {
@@ -960,7 +1213,7 @@ class MonitorIntervalChart extends StatelessWidget {
                                 .clamp(0.0, .5);
                             return CustomPaint(
                               painter: _Grid(
-                                color: context.theme.colors.border,
+                                color: DashboardPalette.of(context).grid,
                                 divisions: 4,
                               ),
                               child: Stack(
@@ -994,12 +1247,15 @@ class MonitorIntervalChart extends StatelessWidget {
                                         span,
                                     top: 2,
                                     height: 20,
-                                    child: ColoredBox(
-                                      key: ValueKey(
-                                        'monitor-interval-${row.ordinal}',
+                                    child: _HoverMark(
+                                      record: _record(row),
+                                      child: ColoredBox(
+                                        key: ValueKey(
+                                          'monitor-interval-${row.ordinal}',
+                                        ),
+                                        color: _ChartPalette.of(context)
+                                            .category(row.category),
                                       ),
-                                      color: _ChartPalette.of(context)
-                                          .category(row.category),
                                     ),
                                   ),
                                 ],

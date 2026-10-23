@@ -135,6 +135,26 @@ void main() {
       expect(_chart(tester).maxValue, 100);
       expect(_chart(tester).bars.map((b) => b.label), ['5 小时额度', '45 分钟额度']);
       expect(_chart(tester).bars.map((b) => b.value), [75, null]);
+      // Each independent meter owns its full 0..100 domain; a shared axis
+      // across the side-by-side meters would misstate the first percentage.
+      final meter = tester.getRect(
+        find.byKey(const ValueKey('monitor-bar-0-primary')),
+      );
+      final axes = find.descendant(
+        of: find.byKey(const ValueKey('account-quota-chart')),
+        matching: find.byKey(const ValueKey('monitor-axis-tick-4')),
+      );
+      expect(axes, findsNWidgets(2));
+      final end = tester.getRect(axes.first);
+      final start = tester.getRect(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey('account-quota-chart')),
+              matching: find.byKey(const ValueKey('monitor-axis-tick-0')),
+            )
+            .first,
+      );
+      expect(meter.width, closeTo((end.right - start.left) * .75, .1));
       await _choose(tester, 'account-quota-view', 'used');
       expect(_chart(tester).bars.map((b) => b.value), [25, null]);
       expect(_chart(tester).maxValue, 100);

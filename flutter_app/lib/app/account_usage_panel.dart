@@ -186,7 +186,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
           ),
         if (data == null) ...[
           SizedBox(
-            height: 214,
+            height: 74,
             child: Center(
               child: Text(controller.busy ? '正在读取额度' : '尚无额度数据', style: muted),
             ),
@@ -264,7 +264,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
           ),
           if (windows.isEmpty)
             SizedBox(
-              height: 214,
+              height: 74,
               child: Center(child: Text('额度信息暂不可用', style: muted)),
             )
           else ...[
@@ -280,14 +280,10 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                   ),
               ],
               horizontal: true,
+              compactMeters: true,
               unit: _view == 'reset' ? '小时' : '%',
               maxValue: _view == 'reset' ? null : 100,
             ),
-            for (final window in windows)
-              Text(
-                '${window.label} · ${_resetTime(window, settings, controller.useLocalTime)} · ${_resetState(window, now)}',
-                style: muted,
-              ),
           ],
           if (data.limitsError != null) Text('额度更新失败 · 查看详情', style: muted),
           if (data.tokensError != null) Text('token 更新失败 · 查看详情', style: muted),
@@ -305,19 +301,25 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text('额度更新 ${_shortTimestamp(data.fetchedAt)}', style: muted),
-          Text(
-            data.tokensFetchedAt == null
-                ? 'token 更新时间未知'
-                : 'token ${data.detailsIncluded ? '更新' : '缓存'} ${_shortTimestamp(data.tokensFetchedAt!)}',
-            style: muted,
-          ),
-          Text(
-            controller.useLocalTime
-                ? '本地时间 · 系统时区'
-                : '节点时间 · ${settings.mode == 'zone' ? settings.zoneId : offsetLabel(settings.offset * 60)}',
-            style: muted,
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Text('额度更新 ${_shortTimestamp(data.fetchedAt)}', style: muted),
+              Text(
+                data.tokensFetchedAt == null
+                    ? 'token 更新时间未知'
+                    : 'token ${data.detailsIncluded ? '更新' : '缓存'} ${_shortTimestamp(data.tokensFetchedAt!)}',
+                style: muted,
+              ),
+              Text(
+                controller.useLocalTime
+                    ? '本地时间 · 系统时区'
+                    : '节点时间 · ${settings.mode == 'zone' ? settings.zoneId : offsetLabel(settings.offset * 60)}',
+                style: muted,
+              ),
+            ],
           ),
         ],
       ],
@@ -325,7 +327,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
     return FCard(
       key: const ValueKey('account-usage-card'),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
         child: widget.bounded
             ? RawScrollbar(
                 controller: _scroll,
@@ -503,8 +505,9 @@ class _TokenMetric extends StatelessWidget {
   final String label;
   final int? value;
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    crossAxisAlignment: WrapCrossAlignment.center,
     children: [
       Text(
         label,
@@ -512,7 +515,6 @@ class _TokenMetric extends StatelessWidget {
           color: context.theme.colors.mutedForeground,
         ),
       ),
-      const SizedBox(height: 4),
       Text(
         tokenCount(value),
         style: context.theme.typography.body.md.copyWith(

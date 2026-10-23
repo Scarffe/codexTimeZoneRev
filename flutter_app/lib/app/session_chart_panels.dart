@@ -5,8 +5,9 @@ import '../services/session_chart_data.dart';
 import '../services/session_measurement_quality.dart';
 import 'monitor_charts.dart';
 
-/// Pure chart assembly. Choices and collector ownership stay in the parent.
-class SessionChartPanels extends StatelessWidget {
+/// Display-only assembly. Metric choices and collectors stay in the parent;
+/// local state retains only the recent duration line/bar presentation.
+class SessionChartPanels extends StatefulWidget {
   const SessionChartPanels({
     super.key,
     required this.data,
@@ -34,6 +35,27 @@ class SessionChartPanels extends StatelessWidget {
       onActivityView,
       onResponseView;
 
+  @override
+  State<SessionChartPanels> createState() => _SessionChartPanelsState();
+}
+
+class _SessionChartPanelsState extends State<SessionChartPanels> {
+  String _presentation = 'line';
+  SessionChartData get data => widget.data;
+  SessionMeasurementQuality get quality => widget.quality;
+  String get recentMetric => widget.recentMetric;
+  int get recentRange => widget.recentRange;
+  String get configurationMetric => widget.configurationMetric;
+  String get activityView => widget.activityView;
+  String get responseView => widget.responseView;
+  String? get completedIdentity => widget.completedIdentity;
+  ValueChanged<String> get onRecentMetric => widget.onRecentMetric;
+  ValueChanged<String> get onRecentRange => widget.onRecentRange;
+  ValueChanged<String> get onConfigurationMetric =>
+      widget.onConfigurationMetric;
+  ValueChanged<String> get onActivityView => widget.onActivityView;
+  ValueChanged<String> get onResponseView => widget.onResponseView;
+
   Widget _choice(
     String key,
     String label,
@@ -49,9 +71,9 @@ class SessionChartPanels extends StatelessWidget {
   );
 
   Widget _empty() =>
-      const SizedBox(height: 214, child: Center(child: Text('暂无样本')));
+      const SizedBox(height: 155, child: Center(child: Text('暂无样本')));
 
-  Widget _recent() {
+  Widget _recent(BuildContext context) {
     final rows = data.recentTerminals(recentRange);
     final status = recentMetric == 'status';
     return MonitorChartFrame(
@@ -63,6 +85,11 @@ class SessionChartPanels extends StatelessWidget {
           '耗时': 'duration',
           '结束状态': 'status',
         }, onRecentMetric),
+        if (!status)
+          _choice('session-recent-presentation', '图形', _presentation, const {
+            '折线': 'line',
+            '柱形': 'bar',
+          }, (value) => setState(() => _presentation = value)),
         _choice('session-recent-range', '回合范围', '$recentRange', const {
           '8 条': '8',
           '16 条': '16',
@@ -106,6 +133,8 @@ class SessionChartPanels extends StatelessWidget {
                               '回合 ${rows[i].id} · ${rows[i].cancelled ? '取消' : '完成'}',
                         ),
                     ],
+              line: !status && _presentation == 'line',
+              height: MediaQuery.sizeOf(context).width <= 620 ? 236 : 225,
               unit: status ? '回合' : 's',
               horizontal: status,
               integers: status,
@@ -173,7 +202,7 @@ class SessionChartPanels extends StatelessWidget {
     if (activityView == 'coverage') {
       final coverage = data.coverage;
       child = coverage == null
-          ? const SizedBox(height: 214, child: Center(child: Text('覆盖不可核验')))
+          ? const SizedBox(height: 155, child: Center(child: Text('覆盖不可核验')))
           : MonitorCoverageChart(
               observedMs: coverage.observedMs,
               unclassifiedMs: coverage.unclassifiedMs,
@@ -227,7 +256,7 @@ class SessionChartPanels extends StatelessWidget {
     );
   }
 
-  Widget _response() {
+  Widget _response(BuildContext context) {
     final composition = responseView == 'composition';
     final legend = switch (responseView) {
       'total' => '总输出 · 含推理',
@@ -278,6 +307,7 @@ class SessionChartPanels extends StatelessWidget {
                         : null,
                   ),
               ],
+              height: MediaQuery.sizeOf(context).width <= 620 ? 236 : 225,
               unit: 'tokens',
               integers: true,
               stacked: composition,
@@ -291,18 +321,18 @@ class SessionChartPanels extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final width = constraints.maxWidth >= 768
-          ? (constraints.maxWidth - 16) / 2
+      final width = MediaQuery.sizeOf(context).width > 620
+          ? (constraints.maxWidth - 12) / 2
           : constraints.maxWidth;
       return Wrap(
-        spacing: 16,
-        runSpacing: 16,
+        spacing: 12,
+        runSpacing: 12,
         children: [
           for (final panel in [
-            _recent(),
+            _recent(context),
             _configuration(),
             _activity(),
-            _response(),
+            _response(context),
           ])
             SizedBox(width: width, child: panel),
         ],

@@ -47,8 +47,8 @@ class MonitoringPage extends StatelessWidget {
     currentSession: SingleChildScrollView(
       key: const PageStorageKey('monitor-scroll'),
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
+        child: SizedBox(
+          width: double.infinity,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -111,9 +111,9 @@ class MonitoringPage extends StatelessWidget {
                 controller: usage,
                 launcher: launcher,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               SessionMetricsPanel(key: sessionPanelKey, controller: metrics),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
             ],
           ),
         ),

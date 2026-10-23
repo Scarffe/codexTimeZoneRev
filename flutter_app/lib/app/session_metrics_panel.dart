@@ -199,7 +199,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
         children: [
           FCard(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -208,7 +208,9 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                       Expanded(
                         child: Text(
                           '会话回合统计',
-                          style: context.theme.typography.body.lg,
+                          style: context.theme.typography.body.md.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                       MonitorIconAction(
@@ -225,7 +227,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                       ),
                     ],
                   ),
-                  const Text('本地日志 · 只读'),
                   const SizedBox(height: 8),
                   if (controller.sessions.isNotEmpty)
                     FSelect<String>.search(
@@ -253,20 +254,31 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                   if (controller.selected != null &&
                       controller.selectorValue == null)
                     const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
-                  if (controller.selected != null)
-                    Text(
-                      '${_short(info == null ? '等待核验' : controller.sessionName(info))} · ${_project(info?['cwd'])}',
-                      key: const ValueKey('session-short-identity'),
-                    ),
-                  Text(
-                    '会话状态：${controller.stateLabel}',
-                    key: const ValueKey('session-state'),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (controller.selected != null)
+                        Text(
+                          '${_short(info == null ? '等待核验' : controller.sessionName(info))} · ${_project(info?['cwd'])}',
+                          key: const ValueKey('session-short-identity'),
+                        ),
+                      Text(
+                        '会话状态：${controller.stateLabel}',
+                        key: const ValueKey('session-state'),
+                      ),
+                      if (controller.selected != null)
+                        FButton(
+                          mainAxisSize: MainAxisSize.min,
+                          variant: FButtonVariant.ghost,
+                          onPress: () => controller.select(null),
+                          prefix: const Icon(FLucideIcons.square, size: 14),
+                          child: const Text('停止会话采集'),
+                        ),
+                    ],
                   ),
-                  if (controller.lastRead != null)
-                    Text(
-                      '上次读取：${controller.lastRead!.toLocal().toString().split('.').first}',
-                      style: context.theme.typography.body.sm,
-                    ),
                   if (controller.listError != null)
                     const Text('列表刷新失败 · 信息中查看诊断'),
                   if (controller.selectionError != null)
@@ -280,17 +292,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                     const Text('请选择会话；不会自动猜测当前对话。')
                   else ...[
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FButton(
-                        mainAxisSize: MainAxisSize.min,
-                        variant: FButtonVariant.outline,
-                        onPress: () => controller.select(null),
-                        prefix: const Icon(FLucideIcons.square),
-                        child: const Text('停止会话采集'),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     Text(
                       controller.data?['catchingUp'] == true
                           ? '正在读取历史 · 尚无可用最近完成回合'
@@ -302,12 +303,14 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                     const SizedBox(height: 8),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final width = constraints.maxWidth >= 570
-                            ? (constraints.maxWidth - 24) / 3
-                            : constraints.maxWidth;
+                        final width = constraints.maxWidth >= 600
+                            ? (constraints.maxWidth - 36) / 4
+                            : (constraints.maxWidth >= 300
+                                  ? (constraints.maxWidth - 12) / 2
+                                  : constraints.maxWidth);
                         return Wrap(
                           spacing: 12,
-                          runSpacing: 12,
+                          runSpacing: 8,
                           children: [
                             _Metric(
                               width: width,
@@ -319,6 +322,18 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                                   : '不可用',
                               valueKey: 'session-rate-value',
                               note: quality.label,
+                            ),
+                            _Metric(
+                              width: width,
+                              label: '输出 · 含推理',
+                              value:
+                                  last?['outputTokens'] is int &&
+                                      (last!['outputTokens'] as int) >= 0 &&
+                                      (last['outputTokens'] as int) <=
+                                          9007199254740991
+                                  ? '${last['outputTokens']} tokens'
+                                  : '不可用',
+                              valueKey: 'session-output-value',
                             ),
                             _Metric(
                               width: width,
@@ -349,7 +364,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           SessionChartPanels(
             data: charts,
             quality: publish
@@ -406,7 +421,9 @@ class _Metric extends StatelessWidget {
               children: [
                 TextSpan(
                   text: boundary < 0 ? value : value.substring(0, boundary),
-                  style: context.theme.typography.display.lg.copyWith(
+                  style: context.theme.typography.body.md.copyWith(
+                    fontSize: 24,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                     fontWeight: FontWeight.w600,
                   ),
                 ),
