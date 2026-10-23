@@ -203,54 +203,72 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
+                  LayoutBuilder(
+                    builder: (context, constraints) => Wrap(
+                      spacing: 10,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
                           '会话回合统计',
                           style: context.theme.typography.body.md.copyWith(
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                      MonitorIconAction(
-                        key: const ValueKey('session-information'),
-                        label: '会话信息与诊断',
-                        icon: FLucideIcons.info,
-                        onPress: _information,
-                      ),
-                      MonitorIconAction(
-                        key: const ValueKey('session-refresh'),
-                        label: controller.listing ? '正在列出会话' : '刷新本机会话列表',
-                        icon: FLucideIcons.refreshCw,
-                        onPress: controller.listing ? null : controller.list,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (controller.sessions.isNotEmpty)
-                    FSelect<String>.search(
-                      key: const ValueKey('session-selector'),
-                      label: const Text('最近会话'),
-                      items: _choices(),
-                      filter: (query) {
-                        final q = query.trim().toLowerCase();
-                        return controller.sessions
-                            .where(
-                              (s) => [
-                                controller.sessionName(s),
-                                s['cwd'],
-                                s['id'],
-                                s['path'],
-                              ].join(' ').toLowerCase().contains(q),
-                            )
-                            .map((s) => s['path'] as String);
-                      },
-                      control: FSelectControl.lifted(
-                        value: controller.selectorValue,
-                        onChange: controller.select,
-                      ),
+                        if (controller.sessions.isNotEmpty)
+                          SizedBox(
+                            width: constraints.maxWidth > 650
+                                ? 420
+                                : constraints.maxWidth,
+                            child: Semantics(
+                              label: '最近会话',
+                              child: FSelect<String>.search(
+                                key: const ValueKey('session-selector'),
+
+                                items: _choices(),
+                                filter: (query) {
+                                  final q = query.trim().toLowerCase();
+                                  return controller.sessions
+                                      .where(
+                                        (s) => [
+                                          controller.sessionName(s),
+                                          s['cwd'],
+                                          s['id'],
+                                          s['path'],
+                                        ].join(' ').toLowerCase().contains(q),
+                                      )
+                                      .map((s) => s['path'] as String);
+                                },
+                                control: FSelectControl.lifted(
+                                  value: controller.selectorValue,
+                                  onChange: controller.select,
+                                ),
+                              ),
+                            ),
+                          ),
+                        MonitorIconAction(
+                          key: const ValueKey('session-information'),
+                          label: '会话信息与诊断',
+                          icon: FLucideIcons.info,
+                          onPress: _information,
+                        ),
+                        MonitorIconAction(
+                          key: const ValueKey('session-refresh'),
+                          label: controller.listing ? '正在列出会话' : '刷新本机会话列表',
+                          icon: FLucideIcons.refreshCw,
+                          onPress: controller.listing ? null : controller.list,
+                        ),
+                        if (controller.selected != null)
+                          FButton(
+                            mainAxisSize: MainAxisSize.min,
+                            variant: FButtonVariant.ghost,
+                            onPress: () => controller.select(null),
+                            prefix: const Icon(FLucideIcons.square, size: 14),
+                            child: const Text('停止会话采集'),
+                          ),
+                      ],
                     ),
+                  ),
                   if (controller.selected != null &&
                       controller.selectorValue == null)
                     const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
@@ -258,25 +276,33 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                   Wrap(
                     spacing: 12,
                     runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      if (controller.selected != null)
-                        Text(
-                          '${_short(info == null ? '等待核验' : controller.sessionName(info))} · ${_project(info?['cwd'])}',
-                          key: const ValueKey('session-short-identity'),
+                      Semantics(
+                        key: controller.selected == null
+                            ? null
+                            : const ValueKey('session-short-identity'),
+                        label: info == null
+                            ? '会话身份等待核验'
+                            : '${controller.sessionName(info)} · ${info['cwd'] ?? '未知项目'}',
+                        child: Text(
+                          '会话状态：${controller.stateLabel}',
+                          key: const ValueKey('session-state'),
                         ),
-                      Text(
-                        '会话状态：${controller.stateLabel}',
-                        key: const ValueKey('session-state'),
                       ),
-                      if (controller.selected != null)
-                        FButton(
-                          mainAxisSize: MainAxisSize.min,
-                          variant: FButtonVariant.ghost,
-                          onPress: () => controller.select(null),
-                          prefix: const Icon(FLucideIcons.square, size: 14),
-                          child: const Text('停止会话采集'),
+                      if (controller.selected != null) ...[
+                        Text(
+                          controller.data?['catchingUp'] == true
+                              ? '正在读取历史 · 尚无可用最近完成回合'
+                              : last == null
+                              ? '最近完成 · 暂无样本'
+                              : '最近完成 · 含工具与等待',
+                          key: const ValueKey('session-completed-summary'),
                         ),
+                        Text(
+                          '样本质量：${quality.label}',
+                          key: const ValueKey('session-quality'),
+                        ),
+                      ],
                     ],
                   ),
                   if (controller.listError != null)
@@ -291,15 +317,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                   if (controller.selected == null)
                     const Text('请选择会话；不会自动猜测当前对话。')
                   else ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      controller.data?['catchingUp'] == true
-                          ? '正在读取历史 · 尚无可用最近完成回合'
-                          : last == null
-                          ? '最近完成 · 暂无样本'
-                          : '最近完成 · 含工具与等待',
-                      key: const ValueKey('session-completed-summary'),
-                    ),
                     const SizedBox(height: 8),
                     LayoutBuilder(
                       builder: (context, constraints) {
@@ -321,7 +338,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                                   ? '${quality.verifiedTokensPerSecond!.toStringAsFixed(2)} tokens/s'
                                   : '不可用',
                               valueKey: 'session-rate-value',
-                              note: quality.label,
                             ),
                             _Metric(
                               width: width,
@@ -355,10 +371,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                       },
                     ),
                     if (contradicts) const Text('首模型 token 不可用：超过完整回合耗时'),
-                    Text(
-                      '样本质量：${quality.label}',
-                      key: const ValueKey('session-quality'),
-                    ),
                   ],
                 ],
               ),

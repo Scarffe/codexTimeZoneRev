@@ -83,25 +83,42 @@ class MonitorChoice extends StatelessWidget {
     required this.value,
     required this.items,
     required this.onChanged,
+    this.inline = false,
   });
   final String label, value;
+  final bool inline;
 
   /// Forui maps the displayed label to the stored value.
   final Map<String, String> items;
   final ValueChanged<String> onChanged;
 
   @override
-  Widget build(BuildContext context) => FSelect<String>(
-    label: Text(label),
-    items: items,
-    enabled: items.isNotEmpty,
-    control: FSelectControl.lifted(
-      value: items.containsValue(value) ? value : null,
-      onChange: (next) {
-        if (next != null) onChanged(next);
-      },
-    ),
-  );
+  Widget build(BuildContext context) {
+    final select = FSelect<String>(
+      label: inline ? null : Text(label),
+      items: items,
+      enabled: items.isNotEmpty,
+      control: FSelectControl.lifted(
+        value: items.containsValue(value) ? value : null,
+        onChange: (next) {
+          if (next != null) onChanged(next);
+        },
+      ),
+    );
+    return inline
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: _labelStyle(context)),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 112,
+                child: Semantics(label: label, child: select),
+              ),
+            ],
+          )
+        : select;
+  }
 }
 
 class MonitorChartFrame extends StatelessWidget {
@@ -581,26 +598,46 @@ class MonitorBarChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 4,
-            children: [
-              Text(unit, style: _labelStyle(context)),
-              if (stacked) ...[
-                _Legend(
-                  label: primaryLabel,
-                  color: _BarSeriesColors.of(context).primary,
-                ),
-                _Legend(
-                  label: secondaryLabel,
-                  color: _BarSeriesColors.of(context).secondary,
-                ),
+          if (!compactMeters)
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(unit, style: _labelStyle(context)),
+                if (stacked) ...[
+                  _Legend(
+                    label: primaryLabel,
+                    color: _BarSeriesColors.of(context).primary,
+                  ),
+                  _Legend(
+                    label: secondaryLabel,
+                    color: _BarSeriesColors.of(context).secondary,
+                  ),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(height: 8),
+            ),
+          SizedBox(height: compactMeters ? 0 : 8),
           if (compactMeters && horizontal)
-            _meters(context, scale)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final inspect = _InspectValues(
+                  records: bars.map(_record).toList(),
+                );
+                return constraints.maxWidth > 600
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(child: _meters(context, scale)),
+                          const SizedBox(width: 10),
+                          inspect,
+                        ],
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [_meters(context, scale), inspect],
+                      );
+              },
+            )
           else if (horizontal) ...[
             for (var i = 0; i < bars.length; i++)
               Padding(
@@ -667,8 +704,10 @@ class MonitorBarChart extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
-          const SizedBox(height: 8),
-          _InspectValues(records: bars.map(_record).toList()),
+          if (!compactMeters) ...[
+            const SizedBox(height: 8),
+            _InspectValues(records: bars.map(_record).toList()),
+          ],
         ],
       ),
     );
@@ -678,8 +717,10 @@ class MonitorBarChart extends StatelessWidget {
     BuildContext context,
     int index,
     double width,
-    double max,
-  ) {
+    double max, {
+    double thickness = 20,
+    double top = 2,
+  }) {
     final bar = bars[index];
     if (bar.cancelled) {
       return [
@@ -696,8 +737,8 @@ class MonitorBarChart extends StatelessWidget {
       if (primary != null)
         Positioned(
           left: 0,
-          top: 2,
-          height: 20,
+          top: top,
+          height: thickness,
           width: width * primary / max,
           child: _HoverMark(
             record: _record(bar),
@@ -718,8 +759,8 @@ class MonitorBarChart extends StatelessWidget {
       if (stacked && secondary != null)
         Positioned(
           left: width * (primary ?? 0) / max,
-          top: 2,
-          height: 20,
+          top: top,
+          height: thickness,
           width: width * secondary / max,
           child: _HoverMark(
             record: _record(bar),
@@ -760,7 +801,7 @@ class MonitorBarChart extends StatelessWidget {
                                 ? '取消'
                                 : _visibleValue(bars[i].value),
                             style: context.theme.typography.body.md.copyWith(
-                              fontSize: 24,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                               fontFeatures: const [
                                 FontFeature.tabularFigures(),
@@ -771,7 +812,7 @@ class MonitorBarChart extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       SizedBox(
-                        height: 24,
+                        height: 6,
                         child: LayoutBuilder(
                           builder: (context, inner) => ColoredBox(
                             color: DashboardPalette.of(context).soft,
@@ -781,6 +822,8 @@ class MonitorBarChart extends StatelessWidget {
                                 i,
                                 inner.maxWidth,
                                 scale.max,
+                                thickness: 6,
+                                top: 0,
                               ),
                             ),
                           ),

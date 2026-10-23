@@ -11,7 +11,8 @@ import 'package:forui/forui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as timezone;
 
-import 'account_usage_page_test.dart' show PageUsage;
+import 'account_usage_page_test.dart'
+    show PageUsage, openCachedUsageInformation, closeCachedUsageInformation;
 import 'workspace_navigation_test.dart' show WorkspaceBackend;
 
 void main() {
@@ -84,8 +85,10 @@ void main() {
       expect(quota.bars.map((bar) => bar.value), [92, 95]);
       expect(quota.unit, '%');
       expect(quota.maxValue, 100);
+      await openCachedUsageInformation(tester);
       expect(find.text('1,234,567'), findsOneWidget);
       expect(find.text('12,345'), findsOneWidget);
+      await closeCachedUsageInformation(tester);
       expect(find.byKey(const ValueKey('usage-time-basis')), findsOneWidget);
       final account = tester.widget<AccountUsagePanel>(
         find.byType(AccountUsagePanel),
@@ -104,12 +107,12 @@ void main() {
         find.byKey(const ValueKey('account-quota-chart')),
       );
       expect(retained.bars.map((bar) => bar.value), [92, 95]);
-      expect(find.text('1,234,567'), findsOneWidget);
       final information = find.byKey(const ValueKey('account-usage-info'));
       await tester.ensureVisible(information);
       await tester.tap(information);
       await tester.pumpAndSettle();
       expect(find.text('账号用量详情'), findsOneWidget);
+      expect(find.text('1,234,567'), findsOneWidget);
       expect(find.text('设置保存失败'), findsOneWidget);
       expect(find.textContaining('网络暂不可用'), findsOneWidget);
       expect(find.textContaining('额度更新时间：'), findsOneWidget);
@@ -159,18 +162,18 @@ void main() {
           );
           expect(quota.bars.first.value, 92);
           expect(quota.maxValue, 100);
-          expect(find.text('1,234,567'), findsOneWidget);
-          expect(find.text('12,345'), findsOneWidget);
           expect(
             find.byKey(const ValueKey('usage-time-basis')),
             findsOneWidget,
           );
-          expect(find.text(email), findsOneWidget);
           final information = find.byKey(const ValueKey('account-usage-info'));
           await tester.ensureVisible(information);
           await tester.tap(information);
           await tester.pumpAndSettle();
           expect(find.text('账号用量详情'), findsOneWidget);
+          expect(find.text('1,234,567'), findsOneWidget);
+          expect(find.text('12,345'), findsOneWidget);
+          expect(find.text(email), findsOneWidget);
           expect(find.text(email), findsWidgets);
           expect(find.textContaining('额度更新时间：'), findsOneWidget);
           expect(tester.takeException(), isNull);

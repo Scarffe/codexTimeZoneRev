@@ -74,7 +74,10 @@ void expectQuotaBucket(WidgetTester tester, UsageBucket bucket) {
   expect(chart.unit, '%');
   expect(chart.maxValue, 100);
   final figure = find.byKey(const ValueKey('account-quota-chart'));
-  expect(find.descendant(of: figure, matching: find.text('%')), findsOneWidget);
+  expect(
+    find.descendant(of: figure, matching: find.textContaining('%')),
+    findsWidgets,
+  );
   expect(find.descendant(of: figure, matching: find.text('100')), findsWidgets);
   expect(
     chart.bars.map((bar) => bar.label),
@@ -112,6 +115,27 @@ Future<void> expectAllQuotaBuckets(
       expectQuotaBucket(tester, bucket);
     }
   }
+}
+
+Future<void> openCachedUsageInformation(WidgetTester tester) async {
+  final information = find.byKey(const ValueKey('account-usage-info'));
+  await tester.ensureVisible(information);
+  await tester.tap(information);
+  await tester.pumpAndSettle();
+  expect(find.text('账号用量详情'), findsOneWidget);
+}
+
+Future<void> closeCachedUsageInformation(WidgetTester tester) async {
+  final card = find
+      .ancestor(of: find.text('账号用量详情'), matching: find.byType(FCard))
+      .first;
+  final close = find.descendant(
+    of: card,
+    matching: find.widgetWithText(FButton, '关闭'),
+  );
+  await tester.ensureVisible(close);
+  await tester.tap(close);
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -206,9 +230,11 @@ void main() {
             AccountUsage.fromJson(service.response).buckets.first,
           );
           expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
+          await openCachedUsageInformation(tester);
           expect(find.text('1,234,567'), findsOneWidget);
           expect(find.text('12,345'), findsOneWidget);
           expect(find.text('最近一天 · 2026-10-14'), findsOneWidget);
+          await closeCachedUsageInformation(tester);
           expect(
             find.byKey(const ValueKey('account-details-toggle')),
             findsNothing,
@@ -245,8 +271,10 @@ void main() {
           expect(tester.takeException(), isNull);
           await tester.pump(const Duration(minutes: 2));
           expect(service.calls, 1);
+          await openCachedUsageInformation(tester);
           await tester.ensureVisible(find.text('累计 token'));
           await tester.pumpAndSettle();
+          await closeCachedUsageInformation(tester);
           expect(tester.takeException(), isNull);
           service.failure = '未检测到已登录账号';
           await tester.ensureVisible(button);
@@ -318,7 +346,13 @@ void main() {
       );
       expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
       expect(tester.takeException(), isNull);
+      // Complete the real Forui focus-exit/tooltip-group cleanup while mounted.
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -354,12 +388,12 @@ void main() {
     );
     expect(quotaChart(tester).bars.map((bar) => bar.value), [92, 95]);
     expect(find.text('token 更新失败 · 查看详情'), findsOneWidget);
-    expect(find.text('暂无数据'), findsNWidgets(2));
     await tester.ensureVisible(
       find.byKey(const ValueKey('account-usage-info')),
     );
     await tester.tap(find.byKey(const ValueKey('account-usage-info')));
     await tester.pumpAndSettle();
+    expect(find.text('暂无数据'), findsNWidgets(2));
     expect(find.text('token：当前版本不支持 token 统计'), findsOneWidget);
     expect(service.calls, 1);
     await tester.tap(find.text('关闭').last);
@@ -405,8 +439,10 @@ void main() {
         await tester.tap(button);
         await tester.pumpAndSettle();
         expect(find.text('查询失败'), findsNothing);
+        await openCachedUsageInformation(tester);
         expect(find.text(tokenCount(expected.lifetimeTokens)), findsWidgets);
         expect(find.text(tokenCount(expected.latestDailyTokens)), findsWidgets);
+        await closeCachedUsageInformation(tester);
         await expectAllQuotaBuckets(tester, expected);
         expect(service.calls, 1);
         expect(tester.takeException(), isNull);
@@ -466,6 +502,7 @@ void main() {
         expect(service.calls, 1);
         expect(service.result, isNotNull);
         expect(find.text('查询失败'), findsNothing);
+        await openCachedUsageInformation(tester);
         expect(
           find.text(tokenCount(service.result!.lifetimeTokens)),
           findsOneWidget,
@@ -474,6 +511,7 @@ void main() {
           find.text(tokenCount(service.result!.latestDailyTokens)),
           findsOneWidget,
         );
+        await closeCachedUsageInformation(tester);
         await expectAllQuotaBuckets(tester, service.result!);
         expect(service.calls, 1);
         expect(tester.takeException(), isNull);

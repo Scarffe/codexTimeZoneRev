@@ -125,6 +125,38 @@ void main() {
   });
 
   testWidgets(
+    'cached account information preserves identity plan tokens and dates without a read',
+    (tester) async {
+      await controller.query('desktop');
+      await tester.pumpWidget(_app(controller, launcher));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('account-usage-info')));
+      await tester.pumpAndSettle();
+      expect(find.text('account-a@example.test'), findsOneWidget);
+      expect(find.text('PLUS'), findsOneWidget);
+      expect(find.text('1,234,567'), findsOneWidget);
+      expect(find.text('12,345'), findsOneWidget);
+      expect(find.text('最近一天 · 2026-10-11'), findsOneWidget);
+      expect(
+        find.textContaining(
+          controller.data!.fetchedAt.toLocal().toIso8601String(),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          controller.data!.tokensFetchedAt!.toLocal().toIso8601String(),
+        ),
+        findsOneWidget,
+      );
+      expect(service.calls, 1);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'remaining used and reset selectors change actual chart data locally',
     (tester) async {
       await controller.query('desktop');
@@ -323,15 +355,15 @@ void main() {
       await tester.pumpWidget(_app(controller, launcher));
       await tester.pumpAndSettle();
       expect(_chart(tester).bars.first.value, 75);
-      expect(find.text('1,234,567'), findsOneWidget);
-      expect(find.text('12,345'), findsOneWidget);
-      expect(find.textContaining('2026-10-11'), findsWidgets);
       expect(find.textContaining('token 更新失败'), findsWidgets);
       await tester.ensureVisible(
         find.byKey(const ValueKey('account-usage-info')),
       );
       await tester.tap(find.byKey(const ValueKey('account-usage-info')));
       await tester.pumpAndSettle();
+      expect(find.text('1,234,567'), findsOneWidget);
+      expect(find.text('12,345'), findsOneWidget);
+      expect(find.textContaining('2026-10-11'), findsWidgets);
       expect(
         find.textContaining(quotaTime.toLocal().toIso8601String()),
         findsWidgets,
@@ -354,10 +386,12 @@ void main() {
     await tester.pumpWidget(_app(controller, launcher));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('account-quota-chart')), findsNothing);
-    expect(find.text('1,234,567'), findsOneWidget);
-    expect(find.text('12,345'), findsOneWidget);
     expect(find.textContaining('额度更新失败'), findsWidgets);
     expect(find.textContaining('token 更新失败'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('account-usage-info')));
+    await tester.pumpAndSettle();
+    expect(find.text('1,234,567'), findsOneWidget);
+    expect(find.text('12,345'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 

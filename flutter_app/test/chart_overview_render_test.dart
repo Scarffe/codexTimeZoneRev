@@ -8,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:forui/forui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as timezone;
 
@@ -72,83 +73,114 @@ void main() {
   for (final appearance in ['light', 'dark']) {
     for (final width in [320.0, 600.0, 760.0, 1024.0, 1280.0]) {
       for (final scenario in CompactDashboardScenario.values) {
-        testWidgets(
-          '$appearance $width 125% ${scenario.name} synthetic overview',
-          (tester) async {
-            tester.view.devicePixelRatio = 1;
-            tester.view.physicalSize = Size(width, 1100);
-            tester.platformDispatcher.textScaleFactorTestValue = 1.25;
-            addTearDown(tester.view.resetDevicePixelRatio);
-            addTearDown(tester.view.resetPhysicalSize);
-            addTearDown(
-              tester.platformDispatcher.clearTextScaleFactorTestValue,
-            );
-            final state = scenario.name;
-            final backend = CompactDashboardBackend(scenario: scenario);
-            final boundary = GlobalKey();
-            await tester.pumpWidget(
-              RepaintBoundary(
-                key: boundary,
-                child: LauncherApplication(
-                  backend: backend,
-                  usageService: CompactDashboardUsageService(
-                    scenario: scenario,
+        final selectedScenarios = Platform
+            .environment['CHART_OVERVIEW_SCENARIOS']
+            ?.split(',');
+        if (selectedScenarios != null &&
+            !selectedScenarios.contains(scenario.name)) {
+          continue;
+        }
+        for (final scale in [
+          1.25,
+          if (width == 1280 && scenario == CompactDashboardScenario.populated)
+            1.0,
+        ]) {
+          testWidgets(
+            '$appearance $width ${(scale * 100).round()}% ${scenario.name} synthetic overview',
+            (tester) async {
+              tester.view.devicePixelRatio = 1;
+              tester.view.physicalSize = Size(width, 1100);
+              tester.platformDispatcher.textScaleFactorTestValue = scale;
+              addTearDown(tester.view.resetDevicePixelRatio);
+              addTearDown(tester.view.resetPhysicalSize);
+              addTearDown(
+                tester.platformDispatcher.clearTextScaleFactorTestValue,
+              );
+              final state = '${scenario.name}${scale == 1.0 ? '-100pct' : ''}';
+              final backend = CompactDashboardBackend(scenario: scenario);
+              final boundary = GlobalKey();
+              await tester.pumpWidget(
+                RepaintBoundary(
+                  key: boundary,
+                  child: LauncherApplication(
+                    backend: backend,
+                    usageService: CompactDashboardUsageService(
+                      scenario: scenario,
+                    ),
+                    desktop: NoRenderDesktop(),
+                    networkFactory: () => NetworkController(preview: true),
+                    initialAppearance: appearance,
                   ),
-                  desktop: NoRenderDesktop(),
-                  networkFactory: () => NetworkController(preview: true),
-                  initialAppearance: appearance,
                 ),
-              ),
-            );
-            await tester.pumpAndSettle();
-            await overviewTap(tester, 'workspace-monitor');
-            await overviewTap(tester, 'query-account-usage');
-            await overviewTap(tester, 'session-refresh');
-            tester
-                .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
-                .controller
-                .select(compactDashboardSessionPath);
-            await tester.pumpAndSettle();
-            if (scenario == CompactDashboardScenario.dense64) {
-              await chooseOverview(tester, 'session-recent-range', '64');
-            }
-            expect(tester.takeException(), isNull);
-            final graphKeys =
-                scenario == CompactDashboardScenario.empty ||
-                    scenario == CompactDashboardScenario.error
-                ? overviewGraphKeys.skip(1).toList()
-                : overviewGraphKeys;
-            for (final key in graphKeys) {
-              expect(find.byKey(ValueKey(key)), findsOneWidget);
-            }
-            // The account capture is the actual initial page position. Moving
-            // an inner quota chart to the top hides its title/state toolbar.
-            Scrollable.of(
-              tester.element(find.byKey(const ValueKey('account-usage-card'))),
-            ).position.jumpTo(0);
-            await tester.pumpAndSettle();
-            expect(tester.takeException(), isNull);
-            await capture(
-              tester,
-              boundary,
-              '$appearance-${width.toInt()}-$state-account',
-            );
-            for (final key in overviewGraphKeys.skip(1)) {
-              await Scrollable.ensureVisible(
-                tester.element(find.byKey(ValueKey(key))),
-                alignment: .1,
               );
               await tester.pumpAndSettle();
+              await overviewTap(tester, 'workspace-monitor');
+              await overviewTap(tester, 'query-account-usage');
+              await overviewTap(tester, 'session-refresh');
+              tester
+                  .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
+                  .controller
+                  .select(compactDashboardSessionPath);
+              await tester.pumpAndSettle();
+              if (scenario == CompactDashboardScenario.dense64) {
+                await chooseOverview(tester, 'session-recent-range', '64');
+              }
               expect(tester.takeException(), isNull);
+              final graphKeys =
+                  scenario == CompactDashboardScenario.empty ||
+                      scenario == CompactDashboardScenario.error
+                  ? overviewGraphKeys.skip(1).toList()
+                  : overviewGraphKeys;
+              for (final key in graphKeys) {
+                expect(find.byKey(ValueKey(key)), findsOneWidget);
+              }
+              // The account capture is the actual initial page position. Moving
+              // an inner quota chart to the top hides its title/state toolbar.
+              Scrollable.of(
+                tester.element(
+                  find.byKey(const ValueKey('account-usage-card')),
+                ),
+              ).position.jumpTo(0);
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              final quotaExtent = tester
+                  .getSize(find.byKey(const ValueKey('account-usage-card')))
+                  .height;
+              final sessionExtent = tester
+                  .getSize(
+                    find
+                        .descendant(
+                          of: find.byType(SessionMetricsPanel),
+                          matching: find.byType(FCard),
+                        )
+                        .first,
+                  )
+                  .height;
+              debugPrint(
+                'COMPACT_EXTENTS $appearance $width ${(scale * 100).round()}% ${scenario.name}: quota=$quotaExtent session=$sessionExtent',
+              );
               await capture(
                 tester,
                 boundary,
-                '$appearance-${width.toInt()}-$state-$key',
+                '$appearance-${width.toInt()}-$state-account',
               );
-            }
-            await tester.pumpWidget(const SizedBox());
-          },
-        );
+              for (final key in overviewGraphKeys.skip(1)) {
+                await Scrollable.ensureVisible(
+                  tester.element(find.byKey(ValueKey(key))),
+                  alignment: .1,
+                );
+                await tester.pumpAndSettle();
+                expect(tester.takeException(), isNull);
+                await capture(
+                  tester,
+                  boundary,
+                  '$appearance-${width.toInt()}-$state-$key',
+                );
+              }
+              await tester.pumpWidget(const SizedBox());
+            },
+          );
+        }
       }
     }
   }

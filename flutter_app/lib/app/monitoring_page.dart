@@ -55,6 +55,7 @@ class MonitoringPage extends StatelessWidget {
               Wrap(
                 spacing: 16,
                 runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
                     '额度：${usage.monitoring ? '自动刷新中' : '自动刷新关闭'}',
@@ -64,14 +65,7 @@ class MonitoringPage extends StatelessWidget {
                     '会话：${metrics.selected == null ? '未选择' : metrics.stateLabel}',
                     style: context.theme.typography.body.sm,
                   ),
-                ],
-              ),
-              Wrap(
-                spacing: 12,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(recentNotice.isEmpty ? '最近提醒：暂无' : '最近提醒：有新提醒'),
+                  if (recentNotice.isNotEmpty) const Text('最近提醒：有新提醒'),
                   MonitorIconAction(
                     key: const ValueKey('recent-monitor-notice'),
                     label: '查看历史提醒',
