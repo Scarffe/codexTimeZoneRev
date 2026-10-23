@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
-import 'monitor_settings_dialog.dart';
+import 'monitor_presentation.dart';
 
 import '../domain/settings.dart';
 import '../services/account_usage.dart';
@@ -66,7 +66,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         if (controller.busy) ...[
           const FProgress(),
           const SizedBox(height: 10),
-          Text('正在读取登录账号与用量…', style: muted),
+          Text('正在查询用量…', style: muted),
         ],
         if (controller.error != null)
           FAlert(
@@ -147,26 +147,6 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
             const SizedBox(height: 10),
             Text('额度信息暂不可用', style: muted),
           ],
-          const FDivider(
-            style: FDividerStyleDelta.delta(
-              padding: EdgeInsetsGeometryDelta.value(
-                EdgeInsets.symmetric(vertical: 12),
-              ),
-            ),
-          ),
-          Wrap(
-            spacing: 24,
-            runSpacing: 10,
-            children: [
-              _TokenMetric(label: '累计 token', value: data.lifetimeTokens),
-              _TokenMetric(
-                label: data.latestDate == null
-                    ? '每日 token'
-                    : '最近一天 · ${data.latestDate}',
-                value: data.latestDailyTokens,
-              ),
-            ],
-          ),
           if (data.tokensError != null) ...[
             const SizedBox(height: 8),
             Text(data.tokensError!, style: muted),
@@ -179,49 +159,59 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         ],
       ],
     );
-    return FCard(
-      key: const ValueKey('account-usage-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
           children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 8,
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
+                const Icon(FLucideIcons.gauge, size: 18),
+                const SizedBox(width: 8),
                 Text(
                   '账号用量',
-                  style: context.theme.typography.display.lg.copyWith(
+                  style: context.theme.typography.body.md.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                FButton(
-                  key: const ValueKey('query-account-usage'),
-                  mainAxisSize: MainAxisSize.min,
-                  variant: FButtonVariant.outline,
-                  onPress: controller.busy || widget.launcher.preview
-                      ? null
-                      : () {
-                          if (_scroll.hasClients) _scroll.jumpTo(0);
-                          controller.query(widget.launcher.effectivePath);
-                        },
-                  prefix: const Icon(FLucideIcons.refreshCw),
-                  child: Text(controller.busy ? '正在查询用量…' : '查询账号用量'),
-                ),
               ],
             ),
-            const SizedBox(height: 12),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 4,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                FTooltip(
+                  tipBuilder: (context, _) => const Text('查询账号用量'),
+                  child: FButton.icon(
+                    key: const ValueKey('query-account-usage'),
+                    semanticsLabel: controller.busy ? '正在查询用量…' : '查询账号用量',
+                    variant: FButtonVariant.ghost,
+                    onPress: controller.busy || widget.launcher.preview
+                        ? null
+                        : () {
+                            if (_scroll.hasClients) _scroll.jumpTo(0);
+                            controller.query(widget.launcher.effectivePath);
+                          },
+                    child: const Icon(FLucideIcons.refreshCw),
+                  ),
+                ),
                 FButton(
                   key: const ValueKey('toggle-usage-monitor'),
                   mainAxisSize: MainAxisSize.min,
-                  variant: FButtonVariant.outline,
+                  variant: FButtonVariant.ghost,
+                  selected: controller.monitoring,
+                  prefix: Icon(
+                    controller.monitoring
+                        ? FLucideIcons.pause
+                        : FLucideIcons.play,
+                    size: 16,
+                  ),
                   onPress: widget.launcher.preview
                       ? null
                       : () {
@@ -235,109 +225,113 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                         },
                   child: Text(controller.monitoring ? '暂停自动刷新' : '开启自动刷新'),
                 ),
-                FButton(
-                  key: const ValueKey('monitor-settings'),
-                  mainAxisSize: MainAxisSize.min,
-                  variant: FButtonVariant.outline,
-                  onPress: !controller.preferencesReady
-                      ? null
-                      : () => showGeneralDialog<void>(
-                          context: context,
-                          barrierDismissible: true,
-                          barrierLabel: '关闭监控设置',
-                          pageBuilder: (context, _, _) =>
-                              MonitorSettingsDialog(controller: controller),
-                        ),
-                  child: const Text('监控设置'),
-                ),
-                SizedBox(
-                  width: 160,
-                  child: FSelect<int>(
-                    key: const ValueKey('usage-monitor-interval'),
-                    items: const {
-                      '1 分钟': 60,
-                      '2 分钟': 120,
-                      '5 分钟': 300,
-                      '10 分钟': 600,
-                    },
-                    control: FSelectControl.lifted(
-                      value:
-                          const [
-                            60,
-                            120,
-                            300,
-                            600,
-                          ].contains(controller.interval.inSeconds)
-                          ? controller.interval.inSeconds
-                          : 120,
-                      onChange: (value) {
-                        if (value == null) return;
-                        controller.setInterval(Duration(seconds: value));
-                      },
-                    ),
-                  ),
-                ),
               ],
-            ),
-            if (controller.preferencesError != null)
-              Text(controller.preferencesError!, style: muted),
-            if (controller.failures > 0 && controller.nextRefreshAt != null)
-              Text(
-                '失败退避中，最早重试：${ClockReading.fromDate(controller.nextRefreshAt!.toLocal()).time}',
-                style: muted,
-              ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Text('重置时间', style: context.theme.typography.body.sm),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FSelect<String>(
-                    key: const ValueKey('usage-time-basis'),
-                    items: const {'节点时间': 'node', '本地时间': 'local'},
-                    control: FSelectControl.lifted(
-                      value: controller.useLocalTime ? 'local' : 'node',
-                      onChange: (value) {
-                        if (value != null) {
-                          controller.setLocalTime(value == 'local');
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (widget.bounded)
-              Expanded(
-                child: RawScrollbar(
-                  controller: _scroll,
-                  thumbVisibility: true,
-                  thumbColor: context.theme.colors.mutedForeground.withValues(
-                    alpha: 0.45,
-                  ),
-                  thickness: 4,
-                  radius: const Radius.circular(4),
-                  child: SingleChildScrollView(
-                    key: const ValueKey('account-usage-details'),
-                    controller: _scroll,
-                    primary: false,
-                    padding: const EdgeInsets.only(right: 8),
-                    child: details,
-                  ),
-                ),
-              )
-            else
-              details,
-            const SizedBox(height: 8),
-            Text(
-              controller.useLocalTime
-                  ? '本地时间 · 系统时区'
-                  : '节点时间 · ${settings.mode == 'zone' ? settings.zoneId : offsetLabel(settings.offset * 60)}',
-              style: muted,
             ),
           ],
         ),
+        if (controller.preferencesError != null)
+          Text(controller.preferencesError!, style: muted),
+        if (controller.failures > 0 && controller.nextRefreshAt != null)
+          Text(
+            '失败退避中，最早重试：${ClockReading.fromDate(controller.nextRefreshAt!.toLocal()).time}',
+            style: muted,
+          ),
+        const SizedBox(height: 10),
+        details,
+        const SizedBox(height: 8),
+        MonitorDisclosure(
+          label: '用量与时间详情',
+          toggleKey: const ValueKey('account-details-toggle'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (data != null) ...[
+                Wrap(
+                  spacing: 24,
+                  runSpacing: 10,
+                  children: [
+                    _TokenMetric(label: '累计 token', value: data.lifetimeTokens),
+                    _TokenMetric(
+                      label: data.latestDate == null
+                          ? '每日 token'
+                          : '最近一天 · ${data.latestDate}',
+                      value: data.latestDailyTokens,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '完整查询时间：${data.fetchedAt.toLocal().toIso8601String()}',
+                  style: muted,
+                ),
+                if (data.tokensFetchedAt != null)
+                  Text(
+                    'token 统计更新：${data.tokensFetchedAt!.toLocal().toIso8601String()}',
+                    style: muted,
+                  ),
+              ],
+              if (controller.nextRefreshAt != null)
+                Text(
+                  '下次尝试：${controller.nextRefreshAt!.toLocal().toIso8601String()}',
+                  style: muted,
+                ),
+              const SizedBox(height: 12),
+              Text('重置时间基准', style: context.theme.typography.body.sm),
+              const SizedBox(height: 6),
+              FSelect<String>(
+                key: const ValueKey('usage-time-basis'),
+                items: const {'节点时间': 'node', '本地时间': 'local'},
+                control: FSelectControl.lifted(
+                  value: controller.useLocalTime ? 'local' : 'node',
+                  onChange: (value) {
+                    if (value != null) {
+                      controller.setLocalTime(value == 'local');
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                controller.useLocalTime
+                    ? '本地时间 · 系统时区'
+                    : '节点时间 · ${settings.mode == 'zone' ? settings.zoneId : offsetLabel(settings.offset * 60)}',
+                style: muted,
+              ),
+              if (data != null)
+                for (final bucket in data.buckets)
+                  for (final window in bucket.windows)
+                    if (window.resetsAt != null)
+                      Text(
+                        '${bucket.label} · ${window.label}重置：${window.resetsAt!.toUtc().toIso8601String()}',
+                        style: muted,
+                      ),
+            ],
+          ),
+        ),
+      ],
+    );
+    return FCard(
+      key: const ValueKey('account-usage-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: widget.bounded
+            ? RawScrollbar(
+                controller: _scroll,
+                thumbVisibility: true,
+                thumbColor: context.theme.colors.mutedForeground.withValues(
+                  alpha: .45,
+                ),
+                thickness: 4,
+                radius: const Radius.circular(4),
+                child: SingleChildScrollView(
+                  key: const ValueKey('account-usage-details'),
+                  controller: _scroll,
+                  primary: false,
+                  padding: const EdgeInsets.only(right: 8),
+                  child: content,
+                ),
+              )
+            : content,
       ),
     );
   }

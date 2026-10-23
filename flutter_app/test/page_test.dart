@@ -42,7 +42,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const LauncherApplication(preview: true));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('跟随系统'));
+    await tester.tap(find.byKey(const ValueKey('workspace-theme')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('深色').last);
     await tester.pumpAndSettle();

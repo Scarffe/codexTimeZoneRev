@@ -153,6 +153,14 @@ void main() {
           expect(find.text('周额度'), findsOneWidget);
           expect(find.text('已用 8%'), findsOneWidget);
           expect(find.text('已用 5%'), findsOneWidget);
+          expect(find.text('1,234,567'), findsNothing);
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('account-details-toggle')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('account-details-toggle')),
+          );
+          await tester.pumpAndSettle();
           expect(find.text('1,234,567'), findsOneWidget);
           expect(find.text('12,345'), findsOneWidget);
           expect(find.byType(FDeterminateProgress), findsNWidgets(3));
@@ -276,6 +284,12 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(find.text('已用 8%'), findsOneWidget);
+    expect(find.text('当前版本不支持 token 统计'), findsOneWidget);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('account-details-toggle')),
+    );
+    await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
+    await tester.pumpAndSettle();
     expect(find.text('暂无数据'), findsNWidgets(2));
     expect(find.text('当前版本不支持 token 统计'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -319,6 +333,11 @@ void main() {
         await tester.tap(button);
         await tester.pumpAndSettle();
         expect(find.text('查询失败'), findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('account-details-toggle')),
+        );
+        await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
+        await tester.pumpAndSettle();
         expect(find.text(tokenCount(expected.lifetimeTokens)), findsWidgets);
         expect(find.text(tokenCount(expected.latestDailyTokens)), findsWidgets);
         expect(
@@ -388,6 +407,11 @@ void main() {
         expect(service.calls, 1);
         expect(service.result, isNotNull);
         expect(find.text('查询失败'), findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('account-details-toggle')),
+        );
+        await tester.tap(find.byKey(const ValueKey('account-details-toggle')));
+        await tester.pumpAndSettle();
         expect(
           find.text(tokenCount(service.result!.lifetimeTokens)),
           findsOneWidget,

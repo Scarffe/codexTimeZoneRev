@@ -65,7 +65,7 @@ void main() {
         closeTo(0.54, 0.001),
       );
       expect(light.foreground.a, 1);
-      await tester.tap(find.text('浅色').first);
+      await tester.tap(find.byKey(const ValueKey('workspace-theme')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('深色').last);
       await tester.pumpAndSettle();

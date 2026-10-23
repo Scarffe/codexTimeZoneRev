@@ -243,13 +243,13 @@ void main() {
     final metrics = tester
         .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
         .controller;
-    expect(find.text('本地会话：未选择会话'), findsOneWidget);
+    expect(find.text('会话：未选择'), findsOneWidget);
     metrics.select(r'C:\fixture\selected.jsonl');
     await tester.pumpAndSettle();
-    expect(find.text('本地会话：状态未知'), findsOneWidget);
+    expect(find.text('会话：状态未知'), findsOneWidget);
     metrics.select(null);
     await tester.pumpAndSettle();
-    expect(find.text('本地会话：未选择会话'), findsOneWidget);
+    expect(find.text('会话：未选择'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -397,6 +397,20 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(snapshots.last['workspace'], 'monitor');
       expect(service.calls, 0);
+      await tester.tap(
+        find.byKey(const ValueKey('measurement-independent-api')),
+      );
+      await tester.pumpAndSettle();
+      await switchPage(tester, 'launcher');
+      await nativeAction('monitorDetails');
+      await tester.pumpAndSettle();
+      expect(find.byType(AccountUsagePanel), findsOneWidget);
+      final accountRect = tester.getRect(
+        find.byKey(const ValueKey('account-usage-card')),
+      );
+      expect(accountRect.top, greaterThan(0));
+      expect(accountRect.top, lessThan(300));
+      expect(service.calls, 0);
       await switchPage(tester, 'launcher');
       final usage = tester
           .widget<AccountUsagePanel>(
@@ -414,7 +428,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('保存并启动'), findsOneWidget);
       await switchPage(tester, 'monitor');
-      expect(find.textContaining('最近提醒：Codex 5 小时额度剩余 5%'), findsOneWidget);
+      expect(find.text('最近提醒：有新提醒'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('recent-monitor-notice')),
+      );
+      await tester.tap(find.byKey(const ValueKey('recent-monitor-notice')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Codex 5 小时额度剩余 5%'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

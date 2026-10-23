@@ -14,6 +14,7 @@ import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import 'launcher_page.dart';
 import 'monitoring_page.dart';
+import 'monitor_settings_dialog.dart';
 import 'workspace_shell.dart';
 import 'theme.dart';
 import '../state/session_metrics_controller.dart';
@@ -85,9 +86,22 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   final _navigator = GlobalKey<NavigatorState>();
   final _sessionPanel = GlobalKey();
+  final _accountPanel = GlobalKey();
   final _independentApiSelected = ValueNotifier(false);
   void _showMonitor() {
     if (mounted) setState(() => monitorSelected = true);
+  }
+
+  void _showAccountDetails() {
+    _independentApiSelected.value = false;
+    _showMonitor();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _accountPanel.currentContext;
+      if (mounted && context != null) {
+        Scrollable.ensureVisible(context, alignment: .1);
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   void _showSessionDetails() {
@@ -125,7 +139,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           usage,
           () => launcher.effectivePath,
           interval: widget.monitorInterval,
-          onMonitor: _showMonitor,
+          onMonitor: _showAccountDetails,
           backgroundStart: widget.monitorEnabled,
           workspace: () => monitorSelected ? 'monitor' : 'launcher',
           onNotice: (text) {
@@ -218,6 +232,15 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               onSelect: (value) => setState(() => monitorSelected = value),
               appearance: appearance.value,
               onAppearance: _setAppearance,
+              onSettings: !usage.preferencesReady
+                  ? null
+                  : () => showGeneralDialog<void>(
+                      context: context,
+                      barrierDismissible: true,
+                      barrierLabel: '关闭监控设置',
+                      pageBuilder: (context, _, _) =>
+                          MonitorSettingsDialog(controller: usage),
+                    ),
               launcher: LauncherPage(
                 key: const ValueKey('launcher-page'),
                 desktop: widget.desktop,
@@ -230,6 +253,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                 usage: usage,
                 metrics: metrics,
                 sessionPanelKey: _sessionPanel,
+                accountPanelKey: _accountPanel,
                 recentNotice: recentNotice,
                 independentApiSelected: _independentApiSelected,
               ),
