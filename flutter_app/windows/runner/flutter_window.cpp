@@ -46,7 +46,7 @@ bool FlutterWindow::OnCreate() {
       const auto* value=field(key);
       if (!value) return std::nullopt;
       int64_t number=-1;
-      if (const auto* small=std::get_if<int32_t>(value)) number=*small;
+      if (const auto* int32_value=std::get_if<int32_t>(value)) number=*int32_value;
       else if (const auto* large=std::get_if<int64_t>(value)) number=*large;
       if (number<0 || number>0xffffffffLL) return std::nullopt;
       return static_cast<std::uint32_t>(number);
