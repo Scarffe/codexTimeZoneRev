@@ -144,4 +144,61 @@ void main() {
       expect(parse(value).available, true);
     },
   );
+
+  test(
+    'all text rows reject duration contradictions regardless of drawability',
+    () {
+      for (final endpoints in <(int?, int?)>[
+        (101000, 101000),
+        (101000, 106000),
+        (null, 106000),
+        (101000, null),
+        (106000, 101000),
+      ]) {
+        final value = timelineFixture(count: 1);
+        final row = value['items'][0] as Map;
+        row['startedAtMs'] = endpoints.$1;
+        row['completedAtMs'] = endpoints.$2;
+        row['offsetStartMs'] = null;
+        row['offsetEndMs'] = null;
+        row['drawable'] = false;
+        row['durationMs'] = endpoints == (101000, 106000) ? 0 : 5000;
+        row['reasons'] = ['zero_duration'];
+        expect(
+          parse(value).available,
+          false,
+          reason: 'contradictory text $endpoints',
+        );
+      }
+    },
+  );
+
+  test('valid non-drawable zero outside reversed and missing endpoint facts survive', () {
+    final cases = <(int?, int?, int?, String)>[
+      (101000, 101000, 0, 'zero_duration'),
+      (99000, 102000, 3000, 'outside_bounds'),
+      (106000, 101000, null, 'reversed'),
+      (null, 106000, null, 'missing_start'),
+      (101000, null, null, 'missing_end'),
+    ];
+    for (final c in cases) {
+      final value = timelineFixture(count: 1)
+        ..['sourcePartial'] = true
+        ..['coverageInterpretation'] = 'unavailable';
+      final row = value['items'][0] as Map;
+      row['startedAtMs'] = c.$1;
+      row['completedAtMs'] = c.$2;
+      row['durationMs'] = c.$3;
+      row['offsetStartMs'] = null;
+      row['offsetEndMs'] = null;
+      row['drawable'] = false;
+      row['reasons'] = [c.$4];
+      final data = parse(value);
+      expect(data.available, true, reason: '$c');
+      expect(data.rows.single.startedAtMs, c.$1);
+      expect(data.rows.single.completedAtMs, c.$2);
+      expect(data.rows.single.durationMs, c.$3);
+      expect(data.rows.single.drawable, false);
+    }
+  });
 }

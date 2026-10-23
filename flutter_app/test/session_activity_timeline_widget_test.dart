@@ -127,6 +127,81 @@ void main() {
   );
 
   testWidgets(
+    'missing total duration preserves valid raw first token but no subtraction',
+    (tester) async {
+      for (final c in <(int, String)>[(0, '0.000 s'), (2500, '2.500 s')]) {
+        await tester.pumpWidget(
+          timelineApp(
+            SingleChildScrollView(child: panel(wait: c.$1, duration: null)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('session-first-model-wait')),
+              )
+              .data,
+          contains(c.$2),
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('session-after-first-duration')),
+              )
+              .data,
+          contains('不可用'),
+        );
+      }
+    },
+  );
+
+  testWidgets(
+    'unlocatable rows retain each recorded epoch endpoint independently',
+    (tester) async {
+      for (final c in <(int?, int?, int?, String)>[
+        (101000, 102000, 1000, 'missing_turn_bounds'),
+        (99000, 102000, 3000, 'outside_bounds'),
+        (106000, 101000, null, 'reversed'),
+        (null, 106000, null, 'missing_start'),
+        (101000, null, null, 'missing_end'),
+      ]) {
+        final fixture = timelineFixture(count: 1)
+          ..['sourcePartial'] = true
+          ..['coverageInterpretation'] = 'unavailable';
+        if (c.$4 == 'missing_turn_bounds') {
+          fixture['startEpochMs'] = null;
+          fixture['endEpochMsExclusive'] = null;
+          fixture['spanMs'] = null;
+        }
+        final row = fixture['items'][0] as Map;
+        row['startedAtMs'] = c.$1;
+        row['completedAtMs'] = c.$2;
+        row['durationMs'] = c.$3;
+        row['offsetStartMs'] = null;
+        row['offsetEndMs'] = null;
+        row['drawable'] = false;
+        row['reasons'] = [c.$4];
+        await tester.pumpWidget(
+          timelineApp(SingleChildScrollView(child: panel(timeline: fixture))),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('session-timeline-toggle')));
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining(
+            '记录开始：${c.$1?.toString() ?? '未知'} · 记录结束：${c.$2?.toString() ?? '未知'} · Unix epoch 毫秒',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('偏移 未知 → 未知'), findsOneWidget);
+        expect(find.textContaining(' · 未绘制'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
+  testWidgets(
     'collapsed timeline expands overlapping labelled bands and bounded safe list',
     (tester) async {
       final fixture = timelineFixture()
@@ -211,10 +286,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('session-timeline-toggle')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('session-timeline-chart')), findsNothing);
-    expect(
-      find.textContaining('消息 #1 · 偏移 未知 → 未知 · 项时长 0.000 s'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('偏移 未知 → 未知 · 项时长 0.000 s'), findsOneWidget);
     expect(find.textContaining('仅列出文字事实'), findsOneWidget);
     expect(find.textContaining('零时长（不绘制条形）'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -235,6 +307,14 @@ void main() {
           ..['coverageInterpretation'] = 'unavailable'
           ..['totalItems'] = 203
           ..['omittedItems'] = 3;
+        // Exercise realistic 13-digit recorded timestamps at the narrow widths.
+        const epochShift = 1792710000000;
+        fixture['startEpochMs'] += epochShift;
+        fixture['endEpochMsExclusive'] += epochShift;
+        for (final row in fixture['items'] as List) {
+          row['startedAtMs'] += epochShift;
+          row['completedAtMs'] += epochShift;
+        }
         fixture['items'][1]['drawable'] = false;
         fixture['items'][1]['reasons'] = [
           'missing_turn_bounds',
@@ -279,7 +359,7 @@ void main() {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
           await File(
-            '../environment/stage-l1-timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
+            '../environment/stage-l1-finalfix-timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });

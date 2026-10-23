@@ -76,7 +76,7 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
               ] else
                 const Text('缺少可核验回合边界，仅列出文字事实，不绘制位置。'),
               const SizedBox(height: 8),
-              const Text('对应文字记录（可滚动）：起止偏移相对于近似窗口；未绘制项保留原因。'),
+              const Text('对应文字记录（可滚动）：记录起止为 Unix epoch 毫秒；偏移相对于近似窗口；未绘制项保留原因。'),
               SizedBox(
                 height: 210,
                 child: ListView.builder(
@@ -90,7 +90,8 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 5),
                       child: Text(
-                        '${row.label} · $offset · 项时长 ${_time(row.durationMs)}'
+                        '${row.label} · 记录开始：${row.startedAtMs ?? '未知'} · 记录结束：${row.completedAtMs ?? '未知'} · Unix epoch 毫秒\n'
+                        '$offset · 项时长 ${_time(row.durationMs)}'
                         '${row.drawable ? '' : ' · 未绘制'}'
                         '${row.reasonText.isEmpty ? '' : ' · ${row.reasonText}'}',
                       ),

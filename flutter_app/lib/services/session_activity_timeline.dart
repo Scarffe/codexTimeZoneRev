@@ -110,6 +110,10 @@ class SessionActivityTimelineData {
         reasons: List<String>.unmodifiable(reasons.cast<String>()),
       );
       final rs = row.startedAtMs, re = row.completedAtMs;
+      final recordedDuration = rs != null && re != null && re >= rs
+          ? re - rs
+          : null;
+      if (row.durationMs != recordedDuration) return unavailable;
       if (rs == null) {
         missingStartSeen = true;
       } else {

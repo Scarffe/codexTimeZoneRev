@@ -27,10 +27,15 @@ class _SessionTimingPanelState extends State<SessionTimingPanel> {
     final validDuration = SessionActivityTimelineData.isSafeMilliseconds(
       widget.durationMs,
     );
-    final validFirst =
+    final recordedFirst = SessionActivityTimelineData.isSafeMilliseconds(
+      widget.firstTokenMs,
+    );
+    final firstContradictsDuration =
+        recordedFirst &&
         validDuration &&
-        SessionActivityTimelineData.isSafeMilliseconds(widget.firstTokenMs) &&
-        (widget.firstTokenMs as int) <= (widget.durationMs as int);
+        (widget.firstTokenMs as int) > (widget.durationMs as int);
+    final validFirst = recordedFirst && !firstContradictsDuration;
+    final canSubtractFirst = validDuration && validFirst;
     String milliseconds(int value) => '${(value / 1000).toStringAsFixed(3)} s';
     String time(String key) => a?[key] is num
         ? '${((a![key] as num) / 1000).toStringAsFixed(3)} s'
@@ -48,11 +53,15 @@ class _SessionTimingPanelState extends State<SessionTimingPanel> {
         const SizedBox(height: 12),
         Text('只读耗时分析 · 上轮', style: context.theme.typography.display.sm),
         Text(
-          '首模型 token 等待：${validFirst ? milliseconds(widget.firstTokenMs as int) : '不可用'}',
+          '首模型 token 等待：${validFirst
+              ? milliseconds(widget.firstTokenMs as int)
+              : firstContradictsDuration
+              ? '不可用（超过完整回合耗时）'
+              : '不可用'}',
           key: const ValueKey('session-first-model-wait'),
         ),
         Text(
-          '首模型 token 后的回合耗时：${validFirst ? milliseconds((widget.durationMs as int) - (widget.firstTokenMs as int)) : '不可用'}',
+          '首模型 token 后的回合耗时：${canSubtractFirst ? milliseconds((widget.durationMs as int) - (widget.firstTokenMs as int)) : '不可用'}',
           key: const ValueKey('session-after-first-duration'),
         ),
         const Text('首模型 token 可能属于推理，并不保证是可见正文；其后仍可包含工具、等待和其他活动，不代表纯生成时长。'),
