@@ -4,9 +4,14 @@ import '../domain/settings.dart';
 import '../services/backend.dart';
 
 class LauncherController extends ChangeNotifier {
-  LauncherController(this.backend, {this.preview = false});
+  LauncherController(
+    this.backend, {
+    this.preview = false,
+    this.offlineTrial = false,
+  });
   final LauncherBackend backend;
   final bool preview;
+  final bool offlineTrial;
   LauncherSettings settings = const LauncherSettings();
   LauncherSettings? _saved;
   List<Zone> zones = [];
@@ -42,7 +47,8 @@ class LauncherController extends ChangeNotifier {
     return null;
   }
 
-  bool get canSave => editable && validationError == null && !preview;
+  bool get canSave =>
+      editable && validationError == null && !preview && !offlineTrial;
   bool get canLaunch => canSave && effectivePath.isNotEmpty;
 
   void _emit() {
@@ -99,7 +105,7 @@ class LauncherController extends ChangeNotifier {
   }
 
   Future<void> browse(Future<String?> Function() choosePath) async {
-    if (!editable || preview) return;
+    if (!editable || preview || offlineTrial) return;
     busyCommand = 'browse';
     _emit();
     try {
@@ -118,7 +124,7 @@ class LauncherController extends ChangeNotifier {
   }
 
   Future<bool> action(String command) async {
-    if (!editable || preview) return false;
+    if (!editable || preview || offlineTrial) return false;
     if (![
       'save',
       'launch',

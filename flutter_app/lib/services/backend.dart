@@ -13,6 +13,34 @@ abstract interface class LauncherBackend {
   ]);
 }
 
+/// A process-local denial boundary; no real account/session/target operation.
+class OfflineTrialBackend implements LauncherBackend {
+  const OfflineTrialBackend(this.delegate);
+  final LauncherBackend delegate;
+  @override
+  Future<Map<String, dynamic>> call(
+    String command, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
+    if (command == 'bootstrap') {
+      final local = await const PreviewBackend().call('bootstrap');
+      return {...local, 'detected': ''};
+    }
+    if ([
+          'benchmark_catalog',
+          'benchmark_status',
+          'benchmark_cancel',
+          'benchmark_interrupt',
+          'benchmark_clear',
+          'benchmark_shutdown',
+        ].contains(command) ||
+        (command == 'benchmark_start' && payload['mode'] == 'offline_replay')) {
+      return delegate.call(command, payload);
+    }
+    throw StateError('offline_trial_operation_disabled');
+  }
+}
+
 class NativeBackend implements LauncherBackend {
   const NativeBackend();
 

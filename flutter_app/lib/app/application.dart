@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,6 +19,9 @@ import 'monitor_settings_dialog.dart';
 import 'workspace_shell.dart';
 import 'theme.dart';
 import '../state/session_metrics_controller.dart';
+import '../state/benchmark_controller.dart';
+import '../services/benchmark.dart';
+import '../services/benchmark_store.dart';
 
 class LauncherApplication extends StatefulWidget {
   const LauncherApplication({
@@ -32,6 +36,8 @@ class LauncherApplication extends StatefulWidget {
     this.monitorEnabled = false,
     this.selectedSessionPath,
     this.monitorInterval = const Duration(minutes: 2),
+    this.offlineTrial = false,
+    this.benchmarkController,
   });
   final bool preview;
   final LauncherBackend? backend;
@@ -43,23 +49,46 @@ class LauncherApplication extends StatefulWidget {
   final bool monitorEnabled;
   final String? selectedSessionPath;
   final Duration monitorInterval;
+  final bool offlineTrial;
+  final BenchmarkController? benchmarkController;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
 }
 
 class _LauncherApplicationState extends State<LauncherApplication> {
+  late final LauncherBackend backend = widget.offlineTrial
+      ? OfflineTrialBackend(widget.backend ?? const NativeBackend())
+      : widget.backend ??
+            (widget.preview ? const PreviewBackend() : const NativeBackend());
   late final launcher = LauncherController(
-    widget.backend ??
-        (widget.preview ? const PreviewBackend() : const NativeBackend()),
+    backend,
     preview: widget.preview,
+    offlineTrial: widget.offlineTrial,
   );
-  late final network =
-      widget.networkFactory?.call() ??
-      NetworkController(preview: widget.preview);
+  late final network = widget.offlineTrial
+      ? NetworkController(offlineTrial: true)
+      : widget.networkFactory?.call() ??
+            NetworkController(preview: widget.preview);
   late final usage = AccountUsageController(
-    widget.usageService ?? NativeAccountUsageService(launcher.backend),
+    widget.usageService ??
+        NativeAccountUsageService(
+          launcher.backend,
+          offlineTrial: widget.offlineTrial,
+        ),
+    offlineTrial: widget.offlineTrial,
   );
   late final metrics = SessionMetricsController(launcher.backend);
+  // Existing injected launcher fixtures opt in explicitly to the new backend.
+  late final benchmark =
+      widget.benchmarkController ??
+      BenchmarkController(
+        BenchmarkService(backend),
+        store: widget.backend == null && !widget.preview
+            ? BenchmarkStore.portable()
+            : null,
+        enabled:
+            !widget.preview && (widget.backend == null || widget.offlineTrial),
+      );
   late final appearance = ValueNotifier(widget.initialAppearance);
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
@@ -88,6 +117,27 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   final _sessionPanel = GlobalKey();
   final _accountPanel = GlobalKey();
   final _independentApiSelected = ValueNotifier(false);
+  Widget _benchmarkKeyboard(Widget child) => ValueListenableBuilder<bool>(
+    valueListenable: _independentApiSelected,
+    builder: (context, api, _) => CallbackShortcuts(
+      bindings: {
+        if (monitorSelected && api) ...{
+          const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+            if (_navigator.currentState?.canPop() != true && benchmark.canStart) {
+              benchmark.start();
+            }
+          },
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (_navigator.currentState?.canPop() != true &&
+                benchmark.canCancel) {
+              benchmark.cancel();
+            }
+          },
+        },
+      },
+      child: child,
+    ),
+  );
   void _showMonitor() {
     if (mounted) setState(() => monitorSelected = true);
   }
@@ -121,10 +171,13 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     super.initState();
     launcher.addListener(_sourceChanged);
     launcher.initialize().then((_) async {
-      if (!widget.preview && widget.backend == null) {
+      if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
       }
-      if (mounted && !widget.preview && widget.backend == null) {
+      if (mounted &&
+          !widget.preview &&
+          !widget.offlineTrial &&
+          widget.backend == null) {
         await metrics.initialize(
           SessionSelectionStore.portable(),
           initialPath: widget.selectedSessionPath,
@@ -147,11 +200,15 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           },
           onSessionDetails: _showSessionDetails,
           metrics: metrics,
+          benchmark: benchmark,
         )..start();
       }
     });
     network.initialize();
-    if (!widget.preview && widget.backend == null) _loadAppearance();
+    benchmark.initialize();
+    if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
+      _loadAppearance();
+    }
   }
 
   Future<void> _loadAppearance() async {
@@ -169,7 +226,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   Future<void> _setAppearance(String value) async {
     setState(() => appearance.value = value);
-    if (!widget.preview && widget.backend == null) {
+    if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
       try {
         await (await SharedPreferences.getInstance()).setString(
           'flutter-appearance',
@@ -207,7 +264,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               style: theme.typography.body.md.copyWith(
                 color: theme.colors.foreground,
               ),
-              child: child!,
+              child: _benchmarkKeyboard(child!),
             ),
           ),
         ),
@@ -222,41 +279,56 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           usage,
           metrics,
           appearance,
+          benchmark,
+          _independentApiSelected,
         ]),
         builder: (context, _) => TickerMode(
           enabled: usage.mainWindowVisible,
           child: Offstage(
             offstage: !usage.mainWindowVisible,
-            child: WorkspaceShell(
-              monitorSelected: monitorSelected,
-              onSelect: (value) => setState(() => monitorSelected = value),
-              appearance: appearance.value,
-              onAppearance: _setAppearance,
-              onSettings: !usage.preferencesReady
-                  ? null
-                  : () => showGeneralDialog<void>(
-                      context: context,
-                      barrierDismissible: true,
-                      barrierLabel: '关闭监控设置',
-                      pageBuilder: (context, _, _) =>
-                          MonitorSettingsDialog(controller: usage),
+            child: Column(
+              children: [
+                if (widget.offlineTrial)
+                  const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Text('离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。'),
+                  ),
+                Expanded(
+                  child: WorkspaceShell(
+                    monitorSelected: monitorSelected,
+                    onSelect: (value) =>
+                        setState(() => monitorSelected = value),
+                    appearance: appearance.value,
+                    onAppearance: _setAppearance,
+                    onSettings: !usage.preferencesReady
+                        ? null
+                        : () => showGeneralDialog<void>(
+                            context: context,
+                            barrierDismissible: true,
+                            barrierLabel: '关闭监控设置',
+                            pageBuilder: (context, _, _) =>
+                                MonitorSettingsDialog(controller: usage),
+                          ),
+                    launcher: LauncherPage(
+                      key: const ValueKey('launcher-page'),
+                      desktop: widget.desktop,
+                      launcher: launcher,
+                      network: network,
                     ),
-              launcher: LauncherPage(
-                key: const ValueKey('launcher-page'),
-                desktop: widget.desktop,
-                launcher: launcher,
-                network: network,
-              ),
-              monitor: MonitoringPage(
-                key: const ValueKey('monitor-page'),
-                launcher: launcher,
-                usage: usage,
-                metrics: metrics,
-                sessionPanelKey: _sessionPanel,
-                accountPanelKey: _accountPanel,
-                recentNotice: recentNotice,
-                independentApiSelected: _independentApiSelected,
-              ),
+                    monitor: MonitoringPage(
+                      key: const ValueKey('monitor-page'),
+                      launcher: launcher,
+                      usage: usage,
+                      metrics: metrics,
+                      sessionPanelKey: _sessionPanel,
+                      accountPanelKey: _accountPanel,
+                      recentNotice: recentNotice,
+                      independentApiSelected: _independentApiSelected,
+                      benchmark: benchmark,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -272,6 +344,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     network.dispose();
     usage.dispose();
     metrics.dispose();
+    benchmark.dispose();
     appearance.dispose();
     _independentApiSelected.dispose();
     super.dispose();

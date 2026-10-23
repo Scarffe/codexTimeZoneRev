@@ -123,7 +123,10 @@ class LauncherPage extends StatelessWidget {
         child: FButton(
           mainAxisSize: MainAxisSize.min,
           variant: FButtonVariant.outline,
-          onPress: launcher.editable && !launcher.preview ? _browse : null,
+          onPress:
+              launcher.editable && !launcher.preview && !launcher.offlineTrial
+              ? _browse
+              : null,
           prefix: const Icon(FLucideIcons.folderOpen),
           child: const Text('选择客户端'),
         ),
@@ -157,18 +160,20 @@ class LauncherPage extends StatelessWidget {
           FButton(
             mainAxisSize: MainAxisSize.min,
             variant: FButtonVariant.outline,
-            onPress: launcher.editable && !launcher.preview
+            onPress:
+                launcher.editable && !launcher.preview && !launcher.offlineTrial
                 ? () => launcher.action('launch_dream_skin')
                 : null,
-            child: const Text('打开 Dream Skin'),
+            child: const Flexible(child: Text('打开 Dream Skin')),
           ),
           FButton(
             mainAxisSize: MainAxisSize.min,
             variant: FButtonVariant.outline,
-            onPress: launcher.editable && !launcher.preview
+            onPress:
+                launcher.editable && !launcher.preview && !launcher.offlineTrial
                 ? () => launcher.action('reapply_dream_skin')
                 : null,
-            child: const Text('重新注入皮肤'),
+            child: const Flexible(child: Text('重新注入皮肤')),
           ),
         ],
       ),
@@ -324,7 +329,10 @@ class LauncherPage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         variant: FButtonVariant.outline,
                         onPress:
-                            network.busy || launcher.preview || launcher.busy
+                            network.busy ||
+                                network.offlineTrial ||
+                                launcher.preview ||
+                                launcher.busy
                             ? null
                             : network.refresh,
                         prefix: const Icon(FLucideIcons.refreshCw),

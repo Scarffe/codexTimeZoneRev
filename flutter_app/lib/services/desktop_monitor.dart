@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../state/account_usage_controller.dart';
 import '../state/session_metrics_controller.dart';
+import '../state/benchmark_controller.dart';
 
 /// Only publishes display data; native surfaces never query the account.
 class DesktopMonitor {
@@ -18,10 +19,12 @@ class DesktopMonitor {
     this.workspace,
     this.onNotice,
     this.metrics,
+    this.benchmark,
     this.interval = const Duration(minutes: 2),
   });
   final AccountUsageController usage;
   final SessionMetricsController? metrics;
+  final BenchmarkController? benchmark;
   final String Function() path;
   final Duration interval;
   final VoidCallback? onRoles, onSessionDetails, onMonitor;
@@ -42,6 +45,7 @@ class DesktopMonitor {
     usage.setMainWindowVisible(!backgroundStart);
     usage.addListener(_publish);
     metrics?.addListener(_publish);
+    benchmark?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'sessionDetails':
@@ -75,6 +79,7 @@ class DesktopMonitor {
         case 'systemSuspend':
           metrics?.resetObservation();
           usage.systemSuspending();
+          await benchmark?.interrupt();
         case 'systemResume':
           usage.systemResumed();
         case 'refresh':
@@ -100,11 +105,16 @@ class DesktopMonitor {
     _publish();
   }
 
-  bool get _keepAlive => usage.monitoring || metrics?.selected != null;
+  bool get _keepAlive =>
+      usage.monitoring ||
+      metrics?.selected != null ||
+      benchmark?.keepAlive == true;
 
   Future<void> _exit() => _exitRequest ??= _gracefulExit();
 
   Future<void> _gracefulExit() async {
+    await benchmark?.shutdown();
+    await benchmark?.saved;
     usage.pause(persist: false);
     await usage.roles.saved;
     await usage.settingsSaved;
@@ -188,6 +198,7 @@ class DesktopMonitor {
     _clock?.cancel();
     usage.removeListener(_publish);
     metrics?.removeListener(_publish);
+    benchmark?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }
 }

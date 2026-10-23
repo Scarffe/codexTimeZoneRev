@@ -7,9 +7,11 @@ class SessionMeasurementWorkspace extends StatefulWidget {
     super.key,
     required this.currentSession,
     this.independentApiSelected,
+    this.independentApi,
   });
   final Widget currentSession;
   final ValueNotifier<bool>? independentApiSelected;
+  final Widget? independentApi;
   @override
   State<SessionMeasurementWorkspace> createState() =>
       _SessionMeasurementWorkspaceState();
@@ -57,30 +59,43 @@ class _SessionMeasurementWorkspaceState
           child: IndexedStack(
             index: api ? 1 : 0,
             children: [
-              TickerMode(enabled: !api, child: widget.currentSession),
+              TickerMode(
+                enabled: !api,
+                child: ExcludeFocus(
+                  excluding: api,
+                  child: widget.currentSession,
+                ),
+              ),
               TickerMode(
                 enabled: api,
-                child: SingleChildScrollView(
-                  key: const PageStorageKey('independent-api-scroll'),
-                  child: FCard(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            '独立 API 测速',
-                            style: context.theme.typography.display.lg,
+                child: ExcludeFocus(
+                  excluding: !api,
+                  child:
+                      widget.independentApi ??
+                      SingleChildScrollView(
+                        key: const PageStorageKey('independent-api-scroll'),
+                        child: FCard(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  '独立 API 测速',
+                                  style: context.theme.typography.display.lg,
+                                ),
+                                const SizedBox(height: 8),
+                                const Text('独立来源 · 客户端观测'),
+                                const Text('待实现'),
+                                const Text('M2 离线内核已验收；真实接口与测速界面待实现'),
+                                const Text(
+                                  '这里将使用单独的测试请求与结果，不使用当前会话日志作为 API 结果。',
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                          const Text('独立来源 · 客户端观测'),
-                          const Text('待实现'),
-                          const Text('M2 离线内核已验收；真实接口与测速界面待实现'),
-                          const Text('这里将使用单独的测试请求与结果，不使用当前会话日志作为 API 结果。'),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
                 ),
               ),
             ],

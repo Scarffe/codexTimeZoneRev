@@ -10,6 +10,8 @@ import 'session_metrics_panel.dart';
 import 'session_measurement_workspace.dart';
 import 'monitor_presentation.dart';
 import 'monitor_information.dart';
+import '../state/benchmark_controller.dart';
+import 'independent_benchmark_panel.dart';
 
 /// Account quota and local session observations retain separate data sources.
 /// Information hierarchy follows Win-CodexBar's ProviderGrid/MenuCard (MIT),
@@ -25,6 +27,7 @@ class MonitoringPage extends StatelessWidget {
     required this.recentNotice,
     this.accountPanelKey,
     this.independentApiSelected,
+    this.benchmark,
   });
   final LauncherController launcher;
   final AccountUsageController usage;
@@ -33,10 +36,14 @@ class MonitoringPage extends StatelessWidget {
   final Key? accountPanelKey;
   final String recentNotice;
   final ValueNotifier<bool>? independentApiSelected;
+  final BenchmarkController? benchmark;
 
   @override
   Widget build(BuildContext context) => SessionMeasurementWorkspace(
     independentApiSelected: independentApiSelected,
+    independentApi: benchmark?.enabled == true
+        ? IndependentBenchmarkPanel(controller: benchmark!)
+        : null,
     currentSession: SingleChildScrollView(
       key: const PageStorageKey('monitor-scroll'),
       child: Center(

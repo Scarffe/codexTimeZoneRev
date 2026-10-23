@@ -177,9 +177,18 @@ class WorkspaceShell extends StatelessWidget {
                         children: [
                           TickerMode(
                             enabled: !monitorSelected,
-                            child: launcher,
+                            child: ExcludeFocus(
+                              excluding: monitorSelected,
+                              child: launcher,
+                            ),
                           ),
-                          TickerMode(enabled: monitorSelected, child: monitor),
+                          TickerMode(
+                            enabled: monitorSelected,
+                            child: ExcludeFocus(
+                              excluding: !monitorSelected,
+                              child: monitor,
+                            ),
+                          ),
                         ],
                       ),
                     ),

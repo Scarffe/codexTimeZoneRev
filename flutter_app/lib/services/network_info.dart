@@ -117,10 +117,12 @@ Future<T> firstSuccess<T>(List<Future<T>> requests) {
 class NetworkController extends ChangeNotifier {
   NetworkController({
     this.preview = false,
+    this.offlineTrial = false,
     TransportFactory? transportFactory,
     this.requestTimeout = const Duration(seconds: 9),
   }) : _transportFactory = transportFactory ?? desktopTransport;
   final bool preview;
+  final bool offlineTrial;
   final TransportFactory _transportFactory;
   final Duration requestTimeout;
   IpInfo? domestic, international;
@@ -135,6 +137,7 @@ class NetworkController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    if (offlineTrial) return;
     if (preview) {
       domestic = const IpInfo(
         ip: '192.0.2.10',
@@ -228,7 +231,7 @@ class NetworkController extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    if (busy || preview || _disposed) return;
+    if (busy || preview || offlineTrial || _disposed) return;
     busy = true;
     errors.clear();
     _emit();

@@ -61,10 +61,14 @@ void main() {
       );
       await tester.pump(const Duration(seconds: 2));
       expect(clockTexts(), frozen);
-      final pageStage = find.byWidgetPredicate(
-        (w) => w is Offstage && w.child is WorkspaceShell,
-        skipOffstage: false,
-      );
+      // The nearest Offstage owns main-window visibility; its descendant shell
+      // can also have a process-policy banner in the composition.
+      final pageStage = find
+          .ancestor(
+            of: find.byType(WorkspaceShell, skipOffstage: false),
+            matching: find.byType(Offstage, skipOffstage: false),
+          )
+          .first;
       expect(tester.widget<Offstage>(pageStage).offstage, true);
 
       usage.setMainWindowVisible(true);

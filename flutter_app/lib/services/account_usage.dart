@@ -180,18 +180,25 @@ abstract interface class LimitsUsageService implements AccountUsageService {
 }
 
 class NativeAccountUsageService implements LimitsUsageService {
-  const NativeAccountUsageService(this.backend);
+  const NativeAccountUsageService(this.backend, {this.offlineTrial = false});
   final LauncherBackend backend;
+  final bool offlineTrial;
   @override
-  Future<AccountUsage> queryLimits(String desktopPath) async =>
-      AccountUsage.fromJson(
-        await backend.call('account_usage', {
-          'path': desktopPath,
-          'details': false,
-        }),
-      );
+  Future<AccountUsage> queryLimits(String desktopPath) async {
+    if (offlineTrial) throw StateError('offline_trial_operation_disabled');
+    return AccountUsage.fromJson(
+      await backend.call('account_usage', {
+        'path': desktopPath,
+        'details': false,
+      }),
+    );
+  }
+
   @override
-  Future<AccountUsage> query(String desktopPath) async => AccountUsage.fromJson(
-    await backend.call('account_usage', {'path': desktopPath}),
-  );
+  Future<AccountUsage> query(String desktopPath) async {
+    if (offlineTrial) throw StateError('offline_trial_operation_disabled');
+    return AccountUsage.fromJson(
+      await backend.call('account_usage', {'path': desktopPath}),
+    );
+  }
 }

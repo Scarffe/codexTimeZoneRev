@@ -13,6 +13,7 @@ Future<void> main(List<String> arguments) async {
   runApp(
     LauncherApplication(
       acrylicEnabled: acrylic,
+      offlineTrial: arguments.contains('--offline-benchmark-trial'),
       selectedSessionPath: arguments
           .where((a) => a.startsWith('--observe-session='))
           .map((a) => a.substring('--observe-session='.length))

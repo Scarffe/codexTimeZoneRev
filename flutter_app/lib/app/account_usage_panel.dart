@@ -129,7 +129,10 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                     key: const ValueKey('query-account-usage'),
                     semanticsLabel: controller.busy ? '正在查询用量…' : '查询账号用量',
                     variant: FButtonVariant.ghost,
-                    onPress: controller.busy || widget.launcher.preview
+                    onPress:
+                        controller.busy ||
+                            widget.launcher.preview ||
+                            controller.offlineTrial
                         ? null
                         : () {
                             if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -149,7 +152,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                         : FLucideIcons.play,
                     size: 16,
                   ),
-                  onPress: widget.launcher.preview
+                  onPress: widget.launcher.preview || controller.offlineTrial
                       ? null
                       : () {
                           if (controller.monitoring) {

@@ -1,0 +1,1106 @@
+[
+  {
+    "cleanupPending": false,
+    "elapsedNs": 214034400,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_completion_tokens_including_reasoning",
+        "denominatorNs": 212764600,
+        "numeratorTokens": 100,
+        "quality": "reported",
+        "reasons": [],
+        "unit": "tokens/s",
+        "value": 470.0029986191312
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_completion_tokens_minus_assumed_one",
+        "denominatorNs": 169735400,
+        "numeratorTokens": 99,
+        "quality": "estimated",
+        "reasons": [
+          "first_chunk_assumed_one"
+        ],
+        "unit": "tokens/s",
+        "value": 583.2607694093277
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_completion_tokens_minus_assumed_one",
+        "denominatorNs": 31383700,
+        "numeratorTokens": 99,
+        "quality": "estimated",
+        "reasons": [
+          "first_chunk_assumed_one"
+        ],
+        "unit": "tokens/s",
+        "value": 3154.5037710658717
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 43029200,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 43.0292
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 43029200,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 43.0292
+      }
+    },
+    "protocol": "chat_completions",
+    "protocolTerminal": "chat_done",
+    "reasons": [],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-1",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "chat_text_complete"
+    },
+    "state": "completed",
+    "successfulSample": true,
+    "timingsNs": {
+      "done": 163834600,
+      "firstContent": 43029200,
+      "firstVisible": 43029200,
+      "httpEnd": 212764600,
+      "lastContent": 74412900,
+      "lastVisible": 74412900,
+      "start": 0,
+      "usage": 137823900
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 0
+    }
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 234138200,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_completion_tokens_including_reasoning",
+        "denominatorNs": 233687500,
+        "numeratorTokens": 100,
+        "quality": "reported",
+        "reasons": [],
+        "unit": "tokens/s",
+        "value": 427.92190425247395
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "reasoning_generation_boundary_unknown"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "reasoning_generation_boundary_unknown"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 62421800,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 62.4218
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 36445800,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 36.4458
+      }
+    },
+    "protocol": "chat_completions",
+    "protocolTerminal": "chat_done",
+    "reasons": [],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-2",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "chat_reasoning_complete"
+    },
+    "state": "completed",
+    "successfulSample": true,
+    "timingsNs": {
+      "done": 186905500,
+      "firstContent": 36445800,
+      "firstVisible": 62421800,
+      "httpEnd": 233687500,
+      "lastContent": 94339200,
+      "lastVisible": 94339200,
+      "start": 0,
+      "usage": 156194500
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 20
+    }
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 187920800,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 48254400,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 48.2544
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 48254400,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 48.2544
+      }
+    },
+    "protocol": "chat_completions",
+    "protocolTerminal": "chat_done",
+    "reasons": [
+      "missing_usage"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-3",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "chat_missing_usage"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": 140995700,
+      "firstContent": 48254400,
+      "firstVisible": 48254400,
+      "httpEnd": 187569000,
+      "lastContent": 78886400,
+      "lastVisible": 78886400,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 122088900,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 44038800,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 44.0388
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 44038800,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 44.0388
+      }
+    },
+    "protocol": "chat_completions",
+    "protocolTerminal": null,
+    "reasons": [
+      "missing_finish",
+      "missing_done",
+      "missing_usage"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-4",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "chat_truncated"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": null,
+      "firstContent": 44038800,
+      "firstVisible": 44038800,
+      "httpEnd": 121798000,
+      "lastContent": 74832700,
+      "lastVisible": 74832700,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 352400,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_completion_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_visible_text"
+        ],
+        "unit": "ms",
+        "value": null
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_content"
+        ],
+        "unit": "ms",
+        "value": null
+      }
+    },
+    "protocol": "chat_completions",
+    "protocolTerminal": null,
+    "reasons": [
+      "missing_finish",
+      "missing_done",
+      "missing_http_eof",
+      "missing_usage",
+      "cancelled"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": null,
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-5",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "chat_slow"
+    },
+    "state": "cancelled",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": null,
+      "firstContent": null,
+      "firstVisible": null,
+      "httpEnd": null,
+      "lastContent": null,
+      "lastVisible": null,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 179597300,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens_including_reasoning",
+        "denominatorNs": 178938800,
+        "numeratorTokens": 100,
+        "quality": "reported",
+        "reasons": [],
+        "unit": "tokens/s",
+        "value": 558.8502884785189
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens_minus_assumed_one",
+        "denominatorNs": 140438900,
+        "numeratorTokens": 99,
+        "quality": "estimated",
+        "reasons": [
+          "first_chunk_assumed_one"
+        ],
+        "unit": "tokens/s",
+        "value": 704.9328925247919
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens_minus_assumed_one",
+        "denominatorNs": 31284600,
+        "numeratorTokens": 99,
+        "quality": "estimated",
+        "reasons": [
+          "first_chunk_assumed_one"
+        ],
+        "unit": "tokens/s",
+        "value": 3164.496269730155
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 38499900,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 38.4999
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 38499900,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 38.4999
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": "response.completed",
+    "reasons": [],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-6",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_text_complete"
+    },
+    "state": "completed",
+    "successfulSample": true,
+    "timingsNs": {
+      "done": 130959100,
+      "firstContent": 38499900,
+      "firstVisible": 38499900,
+      "httpEnd": 178938800,
+      "lastContent": 69784500,
+      "lastVisible": 69784500,
+      "start": 0,
+      "usage": 130959100
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 0
+    }
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 239189300,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens_including_reasoning",
+        "denominatorNs": 238800100,
+        "numeratorTokens": 100,
+        "quality": "reported",
+        "reasons": [],
+        "unit": "tokens/s",
+        "value": 418.7602936514683
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "reasoning_generation_boundary_unknown"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "reasoning_generation_boundary_unknown"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 97715600,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 97.7156
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 51154100,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 51.1541
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": "response.completed",
+    "reasons": [],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-7",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_reasoning_complete"
+    },
+    "state": "completed",
+    "successfulSample": true,
+    "timingsNs": {
+      "done": 190758400,
+      "firstContent": 51154100,
+      "firstVisible": 97715600,
+      "httpEnd": 238800100,
+      "lastContent": 129137400,
+      "lastVisible": 129137400,
+      "start": 0,
+      "usage": 190758400
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 20
+    }
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 192514000,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 52450300,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 52.4503
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 52450300,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 52.4503
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": "response.completed",
+    "reasons": [
+      "missing_usage"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-8",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_missing_usage"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": 145636000,
+      "firstContent": 52450300,
+      "firstVisible": 52450300,
+      "httpEnd": 192107300,
+      "lastContent": 83953300,
+      "lastVisible": 83953300,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 125622200,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_usage"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 48184600,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 48.1846
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 48184600,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 48.1846
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": null,
+    "reasons": [
+      "missing_finish",
+      "missing_done",
+      "missing_usage"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-9",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_truncated"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": null,
+      "firstContent": 48184600,
+      "firstVisible": 48184600,
+      "httpEnd": 125346900,
+      "lastContent": 79958000,
+      "lastVisible": 79958000,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 463300,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_finish",
+          "missing_done",
+          "missing_http_eof",
+          "missing_usage",
+          "cancelled"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_visible_text"
+        ],
+        "unit": "ms",
+        "value": null
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "missing_content"
+        ],
+        "unit": "ms",
+        "value": null
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": null,
+    "reasons": [
+      "missing_finish",
+      "missing_done",
+      "missing_http_eof",
+      "missing_usage",
+      "cancelled"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": null,
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-a",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_slow"
+    },
+    "state": "cancelled",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": null,
+      "firstContent": null,
+      "firstVisible": null,
+      "httpEnd": null,
+      "lastContent": null,
+      "lastVisible": null,
+      "start": 0,
+      "usage": null
+    },
+    "usage": null
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 199705900,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_failed",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_failed",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_failed",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 58051700,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 58.0517
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 58051700,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 58.0517
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": "response.failed",
+    "reasons": [
+      "response_failed",
+      "missing_finish"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-b",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_failed"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": 151897700,
+      "firstContent": 58051700,
+      "firstVisible": 58051700,
+      "httpEnd": 199369200,
+      "lastContent": 89243400,
+      "lastVisible": 89243400,
+      "start": 0,
+      "usage": 151897700
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 0
+    }
+  },
+  {
+    "cleanupPending": false,
+    "elapsedNs": 197893100,
+    "engineVersion": "m3-rust-v1+aiperf-b1746a84",
+    "executionMode": "offline_replay",
+    "measurementKind": "independent_api",
+    "metrics": {
+      "e2eTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_incomplete",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "fullResponseTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_incomplete",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "streamTokensPerSecond": {
+        "countSource": "reported_output_tokens",
+        "denominatorNs": null,
+        "numeratorTokens": null,
+        "quality": "unavailable",
+        "reasons": [
+          "response_incomplete",
+          "missing_finish"
+        ],
+        "unit": "tokens/s",
+        "value": null
+      },
+      "ttfoMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 55469400,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 55.4694
+      },
+      "ttftMs": {
+        "countSource": "monotonic_clock",
+        "denominatorNs": 55469400,
+        "numeratorTokens": null,
+        "quality": "measured",
+        "reasons": [],
+        "unit": "ms",
+        "value": 55.4694
+      }
+    },
+    "protocol": "responses",
+    "protocolTerminal": "response.incomplete",
+    "reasons": [
+      "response_incomplete",
+      "missing_finish"
+    ],
+    "requestedModel": "fixture-model",
+    "responseModel": "fixture-response-model",
+    "runId": "5ff0-18e12b58c107111c-540b617b0868bea0-c",
+    "source": {
+      "kind": "offline_fixture",
+      "networkScope": "literal_loopback_only",
+      "scenarioId": "responses_incomplete"
+    },
+    "state": "failed",
+    "successfulSample": false,
+    "timingsNs": {
+      "done": 149615300,
+      "firstContent": 55469400,
+      "firstVisible": 55469400,
+      "httpEnd": 197511600,
+      "lastContent": 87050800,
+      "lastVisible": 87050800,
+      "start": 0,
+      "usage": 149615300
+    },
+    "usage": {
+      "inputTokens": 10,
+      "outputTokens": 100,
+      "reasoningTokens": 0
+    }
+  }
+]

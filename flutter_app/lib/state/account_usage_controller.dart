@@ -14,6 +14,7 @@ class AccountUsageController extends ChangeNotifier {
     this.service, {
     DateTime Function()? now,
     PetRoleLibrary? roleLibrary,
+    this.offlineTrial = false,
   }) : _now = now ?? DateTime.now,
        roles = roleLibrary ?? PetRoleLibrary() {
     roles.addListener(_roleChanged);
@@ -24,6 +25,7 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   final AccountUsageService service;
+  final bool offlineTrial;
   final DateTime Function() _now;
   AccountUsage? data;
   String? error;
@@ -57,6 +59,7 @@ class AccountUsageController extends ChangeNotifier {
   int alertThreshold = 20, petMode = 1, preferencesSerial = 1;
 
   Future<void> loadPreferences(MonitorPreferencesStore store) async {
+    if (offlineTrial) return;
     _preferencesStore = store;
     preferencesReady = false;
     try {
@@ -180,7 +183,7 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   void systemResumed() {
-    if (_disposed || _resumeHandled) return;
+    if (_disposed || _resumeHandled || offlineTrial) return;
     _resumeHandled = true;
     _systemSuspended = false;
     if (!monitoring) return;
@@ -230,7 +233,7 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   void startMonitoring(String Function() path, {Duration? every}) {
-    if (_disposed) return;
+    if (_disposed || offlineTrial) return;
     _path = path;
     if (every != null) {
       interval = every < const Duration(seconds: 1)
@@ -292,7 +295,7 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   Future<void> query(String desktopPath, {bool details = true}) async {
-    if (_disposed || busy || _systemSuspended) return;
+    if (_disposed || busy || _systemSuspended || offlineTrial) return;
     sourceChanged(desktopPath, notify: false);
     // Manual refresh bypasses the normal interval, never failure cooldown.
     if (failures > 0 &&
