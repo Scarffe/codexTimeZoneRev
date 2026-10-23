@@ -240,6 +240,11 @@ class _InspectValuesState extends State<_InspectValues> {
               maxHeight: MediaQuery.sizeOf(context).height * .85,
             ),
             child: FCard(
+              style: FCardStyleDelta.delta(
+                decoration: DecorationDelta.shapeDelta(
+                  color: context.theme.colors.card,
+                ),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(

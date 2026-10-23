@@ -20,6 +20,11 @@ Future<void> showMonitorInformation(
           maxHeight: MediaQuery.sizeOf(context).height * .88,
         ),
         child: FCard(
+          style: FCardStyleDelta.delta(
+            decoration: DecorationDelta.shapeDelta(
+              color: context.theme.colors.card,
+            ),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
