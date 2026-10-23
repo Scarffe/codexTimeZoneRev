@@ -1,13 +1,35 @@
 //! Supported Responses text-stream normalization. No response text is retained.
 use super::types::{ContentKind, FinishReason, SseMessage, StreamError, StreamEvent, TokenUsage};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet},
+    hash::Hasher,
+};
 type Result<T> = std::result::Result<T, StreamError>;
 const MAX: u64 = 9_007_199_254_740_991;
 #[derive(Clone)]
 struct Item {
     id: String,
     kind: String,
+}
+// Fixed-size per-part comparison metadata; never accumulate response strings.
+// Write raw bytes, not Hash::hash(str): chunk boundaries must not affect the digest.
+#[derive(Clone, Default)]
+struct ObservedText {
+    bytes: usize,
+    digest: DefaultHasher,
+}
+impl ObservedText {
+    fn append(&mut self, text: &str) -> Result<()> {
+        self.bytes = self.bytes.checked_add(text.len()).ok_or_else(schema)?;
+        self.digest.write(text.as_bytes());
+        Ok(())
+    }
+    fn matches(&self, text: &str) -> bool {
+        let mut snapshot = DefaultHasher::new();
+        snapshot.write(text.as_bytes());
+        self.bytes == text.len() && self.digest.finish() == snapshot.finish()
+    }
 }
 #[derive(Clone, Default)]
 pub struct ResponsesAdapter {
@@ -18,7 +40,7 @@ pub struct ResponsesAdapter {
     parts: BTreeMap<(u64, bool, u64), String>,
     closed_items: BTreeSet<u64>,
     closed_parts: BTreeSet<(u64, bool, u64)>,
-    observed_text_parts: BTreeSet<(u64, u64)>,
+    observed_text_parts: BTreeMap<(u64, u64), ObservedText>,
     terminal: bool,
 }
 impl ResponsesAdapter {
@@ -122,7 +144,7 @@ impl ResponsesAdapter {
                     return Err(err("responses_item_after_done"));
                 }
                 scope_item(item, &mut events)?;
-                self.snapshot_item(index, item)?;
+                self.snapshot_item(index, item, &mut events)?;
                 if kind.ends_with(".done") {
                     self.closed_items.insert(index);
                 }
@@ -161,7 +183,10 @@ impl ResponsesAdapter {
                     return Err(schema());
                 }
                 if let Some(s) = part.get("text") {
-                    s.as_str().ok_or_else(schema)?;
+                    let data = s.as_str().ok_or_else(schema)?;
+                    if !reasoning {
+                        self.text_snapshot(output, part_index, data, &mut events);
+                    }
                 }
                 if self.parts.len() >= 4096 {
                     return Err(schema());
@@ -258,17 +283,23 @@ impl ResponsesAdapter {
                     "text"
                 };
                 let data = v.get(field).and_then(Value::as_str).ok_or_else(schema)?;
+                if !delta {
+                    if content == ContentKind::Text {
+                        self.text_snapshot(output, part_index, data, &mut events);
+                    }
+                    self.closed_parts.insert((output, reasoning, part_index));
+                }
                 if delta && !data.is_empty() {
                     if content == ContentKind::Text {
-                        self.observed_text_parts.insert((output, part_index));
+                        self.observed_text_parts
+                            .entry((output, part_index))
+                            .or_default()
+                            .append(data)?;
                     }
                     events.push(StreamEvent::Content {
                         kind: content,
                         first_chunk_tokens: None,
                     });
-                }
-                if !delta {
-                    self.closed_parts.insert((output, reasoning, part_index));
                 }
             }
             "response.completed" | "response.failed" | "response.incomplete" => {
@@ -334,7 +365,23 @@ impl ResponsesAdapter {
         }
         Ok(index)
     }
-    fn snapshot_item(&mut self, index: u64, item: &Value) -> Result<()> {
+    fn text_snapshot(&self, output: u64, part: u64, text: &str, events: &mut Vec<StreamEvent>) {
+        let reconciled = self
+            .observed_text_parts
+            .get(&(output, part))
+            .map_or(text.is_empty(), |observed| observed.matches(text));
+        if !reconciled {
+            // Snapshot text has no delta arrival time. This sticky fact only
+            // removes generation-window rates; usage, E2E and timestamps survive.
+            events.push(StreamEvent::TextBoundaryUnknown);
+        }
+    }
+    fn snapshot_item(
+        &mut self,
+        index: u64,
+        item: &Value,
+        events: &mut Vec<StreamEvent>,
+    ) -> Result<()> {
         let id = text(item, "id")?;
         let kind = text(item, "type")?;
         if let Some(old) = self.items.get(&index) {
@@ -380,6 +427,16 @@ impl ResponsesAdapter {
                     if self.parts.len() >= 4096 {
                         return Err(schema());
                     }
+                    if kind == "message" {
+                        self.text_snapshot(
+                            index,
+                            part_index as u64,
+                            part.get("text")
+                                .and_then(Value::as_str)
+                                .ok_or_else(schema)?,
+                            events,
+                        );
+                    }
                     self.parts.insert(
                         (index, *summary, part_index as u64),
                         text(part, "type")?.into(),
@@ -403,23 +460,7 @@ impl ResponsesAdapter {
                 return Err(schema());
             }
             scope_item(item, events)?;
-            self.snapshot_item(index as u64, item)?;
-            if text(item, "type")? == "message" {
-                for (part_index, part) in item["content"]
-                    .as_array()
-                    .ok_or_else(schema)?
-                    .iter()
-                    .enumerate()
-                {
-                    if part["text"].as_str().is_some_and(|s| !s.is_empty())
-                        && !self
-                            .observed_text_parts
-                            .contains(&(index as u64, part_index as u64))
-                    {
-                        events.push(StreamEvent::TextBoundaryUnknown);
-                    }
-                }
-            }
+            self.snapshot_item(index as u64, item, events)?;
         }
         if terminal {
             if self.items.keys().any(|i| *i as usize >= output.len()) {

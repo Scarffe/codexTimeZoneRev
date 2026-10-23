@@ -16,7 +16,7 @@ mod types;
 use collector::Collector;
 use responses::ResponsesAdapter;
 use serde_json::{json, Value};
-use types::SseMessage;
+use types::{SseMessage, StreamEvent};
 
 fn event(a: &mut ResponsesAdapter, c: &mut Collector, at: u64, value: Value) {
     let name = value["type"].as_str().unwrap().to_owned();
@@ -83,7 +83,7 @@ fn usage(reasoning: Value) -> Value {
     json!({"input_tokens":10,"output_tokens":100,"total_tokens":110,"output_tokens_details":{"reasoning_tokens":reasoning}})
 }
 fn text_output() -> Value {
-    json!([{"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"}]}])
+    json!([{"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"syntheticsynthetic"}]}])
 }
 
 // Catches control/done frames being counted as content and opaque reasoning being hidden.
@@ -530,14 +530,14 @@ fn assert_unobserved_final_text_scope(output: Value) {
 #[test]
 fn final_only_additional_message_does_not_borrow_observed_text_window() {
     assert_unobserved_final_text_scope(json!([
-        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"}]},
+        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"syntheticsynthetic"}]},
         {"id":"final-only","type":"message","role":"assistant","content":[{"type":"output_text","text":"unobserved final text"}]}
     ]));
 }
 #[test]
 fn final_only_additional_part_does_not_borrow_observed_text_window() {
     assert_unobserved_final_text_scope(json!([
-        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"synthetic"},{"type":"output_text","text":"unobserved final text"}]}
+        {"id":"msg","type":"message","role":"assistant","content":[{"type":"output_text","text":"syntheticsynthetic"},{"type":"output_text","text":"unobserved final text"}]}
     ]));
 }
 
@@ -699,4 +699,199 @@ fn intermediate_unobserved_text_boundary_remains_unknown_after_later_deltas() {
     assert_eq!(v["metrics"]["e2eTokensPerSecond"]["value"], 25.0);
     assert_eq!(v["timingsNs"]["firstContent"], 500_000_000u64);
     assert!(v["metrics"]["streamTokensPerSecond"]["value"].is_null());
+}
+
+fn text_snapshot(kind: &str, seq: u64, text: &str) -> Value {
+    let part = json!({"type":"output_text","text":text});
+    let item = json!({"id":"msg","type":"message","role":"assistant","content":[part]});
+    match kind {
+        "response.output_text.done" => {
+            json!({"type":kind,"sequence_number":seq,"item_id":"msg","output_index":0,"content_index":0,"text":text})
+        }
+        "response.content_part.added" | "response.content_part.done" => {
+            json!({"type":kind,"sequence_number":seq,"item_id":"msg","output_index":0,"content_index":0,"part":part})
+        }
+        "response.output_item.added" | "response.output_item.done" => {
+            json!({"type":kind,"sequence_number":seq,"output_index":0,"item":item})
+        }
+        _ => {
+            json!({"type":kind,"sequence_number":seq,"response":{"id":"r","model":"fixture","status":if kind == "response.completed" {"completed"} else {"in_progress"},"output":[item],"usage":if kind == "response.completed" {usage(json!(0))} else {Value::Null}}})
+        }
+    }
+}
+fn literal_text_delta(a: &mut ResponsesAdapter, c: &mut Collector, seq: u64, at: u64, text: &str) {
+    event(
+        a,
+        c,
+        at,
+        json!({"type":"response.output_text.delta","sequence_number":seq,"item_id":"msg","output_index":0,"content_index":0,"delta":text}),
+    );
+}
+fn assert_unknown_generation(v: &Value) {
+    for metric in ["streamTokensPerSecond", "fullResponseTokensPerSecond"] {
+        assert!(v["metrics"][metric]["value"].is_null(), "{v}");
+        assert_eq!(v["metrics"][metric]["quality"], "unavailable");
+        assert!(
+            v["metrics"][metric]["reasons"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r == "text_generation_boundary_unknown"),
+            "{v}"
+        );
+    }
+}
+fn assert_preserved_measurements(v: &Value) {
+    assert_eq!(v["successfulSample"], true);
+    assert_eq!(v["usage"]["outputTokens"], 100);
+    assert_eq!(v["metrics"]["e2eTokensPerSecond"]["value"], 25.0);
+    assert_eq!(v["metrics"]["e2eTokensPerSecond"]["quality"], "reported");
+    assert_eq!(v["timingsNs"]["firstContent"], 500_000_000u64);
+    assert_eq!(v["timingsNs"]["firstVisible"], 500_000_000u64);
+    assert_eq!(v["timingsNs"]["lastContent"], 2_500_000_000u64);
+    assert_eq!(v["timingsNs"]["lastVisible"], 2_500_000_000u64);
+    assert_eq!(v["timingsNs"]["httpEnd"], 4_000_000_000u64);
+}
+// Each snapshot entry point must fail closed immediately, even if a later
+// terminal snapshot happens to equal the previously observed deltas.
+fn assert_same_part_snapshot_mismatch(text: &str) {
+    for kind in [
+        "response.output_text.done",
+        "response.content_part.added",
+        "response.content_part.done",
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.in_progress",
+        "response.completed",
+    ] {
+        let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+        created(&mut a, &mut c);
+        item(&mut a, &mut c, 0, "message", "msg");
+        literal_text_delta(&mut a, &mut c, 2, 500_000_000, "A");
+        literal_text_delta(&mut a, &mut c, 3, 2_500_000_000, "B");
+        unknown_text_snapshot(&mut a, &mut c, 3_000_000_000, text_snapshot(kind, 4, text));
+        if kind != "response.completed" {
+            event(
+                &mut a,
+                &mut c,
+                3_100_000_000,
+                text_snapshot("response.completed", 5, "AB"),
+            );
+        }
+        c.http_end(4_000_000_000).unwrap();
+        let v = c.snapshot();
+        assert_unknown_generation(&v);
+        assert_preserved_measurements(&v);
+    }
+}
+// Catches a partial observed part borrowing the entire reported token count.
+#[test]
+fn same_part_unseen_suffix_disables_generation_rates() {
+    assert_same_part_snapshot_mismatch("AB plus an otherwise unobserved suffix");
+}
+// Catches length-only comparison accepting contradictory same-length text.
+#[test]
+fn same_part_equal_length_contradiction_disables_generation_rates() {
+    assert_same_part_snapshot_mismatch("AC");
+}
+// Catches clearing observed text without invalidating its generation boundary.
+#[test]
+fn same_part_empty_snapshot_disables_generation_rates() {
+    assert_same_part_snapshot_mismatch("");
+}
+// Catches snapshots that introduce a nonempty part before its first delta.
+#[test]
+fn snapshot_only_prefix_stays_unknown_for_every_snapshot_entry_point() {
+    for kind in [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.content_part.added",
+    ] {
+        let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+        if kind != "response.created" {
+            created(&mut a, &mut c);
+        }
+        if kind == "response.content_part.added" {
+            item(&mut a, &mut c, 0, "message", "msg");
+        }
+        unknown_text_snapshot(&mut a, &mut c, 0, text_snapshot(kind, 2, "prefix "));
+        literal_text_delta(&mut a, &mut c, 3, 500_000_000, "A");
+        literal_text_delta(&mut a, &mut c, 4, 2_500_000_000, "B");
+        // A later matching snapshot must not repair the earlier missing prefix.
+        event(
+            &mut a,
+            &mut c,
+            3_000_000_000,
+            text_snapshot("response.completed", 5, "AB"),
+        );
+        c.http_end(4_000_000_000).unwrap();
+        let v = c.snapshot();
+        assert_unknown_generation(&v);
+        assert_preserved_measurements(&v);
+    }
+}
+// Catches hashing each chunk as a distinct value instead of the UTF-8 stream,
+// duplicate snapshot accumulation, and treating snapshots as timed content.
+#[test]
+fn matching_unicode_snapshots_preserve_rates_without_recounting_content() {
+    let (mut a, mut c) = (ResponsesAdapter::new(), Collector::for_responses());
+    created(&mut a, &mut c);
+    item(&mut a, &mut c, 0, "message", "msg");
+    event(
+        &mut a,
+        &mut c,
+        0,
+        text_snapshot("response.content_part.added", 2, ""),
+    );
+    literal_text_delta(&mut a, &mut c, 3, 500_000_000, "你");
+    event(
+        &mut a,
+        &mut c,
+        600_000_000,
+        text_snapshot("response.in_progress", 4, "你"),
+    );
+    literal_text_delta(&mut a, &mut c, 5, 2_500_000_000, "好");
+    for (seq, kind) in [
+        (6, "response.output_text.done"),
+        (7, "response.content_part.done"),
+        (8, "response.output_item.done"),
+        (9, "response.completed"),
+    ] {
+        event(
+            &mut a,
+            &mut c,
+            3_000_000_000,
+            text_snapshot(kind, seq, "你好"),
+        );
+    }
+    c.http_end(4_000_000_000).unwrap();
+    let v = c.snapshot();
+    assert_preserved_measurements(&v);
+    assert_eq!(v["metrics"]["streamTokensPerSecond"]["value"], 49.5);
+    assert_eq!(
+        v["metrics"]["streamTokensPerSecond"]["quality"],
+        "estimated"
+    );
+    assert!(v["metrics"]["fullResponseTokensPerSecond"]["value"].is_number());
+    assert!(!v.to_string().contains("你好"));
+}
+
+// Checks the actual adapter event before terminal metrics become available.
+fn unknown_text_snapshot(a: &mut ResponsesAdapter, c: &mut Collector, at: u64, value: Value) {
+    let events = a
+        .accept(SseMessage {
+            event: None,
+            data: value.to_string(),
+        })
+        .unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::TextBoundaryUnknown)),
+        "snapshot must emit unknown boundary: {value}"
+    );
+    for e in events {
+        c.observe(at, e).unwrap();
+    }
 }

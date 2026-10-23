@@ -31,7 +31,7 @@ fn wait(id: &str) -> Value {
         thread::sleep(Duration::from_millis(5));
     }
 }
-// Catches listener creation from catalog, unsafe admission, stale identity, metadata drift,
+// Checks catalog metadata, unsafe admission, stale identity, metadata drift,
 // terminal-before-EOF success, detached fixture/client cleanup, and terminal resurrection.
 #[test]
 fn managed_catalog_admission_dual_protocol_and_owned_cleanup() {
@@ -124,6 +124,9 @@ fn managed_catalog_admission_dual_protocol_and_owned_cleanup() {
     let id = start["runId"].as_str().unwrap();
     let before = Instant::now();
     let stopped = ok("benchmark_shutdown", json!({"runId":id}));
+    // Manager enforces a 500ms internal cleanup deadline. The 600ms external
+    // observation includes 100ms scheduler/FFI return tolerance; it does not
+    // establish a strict externally measured 500ms maximum.
     assert!(before.elapsed() < Duration::from_millis(600));
     assert_eq!(stopped["cleanupComplete"], true);
     assert_eq!(
