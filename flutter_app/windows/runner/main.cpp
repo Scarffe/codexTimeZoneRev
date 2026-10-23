@@ -9,6 +9,7 @@
 #include "package_context.h"
 #include "desktop_prototype.h"
 #include "app_instance.h"
+#include "local_clock_environment.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -36,6 +37,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     app_instance::Options options; options.isolated=app_instance::Has(arguments,L"--isolated-instance");
     const auto decision=application.Claim(options);
     if(decision!=app_instance::Decision::start) return decision==app_instance::Decision::reused ? 0 : 1;
+  }
+  if (!launcher_clock::UseSystemTimeZone()) {
+    MessageBoxW(nullptr, L"无法初始化系统本地时区，启动已停止。",
+                L"Codex 时区启动器", MB_OK | MB_ICONERROR);
+    return EXIT_FAILURE;
   }
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
