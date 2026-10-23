@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../services/session_activity_timeline.dart';
+import 'dashboard_motion.dart';
 import 'dashboard_style.dart';
 
 /// A display sample. Null remains unknown; cancellation never becomes zero.
@@ -372,33 +373,99 @@ class _Scale {
 /// Pointer inspection is attached to actual marks, never an estimated chart bin.
 /// It adds no focus nodes; the chart's numeric inspector remains the touch and
 /// keyboard path. Portal ownership keeps disposal independent of other routes.
+enum _MarkMotion { column, horizontal, point }
+
 class _HoverMark extends StatefulWidget {
-  const _HoverMark({required this.record, required this.child});
+  const _HoverMark({
+    required this.record,
+    required this.child,
+    this.motion,
+    this.color,
+    this.maxPointScale = 1.18,
+  });
   final String record;
   final Widget child;
+  final _MarkMotion? motion;
+  final Color? color;
+  final double maxPointScale;
   @override
   State<_HoverMark> createState() => _HoverMarkState();
 }
 
-class _HoverMarkState extends State<_HoverMark> {
+class _HoverMarkState extends State<_HoverMark>
+    with SingleTickerProviderStateMixin {
   final _portal = OverlayPortalController();
-  void _clear() {
+  late final _burst = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 440),
+  )..addListener(_tick);
+  bool _motionEnabled = false;
+  int _inspectionGeneration = 0;
+
+  void _tick() {
+    if (mounted) setState(() {});
+  }
+
+  void _clearBurst() => _burst.reset();
+
+  void _clearInspection() {
+    final generation = ++_inspectionGeneration;
     if (!_portal.isShowing) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _portal.hide();
+      if (mounted && generation == _inspectionGeneration) _portal.hide();
     });
   }
 
   @override
   void didUpdateWidget(_HoverMark oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.record != widget.record) _clear();
+    // A fresh mark instance is a refresh even when its facts compare equal.
+    // Animation's own ticks only rebuild this state, never replace its widget.
+    _clearBurst();
+    _clearInspection();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!TickerMode.valuesOf(context).enabled) _clear();
+    _motionEnabled = DashboardMotionScope.enabledOf(context);
+    if (!_motionEnabled) _clearBurst();
+    if (!TickerMode.valuesOf(context).enabled) _clearInspection();
+  }
+
+  @override
+  void dispose() {
+    _inspectionGeneration++;
+    _burst.dispose();
+    super.dispose();
+  }
+
+  Widget _paintMark() {
+    if (widget.motion == null) return widget.child;
+    final progress = _motionEnabled && _burst.isAnimating ? _burst.value : 0.0;
+    // Two diminishing lobes return to exact rest; no quantitative-axis shift.
+    final pulse = progress == 0
+        ? 0.0
+        : math.sin(progress * math.pi * 2).abs() * (1 - progress);
+    final x = switch (widget.motion!) {
+      _MarkMotion.column => 1 + .06 * pulse,
+      _MarkMotion.horizontal => 1.0,
+      _MarkMotion.point => 1 + (widget.maxPointScale - 1) * pulse,
+    };
+    final y = switch (widget.motion!) {
+      _MarkMotion.column => 1.0,
+      _MarkMotion.horizontal => 1 + .08 * pulse,
+      _MarkMotion.point => 1 + (widget.maxPointScale - 1) * pulse,
+    };
+    return CustomPaint(
+      foregroundPainter: _MarkParticles(progress, widget.color!),
+      child: Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(x, y, 1),
+        transformHitTests: false,
+        child: widget.child,
+      ),
+    );
   }
 
   @override
@@ -410,17 +477,45 @@ class _HoverMarkState extends State<_HoverMark> {
           Overlay.of(this.context).context.findRenderObject()! as RenderBox;
       final position = box.localToGlobal(Offset.zero, ancestor: overlayBox);
       final screen = overlayBox.size;
-      final width = math.min(330.0, math.max(80.0, screen.width - 24));
+      final padding = MediaQuery.paddingOf(context);
+      final insets = MediaQuery.viewInsetsOf(context);
+      final leftInset = math.max(12.0, padding.left);
+      final rightInset = math.max(12.0, padding.right);
+      final topInset = math.max(12.0, padding.top);
+      final bottomInset = math.max(12.0, padding.bottom + insets.bottom);
+      final width = math.min(
+        330.0,
+        math.max(0.0, screen.width - leftInset - rightInset),
+      );
+      final availableHeight = math.max(
+        0.0,
+        screen.height - topInset - bottomInset,
+      );
+      final style = _labelStyle(context)
+          .copyWith(color: DashboardPalette.of(context).foreground);
+      final text = TextPainter(
+        text: TextSpan(text: widget.record, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: math.max(1.0, width - 20));
+      final truncated = text.height + 20 > availableHeight;
+      final cardHeight = math.min(availableHeight, text.height + 20);
+      text.dispose();
+      final below = position.dy + box.size.height + 6;
+      final top = below + cardHeight <= screen.height - bottomInset
+          ? below
+          : position.dy - cardHeight - 6;
       return Positioned(
         left: position.dx.clamp(
-          12.0,
-          math.max(12.0, screen.width - width - 12),
+          leftInset,
+          math.max(leftInset, screen.width - width - rightInset),
         ),
-        top: (position.dy + box.size.height + 6).clamp(
-          12.0,
-          math.max(12.0, screen.height - 150),
+        top: top.clamp(
+          topInset,
+          math.max(topInset, screen.height - bottomInset - cardHeight),
         ),
         width: width,
+        height: cardHeight,
         child: IgnorePointer(
           child: DecoratedBox(
             key: const ValueKey('monitor-chart-hover'),
@@ -434,10 +529,22 @@ class _HoverMarkState extends State<_HoverMark> {
             ),
             child: Padding(
               padding: const EdgeInsets.all(10),
-              child: Text(
-                widget.record,
-                style: _labelStyle(context)
-                    .copyWith(color: DashboardPalette.of(context).foreground),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: ClipRect(
+                      child: SingleChildScrollView(
+                        child: Text(widget.record, style: style),
+                      ),
+                    ),
+                  ),
+                  if (truncated && cardHeight >= 60)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('完整内容请查看数值', style: style),
+                    ),
+                ],
               ),
             ),
           ),
@@ -446,12 +553,64 @@ class _HoverMarkState extends State<_HoverMark> {
     },
     child: MouseRegion(
       onEnter: (_) {
-        if (TickerMode.valuesOf(context).enabled) _portal.show();
+        if (!TickerMode.valuesOf(context).enabled) return;
+        ++_inspectionGeneration;
+        _portal.show();
+        final box = this.context.findRenderObject() as RenderBox?;
+        if (_motionEnabled &&
+            widget.motion != null &&
+            box != null &&
+            !box.size.isEmpty) {
+          _burst.forward(from: 0);
+        }
       },
-      onExit: (_) => _portal.hide(),
-      child: widget.child,
+      onExit: (_) {
+        ++_inspectionGeneration;
+        _portal.hide();
+        _clearBurst();
+      },
+      child: _paintMark(),
     ),
   );
+}
+
+/// Paint-only finite decoration is clipped to the mark's original rectangle.
+/// It never grows a data mark or a hit region, including a true zero fill.
+class _MarkParticles extends CustomPainter {
+  const _MarkParticles(this.progress, this.color);
+  final double progress;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0 || progress >= 1 || size.isEmpty) return;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    final paint = Paint()
+      ..color = Color.lerp(
+        color,
+        const Color(0xffc5ffe9),
+        .8,
+      )!.withValues(alpha: .85 * (1 - progress));
+    final travel = Curves.easeOutCubic.transform(progress);
+    for (var i = 0; i < 6; i++) {
+      final angle = i * math.pi / 3;
+      final center = Offset(
+        size.width * (.5 + .42 * travel * math.cos(angle)),
+        size.height * (.5 + .42 * travel * math.sin(angle)),
+      );
+      canvas.drawCircle(
+        center,
+        math.min(1.6, math.min(size.width, size.height) / 5),
+        paint,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_MarkParticles oldDelegate) =>
+      progress != oldDelegate.progress || color != oldDelegate.color;
 }
 
 class _Grid extends CustomPainter {
@@ -593,7 +752,11 @@ class MonitorBarChart extends StatelessWidget {
       container: true,
       explicitChildNodes: true,
       label:
-          '${horizontal ? '横条图' : '柱形图'}，${bars.length} 项，$knownCount 项有已知值，单位 $unit。'
+          '${line
+              ? '折线图'
+              : horizontal
+              ? '横条图'
+              : '柱形图'}，${bars.length} 项，$knownCount 项有已知值，单位 $unit。'
           '${bars.take(4).map(_record).join('；')}',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -742,6 +905,8 @@ class MonitorBarChart extends StatelessWidget {
           width: width * primary / max,
           child: _HoverMark(
             record: _record(bar),
+            motion: _MarkMotion.horizontal,
+            color: _BarSeriesColors.of(context).primary,
             child: ColoredBox(
               key: ValueKey('monitor-bar-$index-primary'),
               color: _BarSeriesColors.of(context).primary,
@@ -764,6 +929,8 @@ class MonitorBarChart extends StatelessWidget {
           width: width * secondary / max,
           child: _HoverMark(
             record: _record(bar),
+            motion: _MarkMotion.horizontal,
+            color: _BarSeriesColors.of(context).secondary,
             child: ColoredBox(
               key: ValueKey('monitor-bar-$index-secondary'),
               color: _BarSeriesColors.of(context).secondary,
@@ -817,6 +984,7 @@ class MonitorBarChart extends StatelessWidget {
                           builder: (context, inner) => ColoredBox(
                             color: DashboardPalette.of(context).soft,
                             child: Stack(
+                              clipBehavior: Clip.none,
                               children: _horizontalMarks(
                                 context,
                                 i,
@@ -960,6 +1128,19 @@ class MonitorBarChart extends StatelessWidget {
                                   label: _record(bars[i]),
                                   child: _HoverMark(
                                     record: _record(bars[i]),
+                                    motion: line
+                                        ? _MarkMotion.point
+                                        : _MarkMotion.column,
+                                    // Dense points can fill their entire slot;
+                                    // retain their centers and use particles
+                                    // rather than expanding beyond the plot.
+                                    maxPointScale: slot <= 0
+                                        ? 1
+                                        : math.min(
+                                            1.18,
+                                            slot / math.min(8.0, slot),
+                                          ),
+                                    color: _BarSeriesColors.of(context).primary,
                                     child: ColoredBox(
                                       key: ValueKey('monitor-bar-$i-primary'),
                                       color: _BarSeriesColors.of(context)
@@ -984,6 +1165,8 @@ class MonitorBarChart extends StatelessWidget {
                                     scale.max,
                                 child: _HoverMark(
                                   record: _record(bars[i]),
+                                  motion: _MarkMotion.column,
+                                  color: _BarSeriesColors.of(context).secondary,
                                   child: ColoredBox(
                                     key: ValueKey('monitor-bar-$i-secondary'),
                                     color: _BarSeriesColors.of(context)
@@ -1292,6 +1475,9 @@ class MonitorIntervalChart extends StatelessWidget {
                                     height: 20,
                                     child: _HoverMark(
                                       record: _record(row),
+                                      motion: _MarkMotion.horizontal,
+                                      color: _ChartPalette.of(context)
+                                          .category(row.category),
                                       child: ColoredBox(
                                         key: ValueKey(
                                           'monitor-interval-${row.ordinal}',

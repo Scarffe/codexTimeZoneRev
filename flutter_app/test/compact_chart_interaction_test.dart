@@ -230,6 +230,9 @@ void main() {
       await tester.pump();
       expect(find.byKey(const ValueKey('monitor-chart-hover')), findsOneWidget);
       expect(backend.sessionCalls, calls);
+      await tester.pump(const Duration(milliseconds: 560));
+      expect(find.byKey(const ValueKey('monitor-chart-hover')), findsOneWidget);
+      expect(backend.sessionCalls, calls);
       await mouse.removePointer();
       await tester.pump();
       await chooseOverview(tester, 'session-recent-presentation', 'bar');
