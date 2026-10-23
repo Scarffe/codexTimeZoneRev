@@ -37,6 +37,7 @@ class _SessionMeasurementWorkspaceState
                 onPress: () =>
                     (widget.independentApiSelected ?? _localSelection).value =
                         false,
+                prefix: const Icon(FLucideIcons.messagesSquare),
                 child: const Text('当前会话'),
               ),
               FButton(
@@ -46,7 +47,8 @@ class _SessionMeasurementWorkspaceState
                 onPress: () =>
                     (widget.independentApiSelected ?? _localSelection).value =
                         true,
-                child: const Text('独立 API 测速'),
+                prefix: const Icon(FLucideIcons.activity),
+                child: const Text('独立 API'),
               ),
             ],
           ),
@@ -72,7 +74,8 @@ class _SessionMeasurementWorkspaceState
                           ),
                           const SizedBox(height: 8),
                           const Text('独立来源 · 客户端观测'),
-                          const Text('待 M2/M3 实现流式内核与可试用界面。当前尚不能发起 API 测速。'),
+                          const Text('待实现'),
+                          const Text('M2 离线内核已验收；真实接口与测速界面待实现'),
                           const Text('这里将使用单独的测试请求与结果，不使用当前会话日志作为 API 结果。'),
                         ],
                       ),

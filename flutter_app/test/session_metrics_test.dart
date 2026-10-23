@@ -104,12 +104,14 @@ void main() {
       final c = SessionMetricsController(b)..select('a');
       await tester.pumpWidget(panelApp(c));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('session-timing-details')));
+      await tester.pumpAndSettle();
       expect(find.textContaining('与回合总数：一致'), findsOneWidget);
       expect(find.text('未归类时间：3.000 s'), findsOneWidget);
       expect(find.textContaining('模型生成速度不可用'), findsOneWidget);
       expect(find.textContaining('response-fixture'), findsNothing);
-      await tester.ensureVisible(find.text('查看最近响应用量（最多 12 条）'));
-      await tester.tap(find.text('查看最近响应用量（最多 12 条）'));
+      await tester.ensureVisible(find.text('最近响应用量（最多 12 条）'));
+      await tester.tap(find.text('最近响应用量（最多 12 条）'));
       await tester.pumpAndSettle();
       expect(find.textContaining('response-fixture'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -122,6 +124,8 @@ void main() {
   ) async {
     final c = SessionMetricsController(Backend())..select('a');
     await tester.pumpWidget(panelApp(c));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('session-timing-details')));
     await tester.pumpAndSettle();
     expect(find.text('未归类时间：不可用'), findsOneWidget);
     expect(find.textContaining('计时数据不完整'), findsOneWidget);
@@ -145,19 +149,17 @@ void main() {
       );
       await tester.pumpWidget(panelApp(c));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('刷新本机会话列表'));
+      await tester.tap(find.byKey(const ValueKey('session-refresh')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(c.selectorValue, outsideList ? null : backend.listedPath);
-      expect(find.textContaining('上轮回合平均吞吐：日志报告值 · 未充分核验'), findsOneWidget);
+      expect(find.textContaining('样本质量：日志报告值 · 未充分核验'), findsOneWidget);
       if (outsideList) {
         expect(find.textContaining('当前采集会话不在最近列表中'), findsOneWidget);
       }
       await tester.tap(find.byKey(const ValueKey('session-selector')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.textContaining(' · fixture · 会话 main · ID main · ').last,
-      );
+      await tester.tap(find.textContaining('会话 main · fixture · main').last);
       await tester.pumpAndSettle();
       expect(
         c.selected,
@@ -176,16 +178,14 @@ void main() {
   ) async {
     final c = SessionMetricsController(Backend());
     await tester.pumpWidget(panelApp(c));
-    await tester.tap(find.text('刷新本机会话列表'));
+    await tester.tap(find.byKey(const ValueKey('session-refresh')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('session-selector')));
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.textContaining(' · fixture · 会话 main · ID main · ').last,
-    );
+    await tester.tap(find.textContaining('会话 main · fixture · main').last);
     await tester.pumpAndSettle();
     expect(c.selected, 'a');
-    expect(find.textContaining('上轮回合平均吞吐：日志报告值 · 未充分核验'), findsOneWidget);
+    expect(find.textContaining('样本质量：日志报告值 · 未充分核验'), findsOneWidget);
     await tester.ensureVisible(find.text('停止会话采集'));
     await tester.tap(find.text('停止会话采集'));
     await tester.pumpAndSettle();

@@ -294,7 +294,7 @@ void main() {
         );
         await tester.pump();
         expect(find.byType(SessionMetricsPanel), findsNothing);
-        expect(find.textContaining('M2/M3'), findsOneWidget);
+        expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
         expect(
           find.descendant(
             of: find.byKey(const PageStorageKey('independent-api-scroll')),
@@ -386,7 +386,7 @@ void main() {
         find.byKey(const ValueKey('measurement-independent-api')),
       );
       await tester.pumpAndSettle();
-      expect(find.textContaining('M2/M3'), findsOneWidget);
+      expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
       await switchPage(tester, 'launcher');
       await nativeAction('sessionDetails');
       await tester.pumpAndSettle();
@@ -503,7 +503,7 @@ void main() {
           find.byKey(const ValueKey('measurement-independent-api')),
         );
         await tester.pumpAndSettle();
-        expect(find.textContaining('M2/M3'), findsOneWidget);
+        expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await switchPage(tester, 'launcher');
         expect(find.text('保存并启动'), findsOneWidget);

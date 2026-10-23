@@ -77,6 +77,8 @@ void main() {
           timelineApp(SingleChildScrollView(child: panel(wait: value))),
         );
         await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('session-timing-details')));
+        await tester.pumpAndSettle();
         final waitText = tester
             .widget<Text>(
               find.byKey(const ValueKey('session-first-model-wait')),
@@ -115,6 +117,8 @@ void main() {
           timelineApp(SingleChildScrollView(child: panel(timeline: timeline))),
         );
         await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('session-timing-details')));
+        await tester.pumpAndSettle();
         expect(find.text('未归类时间：2.000 s'), findsOneWidget);
         expect(find.textContaining('时间线不可用'), findsOneWidget);
         expect(
@@ -135,6 +139,8 @@ void main() {
             SingleChildScrollView(child: panel(wait: c.$1, duration: null)),
           ),
         );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('session-timing-details')));
         await tester.pumpAndSettle();
         expect(
           tester
@@ -201,43 +207,43 @@ void main() {
     },
   );
 
-  testWidgets(
-    'collapsed timeline expands overlapping labelled bands and bounded safe list',
-    (tester) async {
-      final fixture = timelineFixture()
-        ..['privateContent'] = 'PRIVATE prompt command answer';
-      fixture['items'][0]['rawId'] = 'PRIVATE id';
-      await tester.pumpWidget(
-        timelineApp(SingleChildScrollView(child: panel(timeline: fixture))),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('session-timeline-chart')),
-        findsNothing,
-      );
-      await tester.tap(find.byKey(const ValueKey('session-timeline-toggle')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('session-timeline-chart')),
-        findsOneWidget,
-      );
-      for (final category in ['消息', '推理', '工具', '其他']) {
-        expect(find.text('$category 项'), findsOneWidget);
-      }
-      expect(find.textContaining('消息 #1'), findsOneWidget);
-      expect(find.textContaining('推理 #2'), findsOneWidget);
-      expect(find.textContaining('边界不确定'), findsOneWidget);
-      expect(find.textContaining('空白不代表等待'), findsOneWidget);
-      expect(find.textContaining('PRIVATE'), findsNothing);
-      expect(
-        tester
-            .getSize(find.byKey(const ValueKey('session-timeline-list')))
-            .height,
-        lessThanOrEqualTo(220),
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('visible timeline expands overlapping bounded safe raw records', (
+    tester,
+  ) async {
+    final fixture = timelineFixture()
+      ..['privateContent'] = 'PRIVATE prompt command answer';
+    fixture['items'][0]['rawId'] = 'PRIVATE id';
+    await tester.pumpWidget(
+      timelineApp(SingleChildScrollView(child: panel(timeline: fixture))),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('session-timeline-chart')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('session-timeline-list')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('session-timeline-toggle')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('session-timeline-chart')),
+      findsOneWidget,
+    );
+    for (final category in ['消息', '推理', '工具', '其他']) {
+      expect(find.text('$category 项'), findsOneWidget);
+    }
+    expect(find.textContaining('消息 #1'), findsOneWidget);
+    expect(find.textContaining('推理 #2'), findsOneWidget);
+    expect(find.textContaining('边界不确定'), findsOneWidget);
+    expect(find.textContaining('空白不代表等待'), findsOneWidget);
+    expect(find.textContaining('PRIVATE'), findsNothing);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('session-timeline-list')))
+          .height,
+      lessThanOrEqualTo(220),
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'partial omitted rows explain absence without treating it as empty waiting',
@@ -359,7 +365,7 @@ void main() {
           final image = await boundary.toImage(pixelRatio: 1);
           final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
           await File(
-            '../environment/stage-l1-finalfix-timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
+            '../environment/sidebar-task2/timeline-${dark ? 'dark' : 'light'}-${width.toInt()}.png',
           ).writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });

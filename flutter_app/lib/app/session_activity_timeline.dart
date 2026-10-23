@@ -46,36 +46,48 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 8),
-        FButton(
-          key: const ValueKey('session-timeline-toggle'),
-          variant: FButtonVariant.outline,
-          onPress: () => setState(() => _expanded = !_expanded),
-          child: Text(_expanded ? '收起上轮日志项时间线' : '查看上轮日志项时间线'),
+        const Text('最近完成的所选回合 · 日志区间 · 约 1 s 精度'),
+        const Text('四类可重叠 · 阴影为近似边界'),
+        if (data.sourcePartial) const Text('来源不完整：仅展示已记录事实'),
+        if (data.spanMs != null) ...[
+          const SizedBox(height: 8),
+          _TimelineBands(data: data),
+        ] else
+          const Text('缺少可核验回合边界，仅列出文字事实，不绘制位置。'),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Semantics(
+            expanded: _expanded,
+            child: FButton(
+              key: const ValueKey('session-timeline-toggle'),
+              mainAxisSize: MainAxisSize.min,
+              variant: FButtonVariant.ghost,
+              onPress: () => setState(() => _expanded = !_expanded),
+              prefix: Icon(
+                _expanded
+                    ? FLucideIcons.chevronDown
+                    : FLucideIcons.chevronRight,
+              ),
+              child: const Text('原始活动记录'),
+            ),
+          ),
         ),
         Offstage(
           offstage: !_expanded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 8),
-              const Text('最近完成的所选回合 · 持久化日志项活动（非实时）'),
               Text(data.reasonText),
               const Text('四类可重叠，不能相加为回合阶段；空白不代表等待或网络耗时。'),
-              if (data.sourcePartial)
-                const Text('来源不完整：缺失、冲突或历史尚不完整，仅展示已记录事实。'),
               if (data.omittedItems > 0)
                 Text(
                   '按时间先后展示 ${data.rows.length} 项，省略 ${data.omittedItems} 项；汇总仍使用全部有效项。',
                 ),
               if (data.coverageInterpretation == 'unavailable')
                 const Text('覆盖范围无法解释：不计算空白占比，也不推断未显示区间的活动。'),
-              if (data.spanMs != null) ...[
+              if (data.spanMs != null)
                 const Text('近似窗口与实际回合耗时不同；首尾阴影为边界不确定区（各至多 1.000 s）。'),
-                const SizedBox(height: 8),
-                _TimelineBands(data: data),
-              ] else
-                const Text('缺少可核验回合边界，仅列出文字事实，不绘制位置。'),
-              const SizedBox(height: 8),
               const Text('对应文字记录（可滚动）：记录起止为 Unix epoch 毫秒；偏移相对于近似窗口；未绘制项保留原因。'),
               SizedBox(
                 height: 210,
@@ -212,13 +224,16 @@ class _TimelineBands extends StatelessWidget {
                 ],
               ),
             ),
-          Row(
-            children: [
-              const SizedBox(width: 66),
-              const Text('0.000 s'),
-              const Spacer(),
-              Text('${(span / 1000).toStringAsFixed(3)} s · 近似窗口'),
-            ],
+          Padding(
+            padding: const EdgeInsets.only(left: 66),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                const Text('0.000 s'),
+                Text('${(span / 1000).toStringAsFixed(3)} s · 近似窗口'),
+              ],
+            ),
           ),
         ],
       ),

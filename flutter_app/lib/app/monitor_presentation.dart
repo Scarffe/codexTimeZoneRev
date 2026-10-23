@@ -61,7 +61,7 @@ class _MonitorDisclosureState extends State<MonitorDisclosure> {
             prefix: Icon(
               expanded ? FLucideIcons.chevronDown : FLucideIcons.chevronRight,
             ),
-            child: Text(widget.label),
+            child: Flexible(child: Text(widget.label)),
           ),
         ),
       ),

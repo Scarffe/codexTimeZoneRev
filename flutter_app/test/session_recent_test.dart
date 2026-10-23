@@ -57,6 +57,8 @@ void main() {
       final c = SessionMetricsController(feed)..select('a');
       await tester.pumpWidget(panelApp(c));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('session-source-details')));
+      await tester.pumpAndSettle();
       expect(find.text('来源项目：project-a'), findsOneWidget);
       expect(find.textContaining('最近成功读取：'), findsOneWidget);
       feed.missing = true;
