@@ -48,7 +48,7 @@ Widget panel({
     'observedMs': 7000,
     'unclassifiedMs': 2000,
     'partial': false,
-    if (timeline != null) 'timeline': timeline,
+    'timeline': ?timeline,
   },
   firstTokenMs: wait,
   durationMs: duration,

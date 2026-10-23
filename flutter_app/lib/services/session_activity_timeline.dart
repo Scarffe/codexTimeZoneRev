@@ -4,7 +4,6 @@ class SessionActivityTimelineData {
     required this.available,
     this.rows = const [],
     this.spanMs,
-    this.boundsResolutionMs = 1000,
     this.sourcePartial = false,
     this.omittedItems = 0,
     this.coverageInterpretation = 'unavailable',
@@ -172,7 +171,7 @@ class SessionActivityTimelineData {
   final bool available;
   final List<SessionActivityTimelineRow> rows;
   final int? spanMs;
-  final int boundsResolutionMs;
+  final int boundsResolutionMs = 1000;
   final bool sourcePartial;
   final int omittedItems;
   final String coverageInterpretation;
