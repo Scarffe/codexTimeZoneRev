@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:codex_timezone/app/theme.dart';
+import 'package:codex_timezone/app/dashboard_style.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -28,6 +29,67 @@ void expectOpaquePanel(WidgetTester tester, Finder option, FThemeData theme) {
 }
 
 void main() {
+  double contrast(Color a, Color b) {
+    final values = [a.computeLuminance(), b.computeLuminance()]..sort();
+    return (values.last + 0.05) / (values.first + 0.05);
+  }
+
+  for (final dark in [false, true]) {
+    test(
+      '${dark ? 'dark' : 'light'} reading surfaces and text stay calm and readable',
+      () {
+        final palette = DashboardPalette.forBrightness(
+          dark ? Brightness.dark : Brightness.light,
+        );
+        final theme = launcherTheme(dark);
+        expect(
+          palette.background.computeLuminance(),
+          dark ? lessThan(0.03) : lessThan(0.85),
+        );
+        expect(
+          palette.panel.computeLuminance(),
+          dark ? lessThan(0.04) : lessThan(0.92),
+        );
+        for (final surface in [
+          palette.background,
+          palette.panel,
+          palette.rail,
+          palette.soft,
+          palette.selected,
+        ]) {
+          expect(
+            contrast(palette.foreground, surface),
+            greaterThanOrEqualTo(4.5),
+          );
+          expect(contrast(palette.muted, surface), greaterThanOrEqualTo(4.5));
+        }
+        expect(
+          contrast(theme.colors.primary, theme.colors.primaryForeground),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(
+            theme.colors.destructive,
+            theme.colors.destructiveForeground,
+          ),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(theme.typography.body.md.fontSize, 14);
+        expect(theme.typography.body.sm.fontSize, 13);
+        expect(theme.typography.body.md.height, 1.5);
+        expect(theme.typography.body.md.fontWeight, FontWeight.w400);
+        expect(theme.typography.body.md.fontFamily, 'Segoe UI Variable Text');
+        expect(theme.typography.body.md.fontFamilyFallback!.take(2), [
+          'Microsoft YaHei UI',
+          'Microsoft YaHei',
+        ]);
+        expect(
+          theme.typography.body.md.fontFeatures ?? [],
+          isNot(contains(FontFeature.tabularFigures())),
+        );
+      },
+    );
+  }
   final captureDirectory = Platform.environment['CAPTURE_THEME_UI_DIR'];
   setUpAll(() async {
     if (captureDirectory == null) return;
@@ -49,11 +111,13 @@ void main() {
     await icons.load();
     final cjk = File(r'C:\Windows\Fonts\msyh.ttc');
     if (cjk.existsSync()) {
-      final chinese = FontLoader('Microsoft YaHei')
-        ..addFont(
-          cjk.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
-        );
-      await chinese.load();
+      for (final family in ['Microsoft YaHei UI', 'Microsoft YaHei']) {
+        final chinese = FontLoader(family)
+          ..addFont(
+            cjk.readAsBytes().then((bytes) => ByteData.sublistView(bytes)),
+          );
+        await chinese.load();
+      }
     }
   });
 

@@ -33,26 +33,22 @@ FThemeData launcherTheme(bool dark, {bool acrylic = false}) {
     touch: false,
     fontFamily: 'Segoe UI Variable Text',
     fontFamilyFallback: const [
-      'Segoe UI',
+      'Microsoft YaHei UI',
       'Microsoft YaHei',
+      'Segoe UI',
       'PingFang SC',
       'Noto Sans CJK SC',
     ],
   );
   TextStyle text(double size, {FontWeight weight = FontWeight.w400}) =>
-      inherited.md.copyWith(
-        fontSize: size,
-        height: 1.4,
-        fontWeight: weight,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      );
+      inherited.md.copyWith(fontSize: size, height: 1.5, fontWeight: weight);
   final typeface = inherited.copyWith(
     xs3: text(11),
     xs2: text(11),
-    xs: text(11),
-    sm: text(12),
-    md: text(13),
-    lg: text(14, weight: FontWeight.w600),
+    xs: text(12),
+    sm: text(13),
+    md: text(14),
+    lg: text(15, weight: FontWeight.w500),
     xl: text(22, weight: FontWeight.w600),
     xl2: text(24, weight: FontWeight.w600),
   );

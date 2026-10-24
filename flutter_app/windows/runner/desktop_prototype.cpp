@@ -3,6 +3,7 @@
 #include "app_instance.h"
 #include "resource.h"
 #include "window_chrome.h"
+#include "production_tray_menu.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
@@ -642,7 +643,11 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if(s.production && (lp==WM_LBUTTONUP || lp==WM_LBUTTONDBLCLK)) { RestoreMain(); Report(); return 0; }
       if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); if(s.live && s.action) s.action("showPet"); return 0; }
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
-        HMENU menu=CreatePopupMenu();
+        HMENU menu=s.production
+            ? production_tray::Build({kMain,kRefresh,kPause,kExit},s.paused)
+            : CreatePopupMenu();
+        if(!menu) return 0;
+        if(!s.production) {
         if (s.live) {
           AppendMenuW(menu,MF_STRING|MF_GRAYED,0,s.caption.c_str());
           if(!s.production) {
@@ -680,6 +685,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         AppendMenuW(menu,MF_SEPARATOR,0,nullptr);
         AppendMenuW(menu,MF_STRING,kExit,s.live ? L"退出监控" : L"Exit Stage A prototype");
+        }
         POINT p{}; GetCursorPos(&p);
         // Menus require foreground ownership; ordinary pet show/click never does.
         HWND menuOwner=s.live && IsWindowVisible(s.mainWindow) ? s.mainWindow : hwnd;
