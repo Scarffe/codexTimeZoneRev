@@ -92,4 +92,3 @@ MVP 建议一次只做前两项中的一项，优先多账户观测；多提供�
 - PowerShell 的匿名 GitHub 请求受本机代理套接字限制，web 的 api.github.com open 也不可用，改用现有 GitHub connector 的只读 public fetch 得到原始 REST；没有登录、授权更改、下载二进制或安装工具。
 - 维护日期证明仓库近期活跃，不证明稳定性、安全性或 Windows 适配成熟。功能以当前 main 文档为主，发布表单独列出最近 release；不能把当前 main 的全部功能声称都已进入最新安装包。
 - 本轮只新增这份研究文档与来源元数据。没有改产品代码、读取真实账户、覆盖凭据、启动/重启客户端、装 hooks、开启 telemetry 或发送模型请求。
-
