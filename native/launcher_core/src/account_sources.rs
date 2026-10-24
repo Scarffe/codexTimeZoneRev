@@ -165,12 +165,17 @@ fn acl(path: &Path, create: bool, tree: bool) -> Result<()> {
     #[cfg(windows)]
     {
         let script = include_str!("account_profile_acl.ps1");
+        // Windows PowerShell uses .NET Framework APIs that otherwise reject
+        // legitimate CLI-created child paths beyond MAX_PATH. Rust returns an
+        // absolute extended-length path here; ownership/reparse policy stays
+        // identical, and failed canonicalization remains fail-closed.
+        let helper_path = fs::canonicalize(path).map_err(|_| Error::new("isolation_failed"))?;
         let system = std::env::var_os("SystemRoot").ok_or(Error::new("isolation_failed"))?;
         let mut c = Command::new(
             PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
         );
         c.args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .env("CTZ_PROFILE_ACL_PATH", path)
+            .env("CTZ_PROFILE_ACL_PATH", helper_path)
             .env("CTZ_PROFILE_ACL_CREATE", if create { "1" } else { "0" })
             .env("CTZ_PROFILE_ACL_TREE", if tree { "1" } else { "0" });
         quiet(&mut c);
@@ -1449,5 +1454,38 @@ mod tests {
         );
         cancel.join().unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn cli_created_long_path_tree_keeps_identical_acl_guards_and_is_removable() {
+        let root = tempfile::tempdir().unwrap();
+        let owned_root = root.path().to_owned();
+        let parent = owned_root.join("p".repeat(96));
+        fs::create_dir(&parent).unwrap();
+        let s = Service::for_test(
+            parent.join("account-profiles"),
+            fixture("success"),
+            Duration::from_secs(2),
+        );
+        let id = create(&s);
+        let home = s.root.join(&id);
+        assert!(home.as_os_str().to_string_lossy().encode_utf16().count() < 260);
+        let long = home.join("skills/.system/skill-installer/scripts/install-skill-from-github.py");
+        assert!(long.as_os_str().to_string_lossy().encode_utf16().count() > 260);
+        fs::create_dir_all(long.parent().unwrap()).unwrap();
+        fs::write(&long, "synthetic embedded skill fixture").unwrap();
+        fs::create_dir_all(home.join(".tmp")).unwrap();
+        fs::write(home.join("state_5.sqlite"), "synthetic database fixture").unwrap();
+        // A second operation must validate the CLI-created inherited ACL tree,
+        // exactly as the release FFI empty-home acceptance sequence does.
+        assert!(
+            s.usage(&id).is_ok(),
+            "legitimate long child paths must not fail ownership validation"
+        );
+        assert_eq!(s.remove(&id).unwrap()["removed"], true);
+        assert!(!home.exists());
+        drop(s);
+        root.close().unwrap();
+        assert!(!owned_root.exists());
     }
 }
