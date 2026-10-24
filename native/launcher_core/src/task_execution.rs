@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 const REAL_EXECUTION_SUPPORTED: bool = false;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Binding {
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Binding {
     source_id: String,
     identity_binding: String,
     // An opaque canonical key supplied by fixtures. This prototype does not
@@ -18,7 +18,7 @@ struct Binding {
 }
 
 impl Binding {
-    fn fixture(
+    pub(crate) fn fixture(
         source_id: &str,
         identity_binding: &str,
         workspace_key: &str,
@@ -48,15 +48,15 @@ impl Binding {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Route {
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Route {
     binding: Binding,
     thread_id: String,
     turn_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum State {
+pub(crate) enum State {
     Prepared,
     Running,
     AwaitingApproval,
@@ -74,14 +74,14 @@ impl State {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Outcome {
+pub(crate) enum Outcome {
     Completed,
     Cancelled,
     Failed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Error {
+pub(crate) enum Error {
     InvalidBinding,
     DuplicateTask,
     SourceBusy,
@@ -93,7 +93,7 @@ enum Error {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ApprovalDecision {
+pub(crate) struct ApprovalDecision {
     route: Route,
     request_id: String,
     approved: bool,
@@ -128,7 +128,7 @@ struct Task {
 /// A real adapter still needs bounded durable history, trusted provenance,
 /// actual canonical workspace validation, and shared credential leases.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Registry {
+pub(crate) struct Registry {
     tasks: HashMap<String, Task>,
     sources: HashMap<String, String>,
     workspaces: HashMap<String, String>,
@@ -136,7 +136,7 @@ struct Registry {
 }
 
 impl Registry {
-    fn prepare(&mut self, binding: Binding) -> Result<(), Error> {
+    pub(crate) fn prepare(&mut self, binding: Binding) -> Result<(), Error> {
         if self.tasks.contains_key(&binding.task_id) {
             return Err(Error::DuplicateTask);
         }
@@ -181,7 +181,7 @@ impl Registry {
         self.task(&route.binding)
     }
 
-    fn state(&self, binding: &Binding) -> Result<State, Error> {
+    pub(crate) fn state(&self, binding: &Binding) -> Result<State, Error> {
         Ok(self.task(binding)?.state)
     }
 
@@ -192,7 +192,11 @@ impl Registry {
             .ok_or(Error::InvalidState)
     }
 
-    fn abort_prepared(&mut self, binding: &Binding, outcome: Outcome) -> Result<(), Error> {
+    pub(crate) fn abort_prepared(
+        &mut self,
+        binding: &Binding,
+        outcome: Outcome,
+    ) -> Result<(), Error> {
         if self.task(binding)?.state != State::Prepared || outcome == Outcome::Completed {
             return Err(Error::InvalidState);
         }
@@ -203,7 +207,12 @@ impl Registry {
         Ok(())
     }
 
-    fn started(&mut self, binding: &Binding, thread: &str, turn: &str) -> Result<Route, Error> {
+    pub(crate) fn started(
+        &mut self,
+        binding: &Binding,
+        thread: &str,
+        turn: &str,
+    ) -> Result<Route, Error> {
         if self.task(binding)?.state != State::Prepared {
             return Err(Error::InvalidState);
         }
@@ -226,7 +235,7 @@ impl Registry {
         Ok(route)
     }
 
-    fn approval(&mut self, route: &Route, request: &str) -> Result<(), Error> {
+    pub(crate) fn approval(&mut self, route: &Route, request: &str) -> Result<(), Error> {
         let task = self.owned(route)?;
         if !matches!(task.state, State::Running | State::AwaitingApproval)
             || request.trim().is_empty()
@@ -241,7 +250,7 @@ impl Registry {
         Ok(())
     }
 
-    fn decision(
+    pub(crate) fn decision(
         &mut self,
         route: &Route,
         request: &str,
@@ -263,7 +272,7 @@ impl Registry {
         })
     }
 
-    fn cancel(&mut self, route: &Route) -> Result<(), Error> {
+    pub(crate) fn cancel(&mut self, route: &Route) -> Result<(), Error> {
         if !matches!(
             self.owned(route)?.state,
             State::Running | State::AwaitingApproval
@@ -277,7 +286,7 @@ impl Registry {
         Ok(())
     }
 
-    fn terminal(&mut self, route: &Route, outcome: Outcome) -> Result<(), Error> {
+    pub(crate) fn terminal(&mut self, route: &Route, outcome: Outcome) -> Result<(), Error> {
         if !matches!(
             self.owned(route)?.state,
             State::Running | State::AwaitingApproval | State::Cancelling
@@ -296,7 +305,7 @@ impl Registry {
         Ok(())
     }
 
-    fn disconnected(&mut self, route: &Route) -> Result<(), Error> {
+    pub(crate) fn disconnected(&mut self, route: &Route) -> Result<(), Error> {
         if !matches!(
             self.owned(route)?.state,
             State::Running | State::AwaitingApproval | State::Cancelling
@@ -353,7 +362,7 @@ impl Registry {
         })
     }
 
-    fn release_after_cleanup(&mut self, binding: &Binding) -> Result<(), Error> {
+    pub(crate) fn release_after_cleanup(&mut self, binding: &Binding) -> Result<(), Error> {
         let task = self.task(binding)?;
         if !task.state.is_terminal() || task.runtime_released {
             return Err(Error::InvalidState);

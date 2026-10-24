@@ -3,6 +3,76 @@ use serde_json::json;
 use std::{fs, sync::atomic::Ordering, time::Instant};
 const WAIT: Duration = Duration::from_secs(3);
 
+#[test]
+fn task_process_compiler_unset_uses_first_existing_absolute_developer_path_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let first = root.path().join("compiler one");
+    let second = root.path().join("compiler two");
+    fs::create_dir(&first).unwrap();
+    fs::create_dir(&second).unwrap();
+    let compiler_name = if cfg!(windows) { "rustc.exe" } else { "rustc" };
+    fs::write(first.join(compiler_name), b"dummy; never executed").unwrap();
+    fs::write(second.join(compiler_name), b"dummy; never executed").unwrap();
+    let path = std::env::join_paths([
+        PathBuf::from("relative-untrusted-entry"),
+        root.path().join("absent"),
+        first.clone(),
+        second,
+    ])
+    .unwrap();
+    assert_eq!(
+        fixture_compiler(None, Some(&path)),
+        Ok(first.join(compiler_name))
+    );
+}
+
+#[test]
+fn task_process_compiler_explicit_valid_absolute_overrides_developer_path() {
+    let root = tempfile::tempdir().unwrap();
+    let compiler = root.path().join("chosen-rustc.exe");
+    fs::write(&compiler, b"dummy; never executed").unwrap();
+    let path_compiler = root.path().join("rustc.exe");
+    fs::write(path_compiler, b"dummy; never executed").unwrap();
+    assert_eq!(
+        fixture_compiler(Some(compiler.as_os_str()), Some(root.path().as_os_str())),
+        Ok(compiler.clone())
+    );
+    assert_eq!(
+        fixture_compiler(Some(compiler.as_os_str()), None),
+        Ok(compiler)
+    );
+}
+
+#[test]
+fn task_process_compiler_invalid_explicit_or_missing_path_fails_without_fallback() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("rustc.exe"), b"dummy; never executed").unwrap();
+    let valid_path = root.path().as_os_str();
+    for invalid in [
+        PathBuf::new(),
+        PathBuf::from("rustc.exe"),
+        root.path().join("missing.exe"),
+        root.path().to_path_buf(),
+    ] {
+        assert_eq!(
+            fixture_compiler(Some(invalid.as_os_str()), Some(valid_path)),
+            Err("explicit fixture compiler invalid")
+        );
+    }
+    assert_eq!(
+        fixture_compiler(None, None),
+        Err("fixture compiler unavailable")
+    );
+    assert_eq!(
+        fixture_compiler(None, Some(std::ffi::OsStr::new("relative-entry"))),
+        Err("fixture compiler unavailable")
+    );
+    assert_eq!(
+        fixture_compiler(None, Some(root.path().join("missing").as_os_str())),
+        Err("fixture compiler unavailable")
+    );
+}
+
 fn launch(mode: FixtureMode) -> (tempfile::TempDir, FixtureLaunch) {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("home");
@@ -43,10 +113,15 @@ fn task_process_two_children_isolate_paths_environment_and_dummy_files() {
         "ANTHROPIC_API_KEY",
     ];
     let before: Vec<_> = names.iter().map(std::env::var_os).collect();
-    assert!(
-        before.iter().all(Option::is_some),
-        "runner must seed synthetic canaries"
-    );
+    // The dedicated isolation runner requires positive inherited-canary proof.
+    // Ordinary cargo test can run without synthetic provider variables; it still
+    // proves the child's provider-key set is empty and the parent is unchanged.
+    if std::env::var_os("CTZ_K31_REQUIRE_CANARIES").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        assert!(
+            before.iter().all(Option::is_some),
+            "runner must seed synthetic canaries"
+        );
+    }
     let (root_a, mut a, _) = start(FixtureMode::Normal);
     let (root_b, mut b, _) = start(FixtureMode::Normal);
     assert_ne!(a.identity(), b.identity());

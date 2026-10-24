@@ -18,7 +18,7 @@ mod session_metrics;
 // K3.0 is an offline contract experiment, absent from release dispatch/binaries.
 #[cfg(test)]
 mod task_execution;
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod task_process;
 #[cfg(windows)]
 #[path = "platform/win/mod.rs"]

@@ -103,6 +103,31 @@ struct FixtureBinary {
     _directory: tempfile::TempDir,
     executable: PathBuf,
 }
+fn fixture_compiler(
+    explicit: Option<&std::ffi::OsStr>,
+    developer_path: Option<&std::ffi::OsStr>,
+) -> Result<PathBuf, &'static str> {
+    // An explicit setting is authoritative, including an invalid/empty one.
+    if let Some(explicit) = explicit {
+        let compiler = PathBuf::from(explicit);
+        return if compiler.is_absolute() && compiler.is_file() {
+            Ok(compiler)
+        } else {
+            Err("explicit fixture compiler invalid")
+        };
+    }
+    // Ordinary cargo test need not export RUSTC. Discover an existing compiler
+    // from the trusted developer PATH, without invoking a shell or installer.
+    // Relative/empty entries never authorize cwd-dependent executable lookup.
+    let name = if cfg!(windows) { "rustc.exe" } else { "rustc" };
+    developer_path
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .filter(|directory| directory.is_absolute())
+        .map(|directory| directory.join(name))
+        .find(|compiler| compiler.is_file())
+        .ok_or("fixture compiler unavailable")
+}
 pub(crate) fn fixture_executable() -> PathBuf {
     static BINARY: OnceLock<FixtureBinary> = OnceLock::new();
     BINARY
@@ -116,13 +141,11 @@ pub(crate) fn fixture_executable() -> PathBuf {
             } else {
                 "task_server"
             });
-            // Only the absolute cached compiler explicitly supplied by the launcher.
-            let compiler =
-                PathBuf::from(std::env::var_os("RUSTC").expect("cached RUSTC must be explicit"));
-            assert!(
-                compiler.is_absolute() && compiler.is_file(),
-                "cached compiler unavailable"
-            );
+            let compiler = fixture_compiler(
+                std::env::var_os("RUSTC").as_deref(),
+                std::env::var_os("PATH").as_deref(),
+            )
+            .expect("fixture compiler discovery failed");
             let mut child = Command::new(compiler)
                 .args(["--edition=2021", "-C", "opt-level=0"])
                 .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/task_server.rs"))

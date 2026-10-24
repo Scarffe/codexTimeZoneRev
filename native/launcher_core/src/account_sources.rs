@@ -228,11 +228,20 @@ struct Job {
     error: Option<Error>,
     cancel: Arc<AtomicBool>,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Purpose {
+    Operation,
+    Task,
+}
+struct Active {
+    purpose: Purpose,
+    cancel: Arc<AtomicBool>,
+}
 #[derive(Default)]
 struct State {
     bound: Option<PathBuf>,
     verified: Option<Value>,
-    active: HashMap<String, Arc<AtomicBool>>,
+    active: HashMap<String, Active>,
     jobs: HashMap<String, Job>,
     shutdown: bool,
 }
@@ -241,6 +250,8 @@ struct Service {
     state: Mutex<State>,
     timeout: Duration,
     browser: Option<Arc<dyn Fn(&str) -> Result<()> + Send + Sync>>,
+    #[cfg(test)]
+    lease_probe: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 struct Activity {
     service: Arc<Service>,
@@ -252,7 +263,7 @@ impl Drop for Activity {
         let mut s = self.service.state.lock().unwrap();
         if s.active
             .get(&self.source)
-            .is_some_and(|v| Arc::ptr_eq(v, &self.cancel))
+            .is_some_and(|v| Arc::ptr_eq(&v.cancel, &self.cancel))
         {
             s.active.remove(&self.source);
         }
@@ -272,10 +283,32 @@ impl Drop for Lease {
         let mut s = self.service.state.lock().unwrap();
         if s.active
             .get(&self.source)
-            .is_some_and(|v| Arc::ptr_eq(v, &self.cancel))
+            .is_some_and(|v| Arc::ptr_eq(&v.cancel, &self.cancel))
         {
             s.active.remove(&self.source);
         }
+    }
+}
+#[cfg(all(test, windows))]
+impl Lease {
+    fn task_start<T>(&self, start: impl FnOnce() -> T) -> Result<T> {
+        let state = self.service.state.lock().unwrap();
+        if state.shutdown {
+            return Err(Error::new("shutdown"));
+        }
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(Error::new("cancelled"));
+        }
+        if !state.active.get(&self.source).is_some_and(|active| {
+            active.purpose == Purpose::Task && Arc::ptr_eq(&active.cancel, &self.cancel)
+        }) {
+            return Err(Error::new("busy"));
+        }
+        fixed_cli(&self.metadata)?;
+        // Test-only launch integration. The same mutex orders acquisition and
+        // shutdown against fixture process creation/Job attach. No production
+        // task entry exists; its future adapter must preserve this gate.
+        Ok(start())
     }
 }
 impl Service {
@@ -285,6 +318,8 @@ impl Service {
             state: Mutex::new(State::default()),
             timeout: LOGIN_TIMEOUT,
             browser: Some(Arc::new(open_auth_url)),
+            #[cfg(test)]
+            lease_probe: Mutex::new(None),
         })
     }
     #[cfg(test)]
@@ -298,6 +333,7 @@ impl Service {
             }),
             timeout,
             browser: None,
+            lease_probe: Mutex::new(None),
         })
     }
     fn activity(self: &Arc<Self>, id: &str) -> Result<Activity> {
@@ -309,7 +345,13 @@ impl Service {
             return Err(Error::new("busy"));
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        s.active.insert(id.into(), cancel.clone());
+        s.active.insert(
+            id.into(),
+            Active {
+                purpose: Purpose::Operation,
+                cancel: cancel.clone(),
+            },
+        );
         Ok(Activity {
             service: self.clone(),
             source: id.into(),
@@ -394,6 +436,9 @@ impl Service {
         Ok((home, fixed_cli(&metadata)?))
     }
     fn lease(self: &Arc<Self>, id: &str) -> Result<Lease> {
+        self.lease_for(id, Purpose::Operation)
+    }
+    fn lease_for(self: &Arc<Self>, id: &str, purpose: Purpose) -> Result<Lease> {
         source(id)?;
         let mut s = self.state.lock().unwrap();
         if s.shutdown {
@@ -402,9 +447,9 @@ impl Service {
         if s.active.contains_key(id) {
             return Err(Error::new("busy"));
         }
-        // Ownership and exclusive deletion must survive an absent/updated CLI.
-        // Executing callers validate the fixed binding separately after leasing.
-        let (home, metadata) = self.owned_profile(id)?;
+        // Hold the cross-process file lease BEFORE validating the profile.
+        // Otherwise another Service could delete it in the validation/lock gap.
+        self.root_ready()?;
         let mut o = OpenOptions::new();
         o.read(true).write(true).create(true);
         #[cfg(windows)]
@@ -415,8 +460,25 @@ impl Service {
         let lock_path = self.root.join(format!(".lease-{id}"));
         safe_path(&lock_path)?;
         let file = o.open(lock_path).map_err(|_| Error::new("busy"))?;
+        #[cfg(test)]
+        if let Some(probe) = self.lease_probe.lock().unwrap().take() {
+            probe();
+        }
+        let (mut home, metadata) = self.owned_profile(id)?;
+        if purpose == Purpose::Task {
+            // Long-running callers must use the persisted fixed registration,
+            // never Service.bound or any default/current-account fallback.
+            fixed_cli(&metadata)?;
+            home = fs::canonicalize(home).map_err(|_| Error::new("isolation_failed"))?;
+        }
         let cancel = Arc::new(AtomicBool::new(false));
-        s.active.insert(id.into(), cancel.clone());
+        s.active.insert(
+            id.into(),
+            Active {
+                purpose,
+                cancel: cancel.clone(),
+            },
+        );
         Ok(Lease {
             service: self.clone(),
             source: id.into(),
@@ -595,7 +657,12 @@ impl Service {
             let busy = {
                 let s = self.state.lock().unwrap();
                 match id {
-                    Some(id) => s.active.contains_key(id),
+                    Some(id) => {
+                        if s.active.get(id).is_some_and(|a| a.purpose == Purpose::Task) {
+                            return Err(Error::new("busy"));
+                        }
+                        s.active.contains_key(id)
+                    }
                     None => !s.active.is_empty(),
                 }
             };
@@ -613,7 +680,10 @@ impl Service {
         {
             let mut s = self.state.lock().unwrap();
             if let Some(c) = s.active.get(id) {
-                c.store(true, Ordering::SeqCst)
+                if c.purpose == Purpose::Task {
+                    return Err(Error::new("busy"));
+                }
+                c.cancel.store(true, Ordering::SeqCst)
             }
             if let Some(j) = s.jobs.get_mut(id) {
                 if ["starting", "waiting"].contains(&j.state) {
@@ -638,7 +708,7 @@ impl Service {
             let mut s = self.state.lock().unwrap();
             s.shutdown = true;
             for c in s.active.values() {
-                c.store(true, Ordering::SeqCst)
+                c.cancel.store(true, Ordering::SeqCst)
             }
             for j in s.jobs.values_mut() {
                 if ["starting", "waiting"].contains(&j.state) {
@@ -842,6 +912,8 @@ pub(crate) fn execute(command: &str, payload: Value) -> std::result::Result<Valu
 }
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    mod task_arbiter;
     use super::*;
     use std::{
         fs,
