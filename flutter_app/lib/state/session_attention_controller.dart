@@ -35,7 +35,7 @@ class SessionAttentionController extends ChangeNotifier {
   Future<void> _saved = Future.value(), _reads = Future.value();
   Future<void>? _polling, _shutdown, _initialization;
   Timer? _timer;
-  bool _closed = false, _disposed = false, _initialized = false;
+  bool _closed = false, _disposed = false, _initialized = false, _ready = false;
   String? _error;
   int _alertSerial = 0;
   String _alert = '';
@@ -98,12 +98,21 @@ class SessionAttentionController extends ChangeNotifier {
     } catch (_) {
       _error = '关注记录无法恢复；原始文件将在下次保存前备份。';
     }
+    _ready = true;
     if (_closed) return;
     _timer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => unawaited(poll()),
     );
     _notify();
+  }
+
+  Future<void> _awaitRestoration() {
+    final initialization = _initialization;
+    if (initialization == null) {
+      throw StateError('请先初始化会话关注记录');
+    }
+    return initialization;
   }
 
   Future<void> refreshSessions() async {
@@ -127,6 +136,10 @@ class SessionAttentionController extends ChangeNotifier {
 
   Future<void> watch(String path, {String? expectedId, String? alias}) async {
     if (_closed) return;
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     if (path.trim().isEmpty || path.length > 32768) {
       throw ArgumentError('invalid_attention_path');
     }
@@ -179,6 +192,10 @@ class SessionAttentionController extends ChangeNotifier {
 
   Future<void> unwatch(String key) async {
     if (_closed) return;
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     _observers.remove(key);
     _notify();
     await _persist();
@@ -186,6 +203,10 @@ class SessionAttentionController extends ChangeNotifier {
 
   Future<void> setEnabled(String key, bool enabled) async {
     if (_closed) return;
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     final observer = _observers[key];
     if (observer == null || observer.watch.enabled == enabled) return;
     _observers[key] = _Observer(observer.watch.copyWith(enabled: enabled));
@@ -223,6 +244,10 @@ class SessionAttentionController extends ChangeNotifier {
   }
 
   Future<void> _pollAll() async {
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     for (final observer in _observers.values.toList()) {
       if (!_valid(observer)) continue;
       try {
@@ -338,6 +363,10 @@ class SessionAttentionController extends ChangeNotifier {
 
   Future<void> markRead(String noticeId) async {
     if (_closed) return;
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     for (var i = 0; i < _notices.length; i++) {
       if (_notices[i].id == noticeId) _notices[i] = _notices[i].asRead();
     }
@@ -347,6 +376,10 @@ class SessionAttentionController extends ChangeNotifier {
 
   Future<void> markAllRead() async {
     if (_closed) return;
+    if (!_ready) {
+      await _awaitRestoration();
+      if (_closed) return;
+    }
     for (var i = 0; i < _notices.length; i++) {
       _notices[i] = _notices[i].asRead();
     }
@@ -354,7 +387,14 @@ class SessionAttentionController extends ChangeNotifier {
     await _persist();
   }
 
-  Future<void> shutdown() => _shutdown ??= _close();
+  Future<void> shutdown() => _shutdown ??= _close().catchError((
+    Object error,
+    StackTrace stack,
+  ) {
+    // Keep observers closed, but let an explicit second exit retry durability.
+    _shutdown = null;
+    Error.throwWithStackTrace(error, stack);
+  });
   Future<void> _close() async {
     _closed = true;
     _timer?.cancel();
@@ -362,7 +402,9 @@ class SessionAttentionController extends ChangeNotifier {
     await _polling;
     await _reads;
     await _saved;
-    if (_initialized) await _persist();
+    if (_initialized && !await _persist()) {
+      throw StateError('关注记录最终保存失败，请重试退出');
+    }
     await _store?.flush();
   }
 

@@ -32,6 +32,7 @@ class AttentionFeed implements LauncherBackend {
   final failures = <String>{};
   Completer<Map<String, dynamic>>? pending;
   int active = 0, maxActive = 0;
+  final polledPaths = <String>[];
   @override
   Future<Map<String, dynamic>> call(
     String command, [
@@ -52,6 +53,7 @@ class AttentionFeed implements LauncherBackend {
       };
     }
     final path = payload['path'] as String;
+    polledPaths.add(path);
     active++;
     if (active > maxActive) maxActive = active;
     try {
@@ -258,6 +260,29 @@ void main() {
       expect(store.value!.notices, hasLength(1));
     },
   );
+  test('failed final save rejects shutdown and explicit second exit retries while closed', () async {
+    await setup();
+    await controller.poll();
+    feed.values['a'] = observation('a', 'live', 'completed');
+    await controller.poll();
+    final notice = controller.notices.single;
+    store.fail = true;
+    await controller.markRead(notice.id);
+    expect(store.value!.notices.single.read, false);
+    await expectLater(controller.shutdown(), throwsStateError);
+    expect(controller.error, isNotNull);
+    store.fail = false;
+    final retry = controller.shutdown();
+    await retry;
+    expect(store.value!.notices.single.read, true);
+    expect(controller.error, isNull);
+    expect(identical(controller.shutdown(), retry), true);
+    final reads = feed.polledPaths.length;
+    feed.values['a'] = observation('a', 'later', 'completed');
+    await controller.poll();
+    expect(feed.polledPaths, hasLength(reads));
+    expect(controller.notices, hasLength(1));
+  });
   test(
     'max8, canonical same path reuse, immutable views and pause ownership',
     () async {
@@ -341,6 +366,169 @@ void main() {
       expect(gated.value!.watches.single.path, 'a');
     },
   );
+  test('startup watch waits for restored eight-watch cap without replacing saved state', () async {
+    await setup([]);
+    final saved = SessionAttentionSnapshot(
+      watches: [
+        for (var i = 0; i < 8; i++)
+          SessionAttentionWatch(
+            key: 'saved-$i',
+            path: 'saved-$i',
+            expectedSessionId: 'saved-$i',
+          ),
+      ],
+      notices: [],
+    );
+    final gated = MemoryAttentionStore()
+      ..value = saved
+      ..readGate = Completer<SessionAttentionSnapshot?>();
+    final restoring = SessionAttentionController(feed);
+    addTearDown(restoring.dispose);
+    final init = restoring.initialize(gated);
+    var finished = false;
+    final watch = restoring
+        .watch('new', expectedId: 'new')
+        .then<Object?>(
+          (_) {
+            finished = true;
+            return null;
+          },
+          onError: (Object error) {
+            finished = true;
+            return error;
+          },
+        );
+    await Future<void>.delayed(Duration.zero);
+    final finishedBeforeRestore = finished;
+    final beforeRestore = gated.value!.toJson();
+    gated.readGate!.complete(saved);
+    await init;
+    final failure = await watch;
+    expect(finishedBeforeRestore, false);
+    expect(beforeRestore, saved.toJson());
+    expect(failure, isStateError);
+    expect(restoring.watches, hasLength(8));
+    expect(gated.value!.toJson(), saved.toJson());
+  });
+  test('startup mutations apply after restoration in order and poll restored surviving watches', () async {
+    await setup([]);
+    final notice = SessionAttentionNotice(
+      watchKey: 'keep',
+      path: 'keep',
+      sessionId: 'keep',
+      turnId: 'old',
+      title: 'Saved',
+      createdAt: DateTime.utc(2026),
+    );
+    final saved = SessionAttentionSnapshot(
+      watches: [
+        const SessionAttentionWatch(
+          key: 'keep',
+          path: 'keep',
+          expectedSessionId: 'keep',
+        ),
+        const SessionAttentionWatch(
+          key: 'remove',
+          path: 'remove',
+          expectedSessionId: 'remove',
+        ),
+      ],
+      notices: [notice],
+    );
+    final gated = MemoryAttentionStore()
+      ..value = saved
+      ..readGate = Completer<SessionAttentionSnapshot?>();
+    final restoring = SessionAttentionController(feed);
+    addTearDown(restoring.dispose);
+    feed.values['new'] = observation('new', 'old', 'completed');
+    feed.values['keep'] = observation('keep', 'old', 'completed');
+    final init = restoring.initialize(gated);
+    final watch = restoring.watch('new', expectedId: 'new');
+    final remove = restoring.unwatch('remove');
+    final pause = restoring.setEnabled('keep', false);
+    final read = restoring.markRead(notice.id);
+    var polled = false;
+    final poll = restoring.poll().then((_) {
+      polled = true;
+    });
+    await Future<void>.delayed(Duration.zero);
+    final beforeRestore = gated.value!.toJson();
+    final polledBeforeRestore = polled;
+    gated.readGate!.complete(saved);
+    await init;
+    await Future.wait([watch, remove, pause, read, poll]);
+    expect(beforeRestore, saved.toJson());
+    expect(polledBeforeRestore, false);
+    expect(restoring.watches.map((w) => w.path), ['keep', 'new']);
+    expect(restoring.watches.first.enabled, false);
+    expect(restoring.notices.single.read, true);
+    expect(gated.value!.watches.map((w) => w.path), ['keep', 'new']);
+    expect(gated.value!.notices.single.read, true);
+    expect(feed.polledPaths, ['new']);
+    expect(restoring.alertSerial, 0);
+  });
+  test(
+    'startup markAllRead preserves restored notices and their references',
+    () async {
+      await setup([]);
+      final saved = SessionAttentionSnapshot(
+        watches: [],
+        notices: [
+          for (var i = 0; i < 2; i++)
+            SessionAttentionNotice(
+              watchKey: 'saved',
+              path: 'saved',
+              sessionId: 'saved',
+              turnId: '$i',
+              title: 'Saved',
+              createdAt: DateTime.utc(2026),
+            ),
+        ],
+      );
+      final gated = MemoryAttentionStore()
+        ..value = saved
+        ..readGate = Completer<SessionAttentionSnapshot?>();
+      final restoring = SessionAttentionController(feed);
+      addTearDown(restoring.dispose);
+      final init = restoring.initialize(gated), read = restoring.markAllRead();
+      await Future<void>.delayed(Duration.zero);
+      final beforeRestore = gated.value!.toJson();
+      gated.readGate!.complete(saved);
+      await init;
+      await read;
+      expect(beforeRestore, saved.toJson());
+      expect(restoring.unreadCount, 0);
+      expect(gated.value!.notices, hasLength(2));
+      expect(
+        gated.value!.notices.every((n) => n.read && n.path == 'saved'),
+        true,
+      );
+    },
+  );
+  test('public watch mutations and poll reject use before initialization explicitly', () async {
+    feed = AttentionFeed();
+    final uninitialized = SessionAttentionController(feed);
+    addTearDown(uninitialized.dispose);
+    for (final operation in <Future<void> Function()>[
+      () => uninitialized.watch('new', expectedId: 'new'),
+      () => uninitialized.unwatch('new'),
+      () => uninitialized.setEnabled('new', false),
+      () => uninitialized.markRead('notice'),
+      () => uninitialized.markAllRead(),
+      () => uninitialized.poll(),
+    ]) {
+      await expectLater(operation(), throwsStateError);
+    }
+  });
+  test('post-start pause and remove still invalidate synchronously', () async {
+    await setup(['a', 'b']);
+    final pause = controller.setEnabled(controller.watches.first.key, false);
+    expect(controller.hasWatchedPath('a'), false);
+    final remove = controller.unwatch(controller.watches.last.key);
+    expect(controller.watches.map((w) => w.path), ['a']);
+    await pause;
+    await remove;
+  });
   test(
     'terminal arriving late for an already completed baseline stays silent',
     () async {
