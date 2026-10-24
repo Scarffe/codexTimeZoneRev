@@ -14,6 +14,7 @@ class SyntheticMultiSources extends AccountSourcesService {
   @override
   bool get synthetic => true;
   final queries = <String>[];
+  final queryFailureKinds = <String, String>{};
   final jobs = <String, int>{};
   int created = 0, shutdowns = 0;
   int cancelFailures = 0, removeFailures = 0;
@@ -93,6 +94,8 @@ class SyntheticMultiSources extends AccountSourcesService {
     bool details = false,
   }) async {
     queries.add(id);
+    final failure = queryFailureKinds[id];
+    if (failure != null) throw SourceFailure(failure);
     if (id == 'profile-stale' && staleNetworkFailure) {
       throw const SourceFailure('network');
     }

@@ -554,7 +554,7 @@ class _SourceLoginEditorState extends State<_SourceLoginEditor> {
                 source?.loginState == 'cancel_failed' ? '重试取消登录' : '取消登录',
               ),
             )
-          else if (source?.loginState != 'succeeded')
+          else
             FButton(
               key: ValueKey(
                 id == null ? 'source-add-login' : 'source-login-retry',
@@ -562,6 +562,7 @@ class _SourceLoginEditorState extends State<_SourceLoginEditor> {
               onPress:
                   !allowed ||
                       working ||
+                      widget.owner.states.any((state) => state.loggingIn) ||
                       (id == null && alias.trim().isEmpty) ||
                       source?.isCurrent == true ||
                       source?.pendingRemoval == true

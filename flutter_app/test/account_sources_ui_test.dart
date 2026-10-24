@@ -324,6 +324,91 @@ void main() {
   );
 
   testWidgets(
+    'successful source can explicitly relogin after quota authentication failure',
+    (tester) async {
+      final f = await syntheticMultiFixture();
+      final id = 'profile-unknown';
+      f.owner.select(id);
+      await f.owner.login(id);
+      for (var i = 0; i < 3; i++) {
+        await f.owner.pollLogin(id);
+      }
+      expect(f.owner.selected!.loginState, 'succeeded');
+      await f.owner.refresh(id);
+      expect(f.owner.selected!.usage, isNotNull);
+      f.service.queryFailureKinds[id] = 'auth_required';
+      await f.owner.refresh(id);
+      expect(f.owner.selected!.usage, isNull);
+      expect(f.owner.selected!.errorKind, 'auth_required');
+      expect(f.owner.selected!.loginState, 'succeeded');
+      final usage = AccountUsageController(_ForbiddenUsage(), sources: f.owner);
+      final launcher = LauncherController(f.backend);
+      addTearDown(() {
+        usage.dispose();
+        f.owner.dispose();
+        f.metrics.dispose();
+        launcher.dispose();
+      });
+      await tester.pumpWidget(
+        sourcesHost(
+          ListenableBuilder(
+            listenable: usage,
+            builder: (_, _) => MonitoringPage(
+              launcher: launcher,
+              usage: usage,
+              metrics: f.metrics,
+              sessionPanelKey: const ValueKey('session'),
+              recentNotice: '',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final generation = f.owner.selected!.generation;
+      final queries = f.service.queries.length;
+      await tester.tap(find.byKey(const ValueKey('source-management')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('source-login')));
+      await tester.pumpAndSettle();
+      expect(
+        f.owner.selected!.generation,
+        generation,
+        reason: 'Opening the editor must not begin another login',
+      );
+      expect(
+        f.service.queries.length,
+        queries,
+        reason: 'Opening the editor must not query quota',
+      );
+      expect(find.byKey(const ValueKey('source-login-name')), findsOneWidget);
+      expect(find.byKey(const ValueKey('source-login-retry')), findsOneWidget);
+      final other = (await f.owner.create('另一个来源'))!;
+      await f.owner.login(other);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        tester
+            .widget<FButton>(find.byKey(const ValueKey('source-login-retry')))
+            .onPress,
+        isNull,
+      );
+      await f.owner.cancelLogin(other);
+      await tester.pumpAndSettle();
+      expect(f.owner.selected!.generation, generation);
+      expect(f.service.queries.length, queries);
+      await tester.tap(find.byKey(const ValueKey('source-login-retry')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(f.owner.selected!.generation, generation + 1);
+      expect(f.owner.selected!.loginState, 'waiting');
+      expect(f.owner.selected!.jobId, isNotNull);
+      expect(f.service.queries.length, queries);
+      await tester.tap(find.byKey(const ValueKey('source-login-cancel')));
+      await tester.pumpAndSettle();
+      f.metrics.select(null);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'source management protects default and limits identity to details',
     (tester) async {
       final f = await syntheticMultiFixture();
