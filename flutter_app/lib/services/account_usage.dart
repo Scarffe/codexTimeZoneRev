@@ -81,6 +81,67 @@ class AccountUsage {
   final int? lifetimeTokens, latestDailyTokens;
   final String? latestDate, limitsError, tokensError;
 
+  /// Durable cache format, distinct from a fresh native RPC observation.
+  Map<String, Object?> toCacheJson() => {
+    'email': email, 'plan': plan, 'identityKey': identityKey,
+    'fetchedAt': fetchedAt.millisecondsSinceEpoch,
+    'tokensFetchedAt': tokensFetchedAt?.millisecondsSinceEpoch,
+    'detailsIncluded': detailsIncluded, 'lifetimeTokens': lifetimeTokens,
+    'latestDailyTokens': latestDailyTokens, 'latestDate': latestDate,
+    // Raw backend errors are intentionally excluded from durable state.
+    'limitsUnavailable': limitsError != null,
+    'tokensUnavailable': tokensError != null,
+    'buckets': [
+      for (final bucket in buckets)
+        {
+          'id': bucket.id,
+          'label': bucket.label,
+          'windows': [
+            for (final window in bucket.windows)
+              {
+                'usedPercent': window.usedPercent,
+                'durationMinutes': window.durationMinutes,
+                'resetsAt': window.resetsAt?.millisecondsSinceEpoch,
+              },
+          ],
+        },
+    ],
+  };
+
+  factory AccountUsage.fromCacheJson(Map<String, dynamic> json) {
+    DateTime? date(Object? value) => value == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(value as int, isUtc: true);
+    return AccountUsage(
+      email: json['email'] as String?,
+      plan: json['plan'] as String?,
+      identityKey: json['identityKey'] as String?,
+      fetchedAt: date(json['fetchedAt'])!,
+      tokensFetchedAt: date(json['tokensFetchedAt']),
+      detailsIncluded: json['detailsIncluded'] == true,
+      lifetimeTokens: json['lifetimeTokens'] as int?,
+      latestDailyTokens: json['latestDailyTokens'] as int?,
+      latestDate: json['latestDate'] as String?,
+      limitsError: json['limitsUnavailable'] == true ? '额度暂不可用' : null,
+      tokensError: json['tokensUnavailable'] == true ? '用量暂不可用' : null,
+      buckets: [
+        for (final value in json['buckets'] as List)
+          UsageBucket(
+            id: value['id'] as String,
+            label: value['label'] as String,
+            windows: [
+              for (final window in value['windows'] as List)
+                UsageWindow(
+                  usedPercent: (window['usedPercent'] as num?)?.toDouble(),
+                  durationMinutes: window['durationMinutes'] as int?,
+                  resetsAt: date(window['resetsAt']),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
   factory AccountUsage.fromJson(Map<String, dynamic> json) {
     final account = json['account'] as Map<String, dynamic>;
     final limits = json['limits'] as Map<String, dynamic>?;

@@ -7,6 +7,7 @@ import '../services/account_usage.dart';
 import '../services/pet_roles.dart';
 import '../services/pet_alerts.dart';
 import '../services/monitor_preferences.dart';
+import 'account_sources_controller.dart';
 
 /// One query owner for main window, tray and pet. Cache is session-only.
 class AccountUsageController extends ChangeNotifier {
@@ -15,10 +16,32 @@ class AccountUsageController extends ChangeNotifier {
     DateTime Function()? now,
     PetRoleLibrary? roleLibrary,
     this.offlineTrial = false,
+    this.sources,
   }) : _now = now ?? DateTime.now,
        roles = roleLibrary ?? PetRoleLibrary() {
     roles.addListener(_roleChanged);
+    sources?.addListener(_sourceOwnerChanged);
+    _sourceOwnerChanged();
   }
+  final AccountSourcesController? sources;
+  void _sourceOwnerChanged() {
+    final owner = sources;
+    if (owner == null || _disposed) return;
+    final state = owner.selected;
+    data = state?.usage;
+    error = state?.error;
+    busy = state?.busy ?? false;
+    failures = state?.failures ?? 0;
+    attempts = state?.attempts ?? 0;
+    revision = state?.revision ?? 0;
+    nextRefreshAt = state?.nextRefreshAt;
+    lastAttempt = state?.lastAttempt;
+    monitoring = owner.monitoring;
+    _alert = owner.alert;
+    _alertSerial = owner.alertSerial;
+    notifyListeners();
+  }
+
   final PetRoleLibrary roles;
   void _roleChanged() {
     if (!_disposed) notifyListeners();
@@ -78,7 +101,12 @@ class AccountUsageController extends ChangeNotifier {
       sessionMutedUntil = saved.sessionMutedUntil == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(saved.sessionMutedUntil!);
-      _petAlerts.restore(value['cycles'], _now());
+      if (sources == null) _petAlerts.restore(value['cycles'], _now());
+      sources?.interval = interval;
+      sources?.configureAlerts(
+        enabled: alertsEnabled,
+        threshold: alertThreshold,
+      );
     } catch (_) {
       preferencesError = '监控设置读取失败，已使用默认值；原文件未改动。';
     }
@@ -103,7 +131,7 @@ class AccountUsageController extends ChangeNotifier {
         sessionAlerts: sessionAlertsEnabled,
         sessionMutedUntil: sessionMutedUntil?.millisecondsSinceEpoch,
       ).toJson(),
-      'cycles': _petAlerts.records(_now()),
+      if (sources == null) 'cycles': _petAlerts.records(_now()),
     };
     _pendingSave = _pendingSave.then((_) async {
       try {
@@ -150,6 +178,7 @@ class AccountUsageController extends ChangeNotifier {
     if (enabled != null) alertsEnabled = enabled;
     if ([10, 20, 30].contains(threshold)) alertThreshold = threshold!;
     _alert = '';
+    sources?.configureAlerts(enabled: alertsEnabled, threshold: alertThreshold);
     _savePreferences();
     if (!_disposed) notifyListeners();
   }
@@ -162,9 +191,15 @@ class AccountUsageController extends ChangeNotifier {
       data!.buckets.any(
         (b) => b.windows.any((w) => w.resetsAt?.isAfter(_now()) == true),
       );
-  bool get cycleMuted => data != null && _petAlerts.isMuted(data!, _now());
+  bool get cycleMuted =>
+      sources?.cycleMuted ??
+      (data != null && _petAlerts.isMuted(data!, _now()));
   void muteCurrentCycle() {
     if (!canMuteCurrentCycle) return;
+    if (sources != null) {
+      sources!.muteCurrentCycle();
+      return;
+    }
     _petAlerts.mute(data!, _now());
     _alert = '';
     _savePreferences();
@@ -176,6 +211,10 @@ class AccountUsageController extends ChangeNotifier {
       _resumeHandled = false;
 
   void systemSuspending() {
+    if (sources != null) {
+      sources!.systemSuspending();
+      return;
+    }
     if (_disposed) return;
     _systemSuspended = true;
     _resumeHandled = false;
@@ -183,6 +222,10 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   void systemResumed() {
+    if (sources != null) {
+      sources!.systemResumed();
+      return;
+    }
     if (_disposed || _resumeHandled || offlineTrial) return;
     _resumeHandled = true;
     _systemSuspended = false;
@@ -209,11 +252,12 @@ class AccountUsageController extends ChangeNotifier {
     }
   }
 
-  bool get stale =>
-      data != null &&
-      (error != null ||
-          failures > 0 ||
-          _now().difference(data!.fetchedAt) > interval * 2);
+  bool get stale => sources != null
+      ? (sources!.selected != null && sources!.isStale(sources!.selected!))
+      : data != null &&
+            (error != null ||
+                failures > 0 ||
+                _now().difference(data!.fetchedAt) > interval * 2);
   Duration? get retryIn => nextRefreshAt?.difference(_now());
 
   void setLocalTime(bool value) {
@@ -227,12 +271,29 @@ class AccountUsageController extends ChangeNotifier {
     interval = value < const Duration(seconds: 1)
         ? const Duration(seconds: 1)
         : value;
-    if (!busy && monitoring && failures == 0) _schedule();
+    if (sources != null) {
+      sources!.interval = interval;
+      if (monitoring) sources!.start(_path ?? () => _source, every: interval);
+    } else if (!busy && monitoring && failures == 0) {
+      _schedule();
+    }
     _savePreferences();
     if (!_disposed) notifyListeners();
   }
 
   void startMonitoring(String Function() path, {Duration? every}) {
+    if (sources != null) {
+      _path = path;
+      if (every != null) interval = every;
+      sources!.configureAlerts(
+        enabled: alertsEnabled,
+        threshold: alertThreshold,
+      );
+      sources!.start(path, every: every ?? interval);
+      savedMonitoring = sources!.monitoring;
+      _savePreferences();
+      return;
+    }
     if (_disposed || offlineTrial) return;
     _path = path;
     if (every != null) {
@@ -253,6 +314,14 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   void pause({bool persist = true}) {
+    if (sources != null) {
+      sources!.pause();
+      if (persist) {
+        savedMonitoring = false;
+        _savePreferences();
+      }
+      return;
+    }
     monitoring = false;
     if (persist) {
       savedMonitoring = false;
@@ -265,6 +334,10 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   void sourceChanged(String path, {bool notify = true}) {
+    if (sources != null) {
+      sources!.sourceChanged(path);
+      return;
+    }
     if (_source == path) return;
     _source = path;
     _generation++;
@@ -295,6 +368,11 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   Future<void> query(String desktopPath, {bool details = true}) async {
+    if (sources != null) {
+      sources!.sourceChanged(desktopPath);
+      await sources!.refresh(sources!.selectedId, details: details);
+      return;
+    }
     if (_disposed || busy || _systemSuspended || offlineTrial) return;
     sourceChanged(desktopPath, notify: false);
     // Manual refresh bypasses the normal interval, never failure cooldown.
@@ -356,7 +434,13 @@ class AccountUsageController extends ChangeNotifier {
   }
 
   Map<String, Object?> get desktopSnapshot {
-    final snapshot = data;
+    final pinned = sources?.pinned;
+    final snapshot = sources == null ? data : pinned?.usage;
+    final busy = sources == null ? this.busy : (pinned?.busy ?? false);
+    final error = sources == null ? this.error : pinned?.error;
+    final stale = sources == null
+        ? this.stale
+        : (pinned != null && sources!.isStale(pinned));
     final buckets = snapshot?.buckets ?? [];
     final preferred = buckets.where((b) => b.id == 'codex');
     final bucket = preferred.isNotEmpty
@@ -370,7 +454,7 @@ class AccountUsageController extends ChangeNotifier {
     final status = busy
         ? '正在刷新'
         : error != null
-        ? (snapshot == null ? error! : '离线 · 上次观测')
+        ? (snapshot == null ? error : '离线 · 上次观测')
         : snapshot == null
         ? '尚未查询'
         : stale
@@ -378,7 +462,9 @@ class AccountUsageController extends ChangeNotifier {
         : monitoring
         ? '自动监控'
         : '已暂停';
-    final label = bucket?.label ?? 'Codex';
+    final label = sources == null
+        ? (bucket?.label ?? 'Codex')
+        : (pinned?.alias ?? 'Codex');
     final text = remaining == null
         ? '$label · 暂无额度 · $status'
         : '$label · 剩余 ${remaining.toStringAsFixed(0)}% · $status';
@@ -410,16 +496,21 @@ class AccountUsageController extends ChangeNotifier {
             return '${w.label} · 剩余 $left\n$countdown';
           })
           .join('\n\n'),
-      'alert': !busy && !stale && error == null ? _alert : '',
+      'alert': sources != null
+          ? sources!.alert
+          : (!busy && !stale && error == null ? _alert : ''),
       'alertSerial': _alertSerial,
       'remaining': remaining ?? -1.0,
       'stale': stale,
       'busy': busy,
       'paused': !monitoring,
-      'revision': revision,
-      'attempts': attempts,
-      'failures': failures,
-      'nextRefreshAt': nextRefreshAt?.millisecondsSinceEpoch ?? 0,
+      'revision': sources == null ? revision : (pinned?.revision ?? 0),
+      'attempts': sources == null ? attempts : (pinned?.attempts ?? 0),
+      'failures': sources == null ? failures : (pinned?.failures ?? 0),
+      'nextRefreshAt':
+          (sources == null ? nextRefreshAt : pinned?.nextRefreshAt)
+              ?.millisecondsSinceEpoch ??
+          0,
       'fetchedAt': snapshot?.fetchedAt.millisecondsSinceEpoch ?? 0,
     };
   }
@@ -430,6 +521,7 @@ class AccountUsageController extends ChangeNotifier {
     _generation++;
     _timer?.cancel();
     roles.removeListener(_roleChanged);
+    sources?.removeListener(_sourceOwnerChanged);
     roles.dispose();
     super.dispose();
   }
