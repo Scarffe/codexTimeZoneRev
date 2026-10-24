@@ -241,7 +241,10 @@ void main() {
       );
       await tester.tap(find.text('查看数值'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('部分 · 数值：3 tokens · 补充数值：未知'), findsOneWidget);
+      expect(
+        find.textContaining('部分 · 数值：3.00 tokens · 补充数值：未知'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -265,8 +268,8 @@ void main() {
       expect(find.textContaining('第二序列'), findsNothing);
       await tester.tap(find.text('查看数值'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('非推理输出：3 tokens'), findsOneWidget);
-      expect(find.textContaining('推理：6 tokens'), findsOneWidget);
+      expect(find.textContaining('非推理输出：3.00 tokens'), findsOneWidget);
+      expect(find.textContaining('推理：6.00 tokens'), findsOneWidget);
       expect(find.textContaining('响应一'), findsWidgets);
       expect(tester.takeException(), isNull);
     },
@@ -286,11 +289,11 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(find.textContaining('明细：1.2345 s'), findsOneWidget);
+    expect(find.textContaining('明细：1.23 s'), findsOneWidget);
     expect(find.textContaining('本地记录'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('明细：1.2345 s'), findsNothing);
+    expect(find.textContaining('明细：1.23 s'), findsNothing);
   });
 
   testWidgets(
@@ -356,7 +359,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('101000'), findsOneWidget);
       expect(find.textContaining('106000'), findsOneWidget);
-      expect(find.textContaining('5.000 s'), findsWidgets);
+      expect(find.textContaining('5.00 s'), findsWidgets);
     },
   );
 

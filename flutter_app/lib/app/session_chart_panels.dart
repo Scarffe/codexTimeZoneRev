@@ -23,12 +23,14 @@ class SessionChartPanels extends StatefulWidget {
     required this.onActivityView,
     required this.onResponseView,
     required this.completedIdentity,
+    this.sessionIdentity,
   });
   final SessionChartData data;
   final SessionMeasurementQuality quality;
   final String recentMetric, configurationMetric, activityView, responseView;
   final int recentRange;
   final String? completedIdentity;
+  final Object? sessionIdentity;
   final ValueChanged<String> onRecentMetric,
       onRecentRange,
       onConfigurationMetric,
@@ -102,9 +104,17 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child: rows.isEmpty
           ? _empty()
           : MonitorBarChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'recent',
+                recentMetric,
+                recentRange,
+                _presentation,
+              ),
               bars: status
                   ? [
                       ChartBar(
+                        identity: 'completed',
                         label: '完成',
                         value: rows
                             .where((row) => !row.cancelled)
@@ -112,6 +122,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                             .toDouble(),
                       ),
                       ChartBar(
+                        identity: 'cancelled',
                         label: '取消',
                         value: rows
                             .where((row) => row.cancelled)
@@ -122,6 +133,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                   : [
                       for (var i = 0; i < rows.length; i++)
                         ChartBar(
+                          identity: rows[i].id,
                           label: '${i + 1}',
                           value: rows[i].cancelled
                               ? null
@@ -175,9 +187,15 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child: rows.isEmpty
           ? _empty()
           : MonitorBarChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'configuration',
+                configurationMetric,
+              ),
               bars: [
                 for (final row in rows)
                   ChartBar(
+                    identity: (row.model, row.effort, row.serviceTier),
                     label: row.label,
                     value: switch (configurationMetric) {
                       'output' => row.outputTokens.toDouble(),
@@ -204,6 +222,12 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child = coverage == null
           ? const SizedBox(height: 155, child: Center(child: Text('覆盖不可核验')))
           : MonitorCoverageChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'activity',
+                activityView,
+                completedIdentity,
+              ),
               observedMs: coverage.observedMs,
               unclassifiedMs: coverage.unclassifiedMs,
             );
@@ -211,9 +235,16 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child = data.activities.isEmpty
           ? _empty()
           : MonitorBarChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'activity',
+                activityView,
+                completedIdentity,
+              ),
               bars: [
                 for (final row in data.activities)
                   ChartBar(
+                    identity: row.category,
                     label: row.label,
                     value: row.milliseconds == null
                         ? null
@@ -227,6 +258,12 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child = !data.timeline.available || data.timeline.rows.isEmpty
           ? _empty()
           : MonitorIntervalChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'activity',
+                activityView,
+                completedIdentity,
+              ),
               key: const ValueKey('session-timeline-chart'),
               data: data.timeline,
             );
@@ -286,9 +323,16 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       child: data.responses.isEmpty
           ? _empty()
           : MonitorBarChart(
+              inspectionIdentity: (
+                widget.sessionIdentity,
+                'response',
+                responseView,
+                completedIdentity,
+              ),
               bars: [
                 for (var i = 0; i < data.responses.length; i++)
                   ChartBar(
+                    identity: data.responses[i].id,
                     label: '${i + 1}',
                     detail: '响应 ${data.responses[i].id}',
                     value: composition

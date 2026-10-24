@@ -32,7 +32,7 @@ Future<NavigatorState> _openInspection(
   await tester.tap(find.text('查看数值'));
   await tester.pumpAndSettle();
   expect(find.text('图表数值'), findsOneWidget);
-  expect(find.text('精确样本：1.23456789 s'), findsOneWidget);
+  expect(find.text('精确样本：1.23 s'), findsOneWidget);
   return navigator;
 }
 
@@ -61,7 +61,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('图表数值'), findsOneWidget);
-    expect(find.text('精确样本：1.23456789 s'), findsOneWidget);
+    expect(find.text('精确样本：1.23 s'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
   });
@@ -77,10 +77,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('图表数值'), findsNothing);
-    expect(find.text('精确样本：1.23456789 s'), findsNothing);
+    expect(find.text('精确样本：1.23 s'), findsNothing);
     await tester.tap(find.text('查看数值'));
     await tester.pumpAndSettle();
-    expect(find.text('新样本：9.87654321 s'), findsOneWidget);
+    expect(find.text('新样本：9.88 s'), findsOneWidget);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
   });
@@ -96,7 +96,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('图表数值'), findsNothing);
-    expect(find.text('精确样本：1.23456789 s'), findsNothing);
+    expect(find.text('精确样本：1.23 s'), findsNothing);
     expect(find.text('当前没有图表'), findsOneWidget);
     expect(navigator.canPop(), isFalse);
     expect(tester.takeException(), isNull);
@@ -117,10 +117,7 @@ void main() {
 
         expect(find.text('另一项操作'), findsOneWidget);
         expect(find.text('图表数值', skipOffstage: false), findsNothing);
-        expect(
-          find.text('精确样本：1.23456789 s', skipOffstage: false),
-          findsNothing,
-        );
+        expect(find.text('精确样本：1.23 s', skipOffstage: false), findsNothing);
         navigator.pop();
         await tester.pumpAndSettle();
         expect(navigator.canPop(), isFalse);

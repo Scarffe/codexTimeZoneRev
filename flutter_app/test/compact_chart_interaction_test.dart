@@ -83,7 +83,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();
-      expect(find.textContaining('零：0 s'), findsOneWidget);
+      expect(find.textContaining('零：0.00 s'), findsOneWidget);
       expect(find.textContaining('未知：未知'), findsOneWidget);
       expect(find.textContaining('取消：取消'), findsOneWidget);
     },
@@ -115,10 +115,10 @@ void main() {
     await mouse.moveTo(
       tester.getCenter(find.byKey(const ValueKey('monitor-bar-0-secondary'))),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 600));
     expect(find.byKey(const ValueKey('monitor-chart-hover')), findsOneWidget);
-    expect(find.textContaining('非推理输出：1.23456789 tokens'), findsOneWidget);
-    expect(find.textContaining('推理：2.5 tokens'), findsOneWidget);
+    expect(find.textContaining('非推理输出：1.23 tokens'), findsOneWidget);
+    expect(find.textContaining('推理：2.50 tokens'), findsOneWidget);
     expect(find.textContaining('响应 synthetic-1'), findsOneWidget);
     await mouse.removePointer();
     await tester.pumpAndSettle();
@@ -198,7 +198,7 @@ void main() {
     await mouse.moveTo(
       tester.getCenter(find.byKey(const ValueKey('monitor-bar-0-primary'))),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 600));
     expect(find.byKey(const ValueKey('monitor-chart-hover')), findsOneWidget);
     active.value = false;
     await tester.pumpAndSettle();
@@ -206,6 +206,70 @@ void main() {
     await mouse.removePointer();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'real synthetic session polling keeps hover facts live without extra source reads',
+    (tester) async {
+      final backend = OverviewBackend();
+      final usage = PageUsage();
+      await tester.pumpWidget(overviewApplication(backend, usage));
+      await tester.pumpAndSettle();
+      await populateOverview(tester);
+      await chooseOverview(tester, 'session-recent-presentation', 'bar');
+      await chooseOverview(tester, 'session-recent-range', '8');
+      final mark = find.descendant(
+        of: find.byKey(const ValueKey('session-recent-chart')),
+        matching: find.byKey(const ValueKey('monitor-bar-0-primary')),
+      );
+      await tester.ensureVisible(mark);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: const Offset(1, 1));
+      await mouse.moveTo(tester.getCenter(mark));
+      await tester.pump();
+      final calls = backend.sessionCalls;
+      final quotaCalls = usage.calls;
+      for (var poll = 1; poll <= 3; poll++) {
+        (backend.value['terminals'] as List)[7]['durationMs'] =
+            6000 + poll * 1000;
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump();
+        await tester.pump();
+        expect(backend.sessionCalls, calls + poll);
+        expect(usage.calls, quotaCalls);
+        expect(
+          find.byKey(const ValueKey('monitor-chart-hover')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('1：${6 + poll}.00 s'), findsOneWidget);
+        expect(find.textContaining('回合 terminal-7'), findsOneWidget);
+      }
+      backend.readFailure = 'synthetic read failure';
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      await tester.pump();
+      expect(backend.sessionCalls, calls + 4);
+      expect(find.byKey(const ValueKey('monitor-chart-hover')), findsNothing);
+      await mouse.removePointer();
+      await tester.pumpAndSettle();
+      final controller = tester
+          .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
+          .controller;
+      backend.readFailure = null;
+      controller.select(r'C:\synthetic-only\another-selected-session.jsonl');
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<MonitorChoice>(
+              find.byKey(const ValueKey('session-recent-presentation')),
+            )
+            .value,
+        'bar',
+      );
+      expect(usage.calls, quotaCalls);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(milliseconds: 350));
+    },
+  );
 
   testWidgets(
     'recent duration defaults line and retains bar choice without reads',

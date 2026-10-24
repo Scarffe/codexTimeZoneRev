@@ -44,14 +44,15 @@ Widget _surface(
         child: TickerMode(
           enabled: visible,
           child: DefaultTextStyle(
-            style: TextStyle(
-              fontSize: 14,
-              fontFamily: 'Segoe UI',
-              fontFamilyFallback: const ['Microsoft YaHei'],
-              color: (dark ? darkLauncherTheme : lightLauncherTheme)
-                  .colors
-                  .foreground,
-            ),
+            style: (dark ? darkLauncherTheme : lightLauncherTheme)
+                .typography
+                .body
+                .md
+                .copyWith(
+                  color: (dark ? darkLauncherTheme : lightLauncherTheme)
+                      .colors
+                      .foreground,
+                ),
             child: RepaintBoundary(key: capture, child: child!),
           ),
         ),
@@ -60,7 +61,7 @@ Widget _surface(
   ),
   onGenerateRoute: (_) => PageRouteBuilder<void>(
     pageBuilder: (_, _, _) => ColoredBox(
-      color: dark ? const Color(0xff15171c) : const Color(0xfffafbfc),
+      color: (dark ? darkLauncherTheme : lightLauncherTheme).colors.background,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(children: [const Text('SYNTHETIC · 图表悬停演示'), chart]),
@@ -153,19 +154,21 @@ void main() {
         tester.getRect(find.byKey(const ValueKey('monitor-axis-tick-0'))),
         axis,
       );
-      expect(find.textContaining('1.23456789 s'), findsWidgets);
+      expect(find.textContaining('1.23 s'), findsWidgets);
       final painter = tester
           .widget<CustomPaint>(_effect(mark))
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, resting.size),
-        paintsExactlyCountTimes(#drawCircle, 6),
+        paintsExactlyCountTimes(#drawCircle, 48),
       );
       await tester.pump(const Duration(milliseconds: 480));
       expect(tester.getRect(mark), resting);
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
+      await mouse.removePointer();
+      await tester.pump();
       _expectNoParticles(tester, mark);
       expect(tester.binding.transientCallbackCount, 0);
-      await mouse.removePointer();
     },
   );
 
@@ -267,7 +270,7 @@ void main() {
   });
 
   testWidgets(
-    'dense edge points keep the finite paint response inside the chart boundary',
+    'dense edge points keep the bounded halo inside the chart boundary',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(320, 800);
@@ -296,7 +299,7 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, before.size),
-        paintsExactlyCountTimes(#drawCircle, 6),
+        paintsExactlyCountTimes(#drawCircle, 48),
       );
       await mouse.removePointer();
       await tester.pump();
@@ -305,7 +308,7 @@ void main() {
   );
 
   testWidgets(
-    'rapid mark crossing replaces the finite burst without accumulating particles',
+    'rapid mark crossing replaces the active halo without accumulating particles',
     (tester) async {
       await tester.pumpWidget(
         _surface(
@@ -326,13 +329,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 80));
       _expectNoParticles(tester, first);
       expect(find.byKey(const ValueKey('monitor-chart-hover')), findsOneWidget);
-      expect(find.text('第二合成值：4 s'), findsOneWidget);
+      expect(find.text('第二合成值：4.00 s'), findsOneWidget);
       final painter = tester
           .widget<CustomPaint>(_effect(second))
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, tester.getSize(second)),
-        paintsExactlyCountTimes(#drawCircle, 6),
+        paintsExactlyCountTimes(#drawCircle, 48),
       );
       await mouse.moveTo(const Offset(1, 1));
       await mouse.moveTo(tester.getCenter(second));
@@ -343,24 +346,18 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => replaced.paint(canvas, tester.getSize(second)),
-        paintsExactlyCountTimes(#drawCircle, 6),
+        paintsExactlyCountTimes(#drawCircle, 48),
       );
       await tester.pump(const Duration(milliseconds: 480));
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
+      await mouse.removePointer();
+      await tester.pump();
       _expectNoParticles(tester, second);
       expect(tester.binding.transientCallbackCount, 0);
-      await mouse.removePointer();
     },
   );
 
-  for (final stop in [
-    'exit',
-    'changed',
-    'equal',
-    'app',
-    'os',
-    'hidden',
-    'dispose',
-  ]) {
+  for (final stop in ['exit', 'app', 'os', 'hidden', 'dispose']) {
     testWidgets('$stop cancels an active burst and never replays it', (
       tester,
     ) async {
@@ -422,12 +419,12 @@ void main() {
         expect(find.byKey(const ValueKey('monitor-chart-hover')), findsNothing);
       }
       if (stop == 'app' || stop == 'os') {
-        expect(find.text('合成值：4 s'), findsOneWidget);
+        expect(find.text('合成值：4.00 s'), findsOneWidget);
         await mouse.moveTo(const Offset(1, 1));
         await mouse.moveTo(tester.getCenter(mark));
         await tester.pump(const Duration(milliseconds: 100));
         _expectNoParticles(tester, mark);
-        expect(find.text('合成值：4 s'), findsOneWidget);
+        expect(find.text('合成值：4.00 s'), findsOneWidget);
       }
       if (stop == 'dispose') await mouse.moveTo(const Offset(1, 1));
       settings.value = 2;
@@ -472,7 +469,7 @@ void main() {
   );
 
   testWidgets(
-    'tall hover fits live viewport and full precision remains in numeric inspector',
+    'tall hover fits live viewport and formatted values and complete metadata remain in numeric inspector',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(320, 400);
@@ -506,13 +503,13 @@ void main() {
       await tester.tap(find.text('查看数值'));
       await tester.pumpAndSettle();
       expect(find.textContaining(detail), findsOneWidget);
-      expect(find.textContaining('高卡片：1.23456789 s'), findsOneWidget);
+      expect(find.textContaining('高卡片：1.23 s'), findsOneWidget);
     },
   );
 
   if (frameDirectory != null) {
     for (final dark in [false, true]) {
-      for (final width in [320.0, 600.0, 1280.0]) {
+      for (final width in [320.0, 600.0, 1100.0]) {
         testWidgets(
           'capture synthetic actual Flutter chart motion $dark $width',
           (tester) async {
@@ -521,69 +518,84 @@ void main() {
             addTearDown(tester.view.resetPhysicalSize);
             addTearDown(tester.view.resetDevicePixelRatio);
             final capture = GlobalKey();
+            final revision = ValueNotifier(0);
+            addTearDown(revision.dispose);
             await tester.pumpWidget(
               _surface(
-                Column(
-                  children: [
-                    const Text('响应输出 tokens（合成示例）'),
-                    const MonitorBarChart(
-                      bars: [
-                        ChartBar(
-                          label: '响应 01',
-                          value: 120,
-                          secondaryValue: 64,
+                ValueListenableBuilder<int>(
+                  valueListenable: revision,
+                  builder: (_, generation, _) => Column(
+                    children: [
+                      const Text('响应输出 tokens（合成示例）'),
+                      MonitorBarChart(
+                        inspectionIdentity: (
+                          'synthetic-session',
+                          'response',
+                          'composition',
                         ),
-                        ChartBar(
-                          label: '响应 02',
-                          value: 84,
-                          secondaryValue: 130,
-                        ),
-                        ChartBar(
-                          label: '响应 03',
-                          value: 184.23456789,
-                          secondaryValue: 96,
-                        ),
-                        ChartBar(label: '响应 04', value: 62, secondaryValue: 42),
-                        ChartBar(
-                          label: '响应 05',
-                          value: 220,
-                          secondaryValue: 170,
-                        ),
-                        ChartBar(
-                          label: '响应 06',
-                          value: 132,
-                          secondaryValue: 76,
-                        ),
-                      ],
-                      unit: 'tokens',
-                      stacked: true,
-                      primaryLabel: '非推理输出',
-                      secondaryLabel: '推理',
-                      xLabel: '响应顺序',
-                    ),
-                    const Text('账户配额（合成示例）'),
-                    const MonitorBarChart(
-                      bars: [
-                        ChartBar(label: '合成配额', value: 63.456789),
-                        ChartBar(label: '缺失', value: null),
-                      ],
-                      unit: '%',
-                      horizontal: true,
-                      compactMeters: true,
-                    ),
-                    const Text('最近 64 回合时长（合成示例，含缺失）'),
-                    MonitorBarChart(
-                      bars: [
-                        for (var i = 0; i < 64; i++)
+                        bars: [
                           ChartBar(
-                            label: '合成$i',
-                            value: i == 17 ? null : (i % 7).toDouble(),
+                            label: '响应 01',
+                            value: 120,
+                            secondaryValue: 64,
                           ),
-                      ],
-                      unit: 's',
-                      line: true,
-                    ),
-                  ],
+                          ChartBar(
+                            label: '响应 02',
+                            value: 84,
+                            secondaryValue: 130,
+                          ),
+                          ChartBar(
+                            identity: 'synthetic-response-03',
+                            label: '响应 03',
+                            value: 184.23456789 + 10 * generation,
+                            secondaryValue: 96,
+                          ),
+                          ChartBar(
+                            label: '响应 04',
+                            value: 62,
+                            secondaryValue: 42,
+                          ),
+                          ChartBar(
+                            label: '响应 05',
+                            value: 220,
+                            secondaryValue: 170,
+                          ),
+                          ChartBar(
+                            label: '响应 06',
+                            value: 132,
+                            secondaryValue: 76,
+                          ),
+                        ],
+                        unit: 'tokens',
+                        stacked: true,
+                        primaryLabel: '非推理输出',
+                        secondaryLabel: '推理',
+                        xLabel: '响应顺序',
+                      ),
+                      const Text('账户配额（合成示例）'),
+                      const MonitorBarChart(
+                        bars: [
+                          ChartBar(label: '合成配额', value: 63.456789),
+                          ChartBar(label: '缺失', value: null),
+                        ],
+                        unit: '%',
+                        horizontal: true,
+                        compactMeters: true,
+                      ),
+                      const Text('最近 64 回合时长（合成示例，含缺失）'),
+                      MonitorBarChart(
+                        bars: [
+                          for (var i = 0; i < 64; i++)
+                            ChartBar(
+                              label: '合成$i',
+                              value: i == 17 ? null : (i % 7).toDouble(),
+                            ),
+                        ],
+                        unit: 's',
+                        line: true,
+                      ),
+                    ],
+                  ),
                 ),
                 dark: dark,
                 capture: capture,
@@ -595,7 +607,7 @@ void main() {
             );
             await mouse.addPointer(location: const Offset(1, 1));
             var previous = 0;
-            for (final elapsed in [0, 80, 160, 280, 440, 560]) {
+            for (final elapsed in [0, 80, 160, 440, 1300, 2100, 4100]) {
               if (elapsed == 80) {
                 await mouse.moveTo(
                   tester.getCenter(_mark('monitor-bar-2-primary').first),
@@ -604,6 +616,21 @@ void main() {
               }
               await tester.pump(Duration(milliseconds: elapsed - previous));
               previous = elapsed;
+              if (elapsed == 2100 || elapsed == 4100) {
+                revision.value++;
+                await tester.pump();
+                await tester.pump();
+                expect(
+                  find.byKey(const ValueKey('monitor-chart-hover')),
+                  findsOneWidget,
+                );
+                expect(
+                  find.textContaining(
+                    '非推理输出：${elapsed == 2100 ? '194.23' : '204.23'} tokens',
+                  ),
+                  findsOneWidget,
+                );
+              }
               await tester.runAsync(() async {
                 final image =
                     await (capture.currentContext!.findRenderObject()!

@@ -1,12 +1,15 @@
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../services/session_activity_timeline.dart';
 import 'dashboard_motion.dart';
 import 'dashboard_style.dart';
+import 'fluid_chart_effects.dart';
+import 'inspection_format.dart';
 
 /// A display sample. Null remains unknown; cancellation never becomes zero.
 @immutable
@@ -17,11 +20,13 @@ class ChartBar {
     this.secondaryValue,
     this.detail,
     this.cancelled = false,
+    this.identity,
   });
   final String label;
   final double? value, secondaryValue;
   final String? detail;
   final bool cancelled;
+  final Object? identity;
 }
 
 double? _known(double? value) =>
@@ -193,8 +198,9 @@ class MonitorChartFrame extends StatelessWidget {
 
 /// Native, local inspection works with keyboard, touch and screen readers.
 class _InspectValues extends StatefulWidget {
-  const _InspectValues({required this.records});
+  const _InspectValues({required this.records, this.identity});
   final List<String> records;
+  final Object? identity;
 
   @override
   State<_InspectValues> createState() => _InspectValuesState();
@@ -207,7 +213,10 @@ class _InspectValuesState extends State<_InspectValues> {
   @override
   void didUpdateWidget(_InspectValues oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.records, widget.records)) _dismissInspection();
+    if (oldWidget.identity != widget.identity ||
+        !listEquals(oldWidget.records, widget.records)) {
+      _dismissInspection();
+    }
   }
 
   @override
@@ -377,13 +386,17 @@ enum _MarkMotion { column, horizontal, point }
 
 class _HoverMark extends StatefulWidget {
   const _HoverMark({
+    required this.identity,
     required this.record,
     required this.child,
+    this.viewport = Rect.zero,
     this.motion,
     this.color,
     this.maxPointScale = 1.18,
   });
   final String record;
+  final Object identity;
+  final Rect viewport;
   final Widget child;
   final _MarkMotion? motion;
   final Color? color;
@@ -395,18 +408,26 @@ class _HoverMark extends StatefulWidget {
 class _HoverMarkState extends State<_HoverMark>
     with SingleTickerProviderStateMixin {
   final _portal = OverlayPortalController();
-  late final _burst = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 440),
-  )..addListener(_tick);
+  final _elapsed = ValueNotifier<Duration?>(null);
+  late final Ticker _ticker = createTicker(_tick);
   bool _motionEnabled = false;
+  bool _bounceSettled = true;
   int _inspectionGeneration = 0;
 
-  void _tick() {
-    if (mounted) setState(() {});
+  void _tick(Duration elapsed) {
+    _elapsed.value = elapsed;
+    // Once the one entry bounce has ended, frames repaint this mark only.
+    if (!_bounceSettled) {
+      _bounceSettled = elapsed.inMilliseconds >= 440;
+      if (mounted) setState(() {});
+    }
   }
 
-  void _clearBurst() => _burst.reset();
+  void _clearBurst() {
+    _ticker.stop();
+    _elapsed.value = null;
+    _bounceSettled = true;
+  }
 
   void _clearInspection() {
     final generation = ++_inspectionGeneration;
@@ -419,10 +440,11 @@ class _HoverMarkState extends State<_HoverMark>
   @override
   void didUpdateWidget(_HoverMark oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // A fresh mark instance is a refresh even when its facts compare equal.
-    // Animation's own ticks only rebuild this state, never replace its widget.
-    _clearBurst();
-    _clearInspection();
+    if (oldWidget.identity != widget.identity ||
+        oldWidget.motion != widget.motion) {
+      _clearBurst();
+      _clearInspection();
+    }
   }
 
   @override
@@ -436,13 +458,16 @@ class _HoverMarkState extends State<_HoverMark>
   @override
   void dispose() {
     _inspectionGeneration++;
-    _burst.dispose();
+    _ticker.dispose();
+    _elapsed.dispose();
     super.dispose();
   }
 
   Widget _paintMark() {
     if (widget.motion == null) return widget.child;
-    final progress = _motionEnabled && _burst.isAnimating ? _burst.value : 0.0;
+    final progress = _motionEnabled && _elapsed.value != null
+        ? (_elapsed.value!.inMicroseconds / 440000).clamp(0.0, 1.0)
+        : 0.0;
     // Two diminishing lobes return to exact rest; no quantitative-axis shift.
     final pulse = progress == 0
         ? 0.0
@@ -458,7 +483,12 @@ class _HoverMarkState extends State<_HoverMark>
       _MarkMotion.point => 1 + (widget.maxPointScale - 1) * pulse,
     };
     return CustomPaint(
-      foregroundPainter: _MarkParticles(progress, widget.color!),
+      foregroundPainter: ChartHoverPainter(
+        elapsed: _elapsed,
+        color: widget.color!,
+        viewport: widget.viewport,
+        liquid: widget.motion != _MarkMotion.point,
+      ),
       child: Transform(
         alignment: Alignment.center,
         transform: Matrix4.diagonal3Values(x, y, 1),
@@ -561,56 +591,21 @@ class _HoverMarkState extends State<_HoverMark>
             widget.motion != null &&
             box != null &&
             !box.size.isEmpty) {
-          _burst.forward(from: 0);
+          _bounceSettled = false;
+          _elapsed.value = Duration.zero;
+          _ticker.start();
+          setState(() {});
         }
       },
       onExit: (_) {
         ++_inspectionGeneration;
         _portal.hide();
         _clearBurst();
+        setState(() {});
       },
       child: _paintMark(),
     ),
   );
-}
-
-/// Paint-only finite decoration is clipped to the mark's original rectangle.
-/// It never grows a data mark or a hit region, including a true zero fill.
-class _MarkParticles extends CustomPainter {
-  const _MarkParticles(this.progress, this.color);
-  final double progress;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (progress <= 0 || progress >= 1 || size.isEmpty) return;
-    canvas.save();
-    canvas.clipRect(Offset.zero & size);
-    final paint = Paint()
-      ..color = Color.lerp(
-        color,
-        const Color(0xffc5ffe9),
-        .8,
-      )!.withValues(alpha: .85 * (1 - progress));
-    final travel = Curves.easeOutCubic.transform(progress);
-    for (var i = 0; i < 6; i++) {
-      final angle = i * math.pi / 3;
-      final center = Offset(
-        size.width * (.5 + .42 * travel * math.cos(angle)),
-        size.height * (.5 + .42 * travel * math.sin(angle)),
-      );
-      canvas.drawCircle(
-        center,
-        math.min(1.6, math.min(size.width, size.height) / 5),
-        paint,
-      );
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_MarkParticles oldDelegate) =>
-      progress != oldDelegate.progress || color != oldDelegate.color;
 }
 
 class _Grid extends CustomPainter {
@@ -700,6 +695,7 @@ class MonitorBarChart extends StatelessWidget {
     this.secondaryLabel = '补充数值',
     this.line = false,
     this.compactMeters = false,
+    this.inspectionIdentity,
   });
   final List<ChartBar> bars;
   final String unit, xLabel, primaryLabel, secondaryLabel;
@@ -711,6 +707,37 @@ class MonitorBarChart extends StatelessWidget {
 
   /// Optional requested domain (e.g. 100%). Valid actual data is never clipped.
   final double? maxValue;
+  final Object? inspectionIdentity;
+
+  Object _baseIdentity(int index) =>
+      bars[index].identity ?? (bars[index].label, bars[index].detail);
+
+  Object _rowIdentity(int index) => (
+    _baseIdentity(index),
+    // Duplicate legacy labels cannot establish an unambiguous record identity.
+    bars
+        .take(index)
+        .where(
+          (bar) =>
+              (bar.identity ?? (bar.label, bar.detail)) == _baseIdentity(index),
+        )
+        .length,
+  );
+
+  Object _markIdentity(int index, String series) => (
+    inspectionIdentity,
+    unit,
+    horizontal,
+    stacked,
+    line,
+    compactMeters,
+    primaryLabel,
+    secondaryLabel,
+    _rowIdentity(index),
+    series,
+  );
+
+  Object _markKey(int index, String series) => (_rowIdentity(index), series);
 
   String _value(double? value) =>
       _known(value) == null ? '未知' : '${_number(value!)} $unit';
@@ -727,9 +754,12 @@ class MonitorBarChart extends StatelessWidget {
   }
 
   String _record(ChartBar bar) =>
-      '${bar.label}${stacked ? ' · $primaryLabel' : ''}：${bar.cancelled ? '取消' : _value(bar.value)}'
-      '${stacked ? ' · $secondaryLabel：${_value(bar.secondaryValue)}' : ''}'
+      '${bar.label}${stacked ? ' · $primaryLabel' : ''}：${bar.cancelled ? '取消' : _inspectionValue(bar.value)}'
+      '${stacked ? ' · $secondaryLabel：${_inspectionValue(bar.secondaryValue)}' : ''}'
       '${bar.detail == null ? '' : '\n${bar.detail}'}';
+
+  String _inspectionValue(double? value) =>
+      _known(value) == null ? '未知' : '${inspectionNumber(value!)} $unit';
 
   @override
   Widget build(BuildContext context) {
@@ -785,6 +815,7 @@ class MonitorBarChart extends StatelessWidget {
               builder: (context, constraints) {
                 final inspect = _InspectValues(
                   records: bars.map(_record).toList(),
+                  identity: inspectionIdentity,
                 );
                 return constraints.maxWidth > 600
                     ? Row(
@@ -804,6 +835,7 @@ class MonitorBarChart extends StatelessWidget {
           else if (horizontal) ...[
             for (var i = 0; i < bars.length; i++)
               Padding(
+                key: ValueKey(_rowIdentity(i)),
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Semantics(
                   label: _record(bars[i]),
@@ -818,7 +850,7 @@ class MonitorBarChart extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       SizedBox(
-                        height: 24,
+                        height: 48,
                         child: LayoutBuilder(
                           builder: (context, constraints) => CustomPaint(
                             painter: _Grid(
@@ -869,7 +901,10 @@ class MonitorBarChart extends StatelessWidget {
             ),
           if (!compactMeters) ...[
             const SizedBox(height: 8),
-            _InspectValues(records: bars.map(_record).toList()),
+            _InspectValues(
+              records: bars.map(_record).toList(),
+              identity: inspectionIdentity,
+            ),
           ],
         ],
       ),
@@ -882,13 +917,15 @@ class MonitorBarChart extends StatelessWidget {
     double width,
     double max, {
     double thickness = 20,
-    double top = 2,
+    double top = 14,
+    double plotHeight = 48,
   }) {
     final bar = bars[index];
     if (bar.cancelled) {
       return [
         Center(
           child: _HoverMark(
+            identity: _markIdentity(index, 'cancelled'),
             record: _record(bar),
             child: Text('×', key: ValueKey('monitor-bar-$index-cancelled')),
           ),
@@ -899,13 +936,16 @@ class MonitorBarChart extends StatelessWidget {
     return [
       if (primary != null)
         Positioned(
+          key: ValueKey(_markKey(index, 'primary')),
           left: 0,
           top: top,
           height: thickness,
           width: width * primary / max,
           child: _HoverMark(
+            identity: _markIdentity(index, 'primary'),
+            viewport: Rect.fromLTWH(0, -top, width, plotHeight),
             record: _record(bar),
-            motion: _MarkMotion.horizontal,
+            motion: primary > 0 ? _MarkMotion.horizontal : null,
             color: _BarSeriesColors.of(context).primary,
             child: ColoredBox(
               key: ValueKey('monitor-bar-$index-primary'),
@@ -917,19 +957,28 @@ class MonitorBarChart extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: _HoverMark(
+            identity: _markIdentity(index, 'unknown'),
             record: _record(bar),
             child: Text('—', key: ValueKey('monitor-bar-$index-unknown')),
           ),
         ),
       if (stacked && secondary != null)
         Positioned(
+          key: ValueKey(_markKey(index, 'secondary')),
           left: width * (primary ?? 0) / max,
           top: top,
           height: thickness,
           width: width * secondary / max,
           child: _HoverMark(
+            identity: _markIdentity(index, 'secondary'),
+            viewport: Rect.fromLTWH(
+              -width * (primary ?? 0) / max,
+              -top,
+              width,
+              plotHeight,
+            ),
             record: _record(bar),
-            motion: _MarkMotion.horizontal,
+            motion: secondary > 0 ? _MarkMotion.horizontal : null,
             color: _BarSeriesColors.of(context).secondary,
             child: ColoredBox(
               key: ValueKey('monitor-bar-$index-secondary'),
@@ -954,6 +1003,7 @@ class MonitorBarChart extends StatelessWidget {
             children: [
               for (var i = 0; i < bars.length; i++)
                 SizedBox(
+                  key: ValueKey(_rowIdentity(i)),
                   width: width,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -979,21 +1029,30 @@ class MonitorBarChart extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       SizedBox(
-                        height: 6,
+                        height: 30,
                         child: LayoutBuilder(
-                          builder: (context, inner) => ColoredBox(
-                            color: DashboardPalette.of(context).soft,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: _horizontalMarks(
+                          builder: (context, inner) => Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                top: 12,
+                                height: 6,
+                                child: ColoredBox(
+                                  color: DashboardPalette.of(context).soft,
+                                ),
+                              ),
+                              ..._horizontalMarks(
                                 context,
                                 i,
                                 inner.maxWidth,
                                 scale.max,
                                 thickness: 6,
-                                top: 0,
+                                top: 12,
+                                plotHeight: 30,
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ),
@@ -1025,8 +1084,28 @@ class MonitorBarChart extends StatelessWidget {
         final plotWidth = math.max(0.0, constraints.maxWidth - labelWidth);
         final slot = plotWidth / bars.length;
         final markWidth = math.max(.5, math.min(38.0, slot * .65));
+        Rect viewport(int index, {bool secondary = false}) {
+          final width = line && !secondary ? math.min(8.0, slot) : markWidth;
+          final left = slot * index + (slot - width) / 2;
+          final primary = _known(bars[index].value) ?? 0;
+          final value = secondary
+              ? _known(bars[index].secondaryValue) ?? 0
+              : primary;
+          final top = line && !secondary
+              ? plotHeight * (1 - value / scale.max) - 4
+              : plotHeight *
+                    (1 - (value + (secondary ? primary : 0)) / scale.max);
+          return Rect.fromLTRB(
+            -left,
+            -top - 12,
+            plotWidth - left,
+            plotHeight - top + 12,
+          );
+        }
+
         return Column(
           children: [
+            const SizedBox(height: 12),
             SizedBox(
               height: plotHeight + 12,
               child: Row(
@@ -1084,6 +1163,12 @@ class MonitorBarChart extends StatelessWidget {
                             if (bars[i].cancelled ||
                                 _known(bars[i].value) == null)
                               Positioned(
+                                key: ValueKey(
+                                  _markKey(
+                                    i,
+                                    bars[i].cancelled ? 'cancelled' : 'unknown',
+                                  ),
+                                ),
                                 left: slot * i,
                                 width: slot,
                                 bottom: 4,
@@ -1091,6 +1176,12 @@ class MonitorBarChart extends StatelessWidget {
                                   label: _record(bars[i]),
                                   child: Center(
                                     child: _HoverMark(
+                                      identity: _markIdentity(
+                                        i,
+                                        bars[i].cancelled
+                                            ? 'cancelled'
+                                            : 'unknown',
+                                      ),
                                       record: _record(bars[i]),
                                       child: Text(
                                         bars[i].cancelled ? '×' : '—',
@@ -1105,6 +1196,7 @@ class MonitorBarChart extends StatelessWidget {
                               )
                             else
                               Positioned(
+                                key: ValueKey(_markKey(i, 'primary')),
                                 left:
                                     slot * i +
                                     (slot -
@@ -1127,8 +1219,12 @@ class MonitorBarChart extends StatelessWidget {
                                 child: Semantics(
                                   label: _record(bars[i]),
                                   child: _HoverMark(
+                                    identity: _markIdentity(i, 'primary'),
+                                    viewport: viewport(i),
                                     record: _record(bars[i]),
-                                    motion: line
+                                    motion: _known(bars[i].value) == 0
+                                        ? null
+                                        : line
                                         ? _MarkMotion.point
                                         : _MarkMotion.column,
                                     // Dense points can fill their entire slot;
@@ -1153,6 +1249,7 @@ class MonitorBarChart extends StatelessWidget {
                                 !bars[i].cancelled &&
                                 _known(bars[i].secondaryValue) != null)
                               Positioned(
+                                key: ValueKey(_markKey(i, 'secondary')),
                                 left: slot * i + (slot - markWidth) / 2,
                                 width: markWidth,
                                 bottom:
@@ -1164,8 +1261,12 @@ class MonitorBarChart extends StatelessWidget {
                                     _known(bars[i].secondaryValue)! /
                                     scale.max,
                                 child: _HoverMark(
+                                  identity: _markIdentity(i, 'secondary'),
+                                  viewport: viewport(i, secondary: true),
                                   record: _record(bars[i]),
-                                  motion: _MarkMotion.column,
+                                  motion: _known(bars[i].secondaryValue) == 0
+                                      ? null
+                                      : _MarkMotion.column,
                                   color: _BarSeriesColors.of(context).secondary,
                                   child: ColoredBox(
                                     key: ValueKey('monitor-bar-$i-secondary'),
@@ -1204,6 +1305,7 @@ class MonitorBarChart extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 12),
             Padding(
               padding: EdgeInsets.only(left: labelWidth),
               child: SizedBox(
@@ -1321,8 +1423,10 @@ class MonitorCoverageChart extends StatelessWidget {
     super.key,
     required this.observedMs,
     required this.unclassifiedMs,
+    this.inspectionIdentity,
   });
   final int observedMs, unclassifiedMs;
+  final Object? inspectionIdentity;
   @override
   Widget build(BuildContext context) {
     if (observedMs < 0 ||
@@ -1348,12 +1452,14 @@ class MonitorCoverageChart extends StatelessWidget {
           primary: _ChartPalette.of(context).teal,
           secondary: _ChartPalette.of(context).amber,
           child: MonitorBarChart(
+            inspectionIdentity: inspectionIdentity,
             bars: [
               ChartBar(
                 label: '已观测 / 未归类',
+                identity: 'coverage',
                 value: observedMs / 1000,
                 secondaryValue: unclassifiedMs / 1000,
-                detail: '窗口合计 ${_seconds(total)}。',
+                detail: '窗口合计 ${inspectionSeconds(total)}。',
               ),
             ],
             unit: 's',
@@ -1370,10 +1476,19 @@ class MonitorCoverageChart extends StatelessWidget {
 }
 
 class MonitorIntervalChart extends StatelessWidget {
-  const MonitorIntervalChart({super.key, required this.data});
+  const MonitorIntervalChart({
+    super.key,
+    required this.data,
+    this.inspectionIdentity,
+  });
   final SessionActivityTimelineData data;
+  final Object? inspectionIdentity;
+  Object _rowIdentity(SessionActivityTimelineRow row) =>
+      (row.category, row.startedAtMs, row.ordinal);
+  Object _identity(SessionActivityTimelineRow row) =>
+      (inspectionIdentity, _rowIdentity(row));
   String _record(SessionActivityTimelineRow row) =>
-      '${row.label} · 偏移 ${_seconds(row.offsetStartMs)} → ${_seconds(row.offsetEndMs)} · 项时长 ${_seconds(row.durationMs)}\n'
+      '${row.label} · 偏移 ${inspectionSeconds(row.offsetStartMs)} → ${inspectionSeconds(row.offsetEndMs)} · 项时长 ${inspectionSeconds(row.durationMs)}\n'
       '记录开始：${row.startedAtMs ?? '未知'} · 记录结束：${row.completedAtMs ?? '未知'} · Unix epoch 毫秒'
       '${row.drawable ? '' : '\n未绘制：${row.reasonText}'}';
 
@@ -1421,6 +1536,7 @@ class MonitorIntervalChart extends StatelessWidget {
           const SizedBox(height: 10),
           for (final row in data.rows)
             Semantics(
+              key: ValueKey(_rowIdentity(row)),
               label: _record(row),
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 14),
@@ -1431,7 +1547,7 @@ class MonitorIntervalChart extends StatelessWidget {
                     const SizedBox(height: 6),
                     if (span != null && row.drawable)
                       SizedBox(
-                        height: 24,
+                        height: 48,
                         child: LayoutBuilder(
                           builder: (context, constraints) {
                             final width = constraints.maxWidth;
@@ -1446,8 +1562,8 @@ class MonitorIntervalChart extends StatelessWidget {
                                 children: [
                                   Positioned(
                                     left: 0,
-                                    top: 0,
-                                    bottom: 0,
+                                    top: 12,
+                                    bottom: 12,
                                     width: width * uncertainty,
                                     child: ColoredBox(
                                       color: context.theme.colors.muted
@@ -1456,8 +1572,8 @@ class MonitorIntervalChart extends StatelessWidget {
                                   ),
                                   Positioned(
                                     right: 0,
-                                    top: 0,
-                                    bottom: 0,
+                                    top: 12,
+                                    bottom: 12,
                                     width: width * uncertainty,
                                     child: ColoredBox(
                                       color: context.theme.colors.muted
@@ -1471,9 +1587,16 @@ class MonitorIntervalChart extends StatelessWidget {
                                         (row.offsetEndMs! -
                                             row.offsetStartMs!) /
                                         span,
-                                    top: 2,
+                                    top: 14,
                                     height: 20,
                                     child: _HoverMark(
+                                      identity: _identity(row),
+                                      viewport: Rect.fromLTWH(
+                                        -width * row.offsetStartMs! / span,
+                                        -14,
+                                        width,
+                                        48,
+                                      ),
                                       record: _record(row),
                                       motion: _MarkMotion.horizontal,
                                       color: _ChartPalette.of(context)
@@ -1505,7 +1628,10 @@ class MonitorIntervalChart extends StatelessWidget {
           const Text('日志活动可重叠；空白不代表等待。', style: TextStyle(fontSize: 12)),
           if (data.sourcePartial) const Text('来源不完整'),
           if (data.omittedItems > 0) Text('省略 ${data.omittedItems} 项'),
-          _InspectValues(records: data.rows.map(_record).toList()),
+          _InspectValues(
+            records: data.rows.map(_record).toList(),
+            identity: inspectionIdentity,
+          ),
         ],
       ),
     );

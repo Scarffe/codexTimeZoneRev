@@ -329,7 +329,7 @@ void main() {
     await tester.ensureVisible(inspect);
     await tester.tap(inspect);
     await tester.pumpAndSettle();
-    expect(find.textContaining('5 小时额度：75 %'), findsOneWidget);
+    expect(find.textContaining('5 小时额度：75.00 %'), findsOneWidget);
     service.failure = '未检测到已登录账号';
     await controller.query('desktop');
     await tester.pumpAndSettle();
@@ -337,7 +337,7 @@ void main() {
     expect(find.text('1,234,567'), findsNothing);
     expect(find.textContaining('查询失败'), findsWidgets);
     expect(find.text('图表数值'), findsNothing);
-    expect(find.textContaining('5 小时额度：75 %'), findsNothing);
+    expect(find.textContaining('5 小时额度：75.00 %'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

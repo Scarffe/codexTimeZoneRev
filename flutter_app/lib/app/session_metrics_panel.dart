@@ -378,6 +378,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
           ),
           const SizedBox(height: 12),
           SessionChartPanels(
+            sessionIdentity: controller.selected,
             data: charts,
             quality: publish
                 ? quality

@@ -227,9 +227,11 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         else
           MonitorBarChart(
             key: const ValueKey('account-quota-chart'),
+            inspectionIdentity: (data.identity, bucket?.id, _view),
             bars: [
               for (final window in windows)
                 ChartBar(
+                  identity: (window.durationMinutes, window.label),
                   label: window.label,
                   value: _chartValue(window, now),
                   detail:
