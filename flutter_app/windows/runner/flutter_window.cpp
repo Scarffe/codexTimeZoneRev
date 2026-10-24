@@ -48,15 +48,28 @@ bool FlutterWindow::OnCreate() {
       int64_t number=-1;
       if (const auto* int32_value=std::get_if<int32_t>(value)) number=*int32_value;
       else if (const auto* large=std::get_if<int64_t>(value)) number=*large;
-      if (number<0 || number>0xffffffffLL) return std::nullopt;
+      if (!production_tray::IsArgb(number)) return std::nullopt;
       return static_cast<std::uint32_t>(number);
     };
     const auto* dark_value=field("dark");
     const auto* dark=dark_value?std::get_if<bool>(dark_value):nullptr;
     const auto caption=argb("captionArgb"),text=argb("textArgb"),border=argb("borderArgb");
+    const auto surface=argb("menuSurfaceArgb"),selected=argb("menuSelectedArgb"),
+        accent=argb("menuAccentArgb"),danger=argb("menuDangerArgb");
+    for (const auto* key : {"menuSurfaceArgb", "menuSelectedArgb", "menuAccentArgb", "menuDangerArgb"}) {
+      if (field(key) && !argb(key)) {
+        result->Error("invalid_appearance","Expected optional 32-bit ARGB menu palette"); return;
+      }
+    }
     if (!dark || !caption || !text || !border) {
       result->Error("invalid_appearance","Expected dark and 32-bit ARGB palette"); return;
     }
+    production_tray::Appearance tray;
+    if (*dark) tray = {0xff232d31,0xff31484f,0xff78b8bf,0xffed8c92,0xffe4e9f0,0xff353c47};
+    tray.surface=surface.value_or(*caption); tray.selected=selected.value_or(tray.selected);
+    tray.accent=accent.value_or(tray.accent); tray.danger=danger.value_or(tray.danger);
+    tray.text=*text; tray.border=*border;
+    desktop_prototype::ConfigureTrayAppearance(tray);
     const auto applied=window_chrome::ApplyAppearance(GetHandle(),{*dark,*caption,*text,*border});
     flutter::EncodableMap reply;
     reply[flutter::EncodableValue("status")]=flutter::EncodableValue(applied.Status());
@@ -170,6 +183,8 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if(message==WM_MEASUREITEM && production_tray::StyledMenu::Measure(reinterpret_cast<MEASUREITEMSTRUCT*>(lparam))) return TRUE;
+  if(message==WM_DRAWITEM && production_tray::StyledMenu::Draw(reinterpret_cast<DRAWITEMSTRUCT*>(lparam))) return TRUE;
   if(monitor_channel_ && (message==WM_SHOWWINDOW || message==WM_SIZE)) {
     bool visible=IsWindowVisible(hwnd) && !IsIconic(hwnd);
     if(message==WM_SHOWWINDOW) visible=wparam!=0 && !IsIconic(hwnd);

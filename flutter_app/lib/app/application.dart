@@ -131,6 +131,10 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         captionArgb: palette.background.toARGB32(),
         textArgb: palette.foreground.toARGB32(),
         borderArgb: palette.border.toARGB32(),
+        menuSurfaceArgb: palette.panel.toARGB32(),
+        menuSelectedArgb: palette.selected.toARGB32(),
+        menuAccentArgb: palette.accent.toARGB32(),
+        menuDangerArgb: palette.danger.toARGB32(),
       );
     });
   }

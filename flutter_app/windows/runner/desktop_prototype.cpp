@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 #include <vector>
 
@@ -93,6 +94,7 @@ struct State {
 };
 State* current = nullptr;  // All callbacks execute on this UI thread.
 HANDLE monitorMutex = nullptr;
+production_tray::Appearance trayAppearance;
 
 struct DisplayProbe { std::ofstream* out; int count=0; };
 BOOL CALLBACK ProbeMonitor(HMONITOR monitor,HDC,LPRECT,LPARAM parameter) {
@@ -594,6 +596,8 @@ LRESULT CALLBACK HostProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  if (msg == WM_MEASUREITEM && production_tray::StyledMenu::Measure(reinterpret_cast<MEASUREITEMSTRUCT*>(lp))) return TRUE;
+  if (msg == WM_DRAWITEM && production_tray::StyledMenu::Draw(reinterpret_cast<DRAWITEMSTRUCT*>(lp))) return TRUE;
   auto& s=*current;
   if (msg == s.taskbarCreated && s.taskbarCreated) { InstallTray(); return 0; }
   if (msg == kRestore) {
@@ -643,9 +647,12 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
       if(s.production && (lp==WM_LBUTTONUP || lp==WM_LBUTTONDBLCLK)) { RestoreMain(); Report(); return 0; }
       if (lp == WM_LBUTTONUP || lp == WM_LBUTTONDBLCLK) { ShowPet(); if(s.live && s.action) s.action("showPet"); return 0; }
       if (lp == WM_RBUTTONUP || lp == WM_CONTEXTMENU) {
-        HMENU menu=s.production
-            ? production_tray::Build({kMain,kRefresh,kPause,kExit},s.paused)
-            : CreatePopupMenu();
+        HWND menuOwner=s.live && IsWindowVisible(s.mainWindow) ? s.mainWindow : hwnd;
+        std::optional<production_tray::StyledMenu> styled;
+        if(s.production) styled.emplace(
+            production_tray::Commands{kMain,kRefresh,kPause,kExit},s.paused,
+            trayAppearance,GetDpiForWindow(menuOwner));
+        HMENU menu=styled ? styled->get() : CreatePopupMenu();
         if(!menu) return 0;
         if(!s.production) {
         if (s.live) {
@@ -688,10 +695,10 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         POINT p{}; GetCursorPos(&p);
         // Menus require foreground ownership; ordinary pet show/click never does.
-        HWND menuOwner=s.live && IsWindowVisible(s.mainWindow) ? s.mainWindow : hwnd;
         SetForegroundWindow(menuOwner);
         auto command=TrackPopupMenu(menu,TPM_RETURNCMD|TPM_NONOTIFY|TPM_RIGHTBUTTON,p.x,p.y,0,menuOwner,nullptr);
-        DestroyMenu(menu); PostMessageW(menuOwner,WM_NULL,0,0);
+        if(styled) styled.reset(); else DestroyMenu(menu);
+        PostMessageW(menuOwner,WM_NULL,0,0);
         if (command) PostMessageW(hwnd,WM_COMMAND,command,0);
       } return 0;
     case WM_COMMAND:
@@ -864,6 +871,11 @@ void ConfigureRole(const std::wstring& path,const std::wstring& name) {
 }
 
 void ReportMonitorState() { if(current) Report(); }
+void ConfigureTrayAppearance(const production_tray::Appearance& appearance) {
+  // A hidden main window still receives the palette through the channel.
+  trayAppearance = appearance;
+}
+
 void ConfigureWorkspace(bool keep_alive,const std::string& workspace) {
   if(!current || !current->production) return;
   current->keepAlive=keep_alive; current->workspace=workspace=="monitor"?"monitor":"launcher";

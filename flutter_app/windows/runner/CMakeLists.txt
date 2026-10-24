@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "main.cpp"
   "package_context.cpp"
   "desktop_prototype.cpp"
+  "production_tray_menu.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "window_chrome.cpp"

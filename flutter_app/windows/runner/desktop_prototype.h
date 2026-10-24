@@ -5,6 +5,7 @@
 #include <functional>
 #include <cstdint>
 #include <windows.h>
+#include "production_tray_menu.h"
 
 namespace desktop_prototype {
 bool Requested(const std::vector<std::wstring>& arguments);
@@ -15,6 +16,7 @@ bool ClaimMonitorInstance(bool request_exit = false);
 bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> action, bool background_start=false);
 int ForwardWorkspaceTestAction(const std::vector<std::wstring>& arguments);
 void ConfigureWorkspace(bool keep_alive, const std::string& workspace);
+void ConfigureTrayAppearance(const production_tray::Appearance& appearance);
 void RecordCloseRequest();
 void HideMonitorMain();
 void ReportMonitorState();

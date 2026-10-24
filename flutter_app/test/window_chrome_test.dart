@@ -55,6 +55,50 @@ void main() {
   });
 
   test(
+    'optional tray roles serialize and role-only changes are not deduplicated',
+    () async {
+      final firstReply = Completer<Map<String, Object>>();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return calls.length == 1 ? firstReply.future : applied;
+          });
+      Future<WindowChromeResult> themed(int accent) => chrome.apply(
+        dark: false,
+        captionArgb: 0xfff5f6f8,
+        textArgb: 0xff202833,
+        borderArgb: 0xffdce1e7,
+        menuSurfaceArgb: 0xfff0f3f0,
+        menuSelectedArgb: 0xffd6e3e5,
+        menuAccentArgb: accent,
+        menuDangerArgb: 0xffb32f3d,
+      );
+      final first = themed(0xff246978);
+      final second = themed(0xff246979);
+      final duplicate = themed(0xff246979);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, hasLength(1));
+      firstReply.complete(applied);
+      await Future.wait([first, second, duplicate]);
+      expect(calls, hasLength(2));
+      expect(calls.first.arguments, {
+        'dark': false,
+        'captionArgb': 0xfff5f6f8,
+        'textArgb': 0xff202833,
+        'borderArgb': 0xffdce1e7,
+        'menuSurfaceArgb': 0xfff0f3f0,
+        'menuSelectedArgb': 0xffd6e3e5,
+        'menuAccentArgb': 0xff246978,
+        'menuDangerArgb': 0xffb32f3d,
+      });
+      expect(calls.last.arguments['menuAccentArgb'], 0xff246979);
+      await light();
+      expect(calls.last.arguments, isNot(contains('menuSurfaceArgb')));
+      expect(calls, hasLength(3));
+    },
+  );
+
+  test(
     'initial resolved palette sends exact ARGB independently of material',
     () async {
       final result = await light();
@@ -88,6 +132,27 @@ void main() {
       expect(calls, hasLength(3));
     },
   );
+
+  test('each optional tray role participates in deduplication', () async {
+    final roles = <int>[0xfff0f3f0, 0xffd6e3e5, 0xff246978, 0xffb32f3d];
+    Future<WindowChromeResult> applyRoles() => chrome.apply(
+      dark: false,
+      captionArgb: 0xfff5f6f8,
+      textArgb: 0xff202833,
+      borderArgb: 0xffdce1e7,
+      menuSurfaceArgb: roles[0],
+      menuSelectedArgb: roles[1],
+      menuAccentArgb: roles[2],
+      menuDangerArgb: roles[3],
+    );
+    await applyRoles();
+    for (var index = 0; index < roles.length; index++) {
+      roles[index] += 1;
+      await applyRoles();
+      await applyRoles();
+      expect(calls, hasLength(index + 2));
+    }
+  });
 
   test(
     'in-flight palettes serialize so an old native reply cannot win',
@@ -202,6 +267,10 @@ void main() {
           'captionArgb': palette.background.toARGB32(),
           'textArgb': palette.foreground.toARGB32(),
           'borderArgb': palette.border.toARGB32(),
+          'menuSurfaceArgb': palette.panel.toARGB32(),
+          'menuSelectedArgb': palette.selected.toARGB32(),
+          'menuAccentArgb': palette.accent.toARGB32(),
+          'menuDangerArgb': palette.danger.toARGB32(),
         });
         await tester.pump();
         expect(calls, hasLength(1));

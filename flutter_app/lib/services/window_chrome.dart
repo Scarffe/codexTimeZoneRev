@@ -8,6 +8,8 @@ class WindowChromeResult {
   final Map<String, int> hresults;
 }
 
+typedef _Appearance = (bool, int, int, int, int?, int?, int?, int?);
+
 /// Synchronizes only this app's native frame, independently of blur/material.
 /// Each application owner gets a queue so late native replies cannot reorder
 /// a newer palette. Unsupported runners keep their normal system frame.
@@ -17,7 +19,7 @@ class WindowChrome {
 
   final MethodChannel _channel;
   Future<void> _pending = Future<void>.value();
-  (bool, int, int, int)? _lastAppearance;
+  _Appearance? _lastAppearance;
   WindowChromeResult? _lastResult;
 
   Future<WindowChromeResult> apply({
@@ -25,19 +27,27 @@ class WindowChrome {
     required int captionArgb,
     required int textArgb,
     required int borderArgb,
+    int? menuSurfaceArgb,
+    int? menuSelectedArgb,
+    int? menuAccentArgb,
+    int? menuDangerArgb,
   }) {
     final appearance = (
       dark,
       captionArgb & 0xffffffff,
       textArgb & 0xffffffff,
       borderArgb & 0xffffffff,
+      menuSurfaceArgb == null ? null : menuSurfaceArgb & 0xffffffff,
+      menuSelectedArgb == null ? null : menuSelectedArgb & 0xffffffff,
+      menuAccentArgb == null ? null : menuAccentArgb & 0xffffffff,
+      menuDangerArgb == null ? null : menuDangerArgb & 0xffffffff,
     );
     final next = _pending.then((_) => _apply(appearance));
     _pending = next.then<void>((_) {});
     return next;
   }
 
-  Future<WindowChromeResult> _apply((bool, int, int, int) appearance) async {
+  Future<WindowChromeResult> _apply(_Appearance appearance) async {
     if (_lastAppearance == appearance && _lastResult != null) {
       return _lastResult!;
     }
@@ -53,6 +63,10 @@ class WindowChrome {
           'captionArgb': appearance.$2,
           'textArgb': appearance.$3,
           'borderArgb': appearance.$4,
+          if (appearance.$5 != null) 'menuSurfaceArgb': appearance.$5,
+          if (appearance.$6 != null) 'menuSelectedArgb': appearance.$6,
+          if (appearance.$7 != null) 'menuAccentArgb': appearance.$7,
+          if (appearance.$8 != null) 'menuDangerArgb': appearance.$8,
         },
       );
       final status = switch (reply?['status']) {
