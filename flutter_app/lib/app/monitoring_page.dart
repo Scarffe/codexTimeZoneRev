@@ -19,6 +19,7 @@ class MonitoringPage extends StatefulWidget {
     required this.usage,
     required this.metrics,
     this.sessionPanelKey,
+    this.noticeContextKey,
     this.notice,
     this.onDismissNotice,
   });
@@ -26,6 +27,7 @@ class MonitoringPage extends StatefulWidget {
   final AccountUsageController usage;
   final SessionMetricsController metrics;
   final Key? sessionPanelKey;
+  final Key? noticeContextKey;
   final SessionAttentionNotice? notice;
   final VoidCallback? onDismissNotice;
   @override
@@ -69,30 +71,33 @@ class _MonitoringPageState extends State<MonitoringPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (notice != null)
-            FCard(
-              key: const ValueKey('notice-analysis-context'),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('原提醒：${notice.title}'),
-                    Text('会话 ${notice.sessionId} · 原回合 ${notice.turnId}'),
-                    Text(notice.path),
-                    Text(
-                      !matchesNotice
-                          ? '原来源尚未通过身份核验；不会替换为其他会话。'
-                          : widget.metrics.last?['turnId'] == notice.turnId
-                          ? '最近样本与原提醒回合一致。'
-                          : '原提醒回合的完整样本不可用或已更新；下方显示此来源当前可用的观测。',
-                    ),
-                    FButton(
-                      variant: FButtonVariant.ghost,
-                      mainAxisSize: MainAxisSize.min,
-                      onPress: widget.onDismissNotice,
-                      child: const Text('关闭提醒上下文'),
-                    ),
-                  ],
+            KeyedSubtree(
+              key: widget.noticeContextKey,
+              child: FCard(
+                key: const ValueKey('notice-analysis-context'),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('原提醒：${notice.title}'),
+                      Text('会话 ${notice.sessionId} · 原回合 ${notice.turnId}'),
+                      Text(notice.path),
+                      Text(
+                        !matchesNotice
+                            ? '原来源尚未通过身份核验；不会替换为其他会话。'
+                            : widget.metrics.last?['turnId'] == notice.turnId
+                            ? '最近样本与原提醒回合一致。'
+                            : '原提醒回合的完整样本不可用或已更新；下方显示此来源当前可用的观测。',
+                      ),
+                      FButton(
+                        variant: FButtonVariant.ghost,
+                        mainAxisSize: MainAxisSize.min,
+                        onPress: widget.onDismissNotice,
+                        child: const Text('关闭提醒上下文'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -264,14 +264,34 @@ class AttentionTerminal {
   final int? durationMs;
 }
 
+/// Preserve survivor order and unread work before keeping read history.
+List<SessionAttentionNotice> retainAttentionNotices(
+  List<SessionAttentionNotice> notices,
+) {
+  final overflow = notices.length - 200;
+  if (overflow <= 0) return List.unmodifiable(notices);
+  var readToRemove = notices.where((notice) => notice.read).length;
+  if (readToRemove > overflow) readToRemove = overflow;
+  var unreadToRemove = overflow - readToRemove;
+  final retained = <SessionAttentionNotice>[];
+  for (final notice in notices) {
+    if (notice.read && readToRemove > 0) {
+      readToRemove--;
+    } else if (!notice.read && unreadToRemove > 0) {
+      unreadToRemove--;
+    } else {
+      retained.add(notice);
+    }
+  }
+  return List.unmodifiable(retained);
+}
+
 class SessionAttentionSnapshot {
   SessionAttentionSnapshot({
     required List<SessionAttentionWatch> watches,
     required List<SessionAttentionNotice> notices,
   }) : watches = List.unmodifiable(watches),
-       notices = List.unmodifiable(
-         notices.skip(notices.length > 200 ? notices.length - 200 : 0),
-       );
+       notices = retainAttentionNotices(notices);
   final List<SessionAttentionWatch> watches;
   final List<SessionAttentionNotice> notices;
   Map<String, dynamic> toJson() => {

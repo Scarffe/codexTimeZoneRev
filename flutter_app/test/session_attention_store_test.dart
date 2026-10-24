@@ -49,11 +49,64 @@ void main() {
     final value = (await store.read())!;
     expect(value.watches.single.alias, 'Alias');
     expect(value.notices, hasLength(200));
-    expect(value.notices.first.turnId, '40');
+    expect(value.notices.first.turnId, '1');
     expect(value.notices.last.turnId, '239');
-    expect(value.notices.first.read, true);
-    expect(value.notices.first.id, snapshot(41).notices.last.id);
+    expect(value.notices.first.read, false);
+    expect(value.notices.first.id, snapshot(2).notices.last.id);
+    expect(value.notices.map((notice) => notice.turnId), [
+      for (var i = 0; i < 240; i++)
+        if (i.isOdd || i >= 80) '$i',
+    ]);
     expect(await File('${file.path}.tmp').exists(), false);
+  });
+  test('snapshot and persisted mixed notices remove oldest read and retain metadata', () async {
+    final original = [
+      for (var i = 0; i < 201; i++)
+        SessionAttentionNotice(
+          watchKey: 'watch-$i',
+          path: 'fixture-$i',
+          sessionId: 'session-$i',
+          turnId: 'turn-$i',
+          title: 'Title $i',
+          createdAt: DateTime.utc(2026).add(Duration(seconds: i)),
+          durationMs: i,
+          read: i > 0 && i < 200,
+        ),
+    ];
+    final expected = [original.first, ...original.skip(2)];
+    final value = SessionAttentionSnapshot(watches: [], notices: original);
+    expect(
+      value.notices.map((n) => n.toJson()),
+      expected.map((n) => n.toJson()),
+    );
+    final decoded = SessionAttentionSnapshot.fromJson({
+      'version': 1,
+      'watches': [],
+      'notices': original.map((n) => n.toJson()).toList(),
+    });
+    expect(
+      decoded.notices.map((n) => n.toJson()),
+      expected.map((n) => n.toJson()),
+    );
+    await store.write(decoded);
+    await store.flush();
+    expect((await store.read())!.toJson(), value.toJson());
+  });
+  test('all unread overflow retains the latest 200 in original order', () {
+    final notices = [
+      for (var i = 0; i < 205; i++)
+        SessionAttentionNotice(
+          watchKey: 'w',
+          path: 'p',
+          sessionId: 's',
+          turnId: '$i',
+          title: 'Title',
+          createdAt: DateTime.utc(2026),
+        ),
+    ];
+    final value = SessionAttentionSnapshot(watches: [], notices: notices);
+    expect(value.notices.map((n) => n.id), notices.skip(5).map((n) => n.id));
+    expect(value.notices.every((n) => !n.read), true);
   });
   test('corrupt bytes are preserved before replacement and failure remains visible', () async {
     final bytes = [0, 255, 12, 30];

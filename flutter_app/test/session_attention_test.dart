@@ -89,6 +89,52 @@ class MemoryAttentionStore extends SessionAttentionStore {
 }
 
 void main() {
+  test('live completion prunes oldest read before oldest unread and persists survivors', () async {
+    final feed = AttentionFeed()
+      ..values['a'] = observation('a', 'new', 'running');
+    final original = [
+      for (var i = 0; i < 200; i++)
+        SessionAttentionNotice(
+          watchKey: 'watch',
+          path: 'a',
+          sessionId: 'a',
+          turnId: 'old-$i',
+          title: 'Original $i',
+          createdAt: DateTime.utc(2026).add(Duration(seconds: i)),
+          durationMs: i,
+          read: i > 0,
+        ),
+    ];
+    final store = MemoryAttentionStore()
+      ..value = SessionAttentionSnapshot(
+        watches: [
+          const SessionAttentionWatch(
+            key: 'watch',
+            path: 'a',
+            expectedSessionId: 'a',
+          ),
+        ],
+        notices: original,
+      );
+    final controller = SessionAttentionController(feed);
+    addTearDown(controller.dispose);
+    await controller.initialize(store);
+    await controller.poll();
+    feed.values['a'] = observation('a', 'new', 'completed');
+    await controller.poll();
+    expect(controller.notices, hasLength(200));
+    expect(controller.unreadCount, 2);
+    final persisted = store.value!.notices;
+    expect(
+      persisted.take(199).map((n) => n.toJson()),
+      [original.first, ...original.skip(2)].map((n) => n.toJson()),
+    );
+    expect(persisted.last.turnId, 'new');
+    expect(
+      controller.notices.map((n) => n.id).toSet(),
+      persisted.map((n) => n.id).toSet(),
+    );
+  });
   late AttentionFeed feed;
   late MemoryAttentionStore store;
   late SessionAttentionController controller;

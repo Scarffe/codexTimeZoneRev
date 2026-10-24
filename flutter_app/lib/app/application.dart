@@ -241,6 +241,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   final _navigator = GlobalKey<NavigatorState>();
   final _sessionPanel = GlobalKey();
+  final _noticeContext = GlobalKey();
+  int _analysisRevealRevision = 0;
   Widget _benchmarkKeyboard(Widget child) => CallbackShortcuts(
     bindings: {
       if (selected == WorkspaceDestination.benchmark &&
@@ -261,7 +263,23 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     child: child,
   );
   void _select(WorkspaceDestination value) {
+    _analysisRevealRevision++;
     if (mounted) setState(() => selected = value);
+  }
+
+  void _revealAnalysis(GlobalKey target) {
+    final revision = ++_analysisRevealRevision;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          selected != WorkspaceDestination.analysis ||
+          revision != _analysisRevealRevision) {
+        return;
+      }
+      final targetContext = target.currentContext;
+      if (targetContext != null && targetContext.mounted) {
+        Scrollable.ensureVisible(targetContext, alignment: 0);
+      }
+    });
   }
 
   void _showAccountDetails() => _select(WorkspaceDestination.accounts);
@@ -272,15 +290,18 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         openedNotice = null;
         selected = WorkspaceDestination.analysis;
       });
+      _revealAnalysis(_sessionPanel);
     }
   }
 
   void _openAttentionNotice(SessionAttentionNotice notice) {
+    if (!mounted) return;
     metrics.select(notice.path, expectedId: notice.sessionId);
     setState(() {
       openedNotice = notice;
       selected = WorkspaceDestination.analysis;
     });
+    _revealAnalysis(_noticeContext);
   }
 
   @override
@@ -513,6 +534,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       usage: usage,
                       metrics: metrics,
                       sessionPanelKey: _sessionPanel,
+                      noticeContextKey: _noticeContext,
                       notice: openedNotice,
                       onDismissNotice: () =>
                           setState(() => openedNotice = null),

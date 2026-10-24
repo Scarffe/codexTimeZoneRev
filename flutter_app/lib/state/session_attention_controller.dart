@@ -308,7 +308,10 @@ class SessionAttentionController extends ChangeNotifier {
           if (_notices.any((n) => n.id == notice.id)) continue;
           _notices.add(notice);
           if (_notices.length > 200) {
-            _notices.removeRange(0, _notices.length - 200);
+            final retained = retainAttentionNotices(_notices);
+            _notices
+              ..clear()
+              ..addAll(retained);
           }
           final saved = await _persist();
           if (saved &&

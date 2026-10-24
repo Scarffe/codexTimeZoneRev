@@ -121,10 +121,14 @@ void main() {
         );
         await tester.tap(find.byKey(ValueKey('notice-open-${notice.id}')));
         await tester.pumpAndSettle();
-        await tester.ensureVisible(
+        final noticeRect = tester.getRect(
           find.byKey(const ValueKey('notice-analysis-context')),
         );
-        await tester.pumpAndSettle();
+        final analysisViewport = tester.getRect(
+          find.byKey(const PageStorageKey('analysis-scroll')),
+        );
+        expect(noticeRect.top, greaterThanOrEqualTo(analysisViewport.top));
+        expect(noticeRect.bottom, lessThanOrEqualTo(analysisViewport.bottom));
         await capture('notice-source-context');
         await fixture.unreadableB();
         await tester.tap(find.byKey(const ValueKey('workspace-sessions')));
