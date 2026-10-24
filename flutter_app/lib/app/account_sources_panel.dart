@@ -182,9 +182,11 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text('额度来源', style: context.theme.typography.body.sm),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
-            runSpacing: 4,
+            runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SizedBox(
@@ -192,6 +194,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 child: MonitorChoice(
                   key: const ValueKey('account-source-selector'),
                   label: '额度来源',
+                  showLabel: false,
                   value: owner.selectedId,
                   items: _sourceChoices(),
                   onChanged: owner.select,

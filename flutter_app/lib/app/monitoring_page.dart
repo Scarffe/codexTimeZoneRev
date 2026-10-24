@@ -114,7 +114,8 @@ class _MonitoringPageState extends State<MonitoringPage> {
                     style: context.theme.typography.display.sm,
                   ),
                   const Text('额度与本地日志不推断账号归属；各窗口百分比不相加。'),
-                  if (owner != null)
+                  const SizedBox(height: 12),
+                  if (owner != null) ...[
                     MonitorChoice(
                       key: const ValueKey('analysis-account-source'),
                       label: '额度来源',
@@ -125,9 +126,11 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       },
                       onChanged: owner.select,
                     ),
+                    const SizedBox(height: 12),
+                  ],
                   Wrap(
                     spacing: 12,
-                    runSpacing: 8,
+                    runSpacing: 12,
                     children: [
                       if (bucket != null)
                         MonitorChoice(

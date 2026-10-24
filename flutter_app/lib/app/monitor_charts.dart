@@ -90,9 +90,14 @@ class MonitorChoice extends StatelessWidget {
     required this.items,
     required this.onChanged,
     this.inline = false,
+    this.showLabel = true,
   });
   final String label, value;
   final bool inline;
+
+  /// Hide only when the containing layout already displays this field's label.
+  /// The select retains its accessible name.
+  final bool showLabel;
 
   /// Forui maps the displayed label to the stored value.
   final Map<String, String> items;
@@ -101,7 +106,7 @@ class MonitorChoice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final select = FSelect<String>(
-      label: inline ? null : Text(label),
+      label: inline || !showLabel ? null : Text(label),
       items: items,
       enabled: items.isNotEmpty,
       control: FSelectControl.lifted(
@@ -123,7 +128,9 @@ class MonitorChoice extends StatelessWidget {
               ),
             ],
           )
-        : select;
+        : showLabel
+        ? select
+        : Semantics(label: label, child: select);
   }
 }
 
