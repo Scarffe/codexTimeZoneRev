@@ -112,13 +112,19 @@ void main() {
       await tester.ensureVisible(find.text('复制 IP').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('复制 IP').first);
-      await tester.pumpAndSettle();
+      // Observe the 1.5s feedback while the independent 4s click wave runs.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(desktop.copied, '192.0.2.10');
       expect(find.text('已复制'), findsOneWidget);
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
       await tester.pump(const Duration(milliseconds: 1600));
+      expect(find.text('已复制'), findsNothing);
+      expect(find.text('复制 IP'), findsWidgets);
       desktop.failCopy = true;
       await tester.tap(find.text('复制 IP').first);
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('复制失败'), findsOneWidget);
       expect(find.text('无法复制 IP。'), findsWidgets);
       await tester.ensureVisible(find.text('重新注入皮肤'));
