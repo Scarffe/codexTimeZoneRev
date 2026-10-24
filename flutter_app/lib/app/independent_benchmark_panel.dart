@@ -392,7 +392,7 @@ class _TimingMarkers extends StatelessWidget {
             painter: _MarkerPainter(
               times,
               snapshot?.elapsedNs ?? 0,
-              palette.accent,
+              palette.dataBlue,
               palette.grid,
             ),
           ),

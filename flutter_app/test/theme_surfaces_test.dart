@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -29,19 +30,32 @@ void expectOpaquePanel(WidgetTester tester, Finder option, FThemeData theme) {
 }
 
 void main() {
+  final buttonContrastRows = <Map<String, Object>>[];
+  tearDownAll(() {
+    final path = Platform.environment['THEME_BUTTON_CONTRAST_FILE'];
+    if (path != null) {
+      File(path).writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert(buttonContrastRows),
+      );
+    }
+  });
   double contrast(Color a, Color b) {
     final values = [a.computeLuminance(), b.computeLuminance()]..sort();
     return (values.last + 0.05) / (values.first + 0.05);
   }
 
-  for (final dark in [false, true]) {
+  for (final (style, dark) in [
+    for (final style in DashboardThemeStyle.values)
+      for (final dark in [false, true]) (style, dark),
+  ]) {
     test(
-      '${dark ? 'dark' : 'light'} reading surfaces and text stay calm and readable',
+      '${style.id} ${dark ? 'dark' : 'light'} reading surfaces and text stay calm and readable',
       () {
         final palette = DashboardPalette.forBrightness(
           dark ? Brightness.dark : Brightness.light,
+          style: style,
         );
-        final theme = launcherTheme(dark);
+        final theme = launcherTheme(dark, style: style);
         expect(
           palette.background.computeLuminance(),
           dark ? lessThan(0.03) : lessThan(0.85),
@@ -62,6 +76,10 @@ void main() {
             greaterThanOrEqualTo(4.5),
           );
           expect(contrast(palette.muted, surface), greaterThanOrEqualTo(4.5));
+          expect(
+            contrast(palette.controlAccent, surface),
+            greaterThanOrEqualTo(4.5),
+          );
         }
         expect(
           contrast(theme.colors.primary, theme.colors.primaryForeground),
@@ -73,6 +91,104 @@ void main() {
             theme.colors.destructiveForeground,
           ),
           greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          {
+            palette.dataBlue,
+            palette.reasoning,
+            palette.tool,
+            palette.muted,
+          }.length,
+          4,
+        );
+        expect(palette.accent, palette.dataBlue);
+        if (style == DashboardThemeStyle.tech) {
+          final color = palette.dataBlue.toARGB32();
+          final red = (color >> 16) & 255,
+              green = (color >> 8) & 255,
+              blue = color & 255;
+          expect(blue - red, greaterThan(80));
+          expect(blue - green, greaterThan(50));
+        }
+        if (style == DashboardThemeStyle.graphite) {
+          expect(palette.dataBlue, isNot(palette.chromeAccent));
+          expect(
+            contrast(palette.controlForeground, palette.controlFill),
+            greaterThanOrEqualTo(4.5),
+          );
+        }
+        // Resolve actual component states and composite translucent destructive
+        // fills over both surfaces used by the application.
+        final buttonProblems = <String>[];
+        for (final (name, button) in [
+          ('primary', theme.buttonStyles.primary.base),
+          ('secondary', theme.buttonStyles.secondary.base),
+          ('outline', theme.buttonStyles.outline.base),
+          ('ghost', theme.buttonStyles.ghost.base),
+          ('destructive', theme.buttonStyles.destructive.base),
+        ]) {
+          expect(
+            button.decoration.resolve({FTappableVariant.hovered}).color,
+            isNot(button.decoration.resolve({}).color),
+            reason: '${style.id} $name retains visible hover feedback',
+          );
+          for (final (state, states) in [
+            ('base', <FTappableVariant>{}),
+            ('hovered', {FTappableVariant.hovered}),
+            ('pressed', {FTappableVariant.pressed}),
+            ('focused', {FTappableVariant.focused}),
+          ]) {
+            for (final (surfaceName, surface) in [
+              ('panel', palette.panel),
+              ('background', palette.background),
+            ]) {
+              final fill = Color.alphaBlend(
+                button.decoration.resolve(states).color ??
+                    const Color(0x00000000),
+                surface,
+              );
+              final text = Color.alphaBlend(
+                button.contentStyle.textStyle.resolve(states).color!,
+                fill,
+              );
+              final ratio = contrast(text, fill);
+              buttonContrastRows.add({
+                'style': style.id,
+                'dark': dark,
+                'button': name,
+                'state': state,
+                'surface': surfaceName,
+                'fillArgb': fill.toARGB32(),
+                'textArgb': text.toARGB32(),
+                'ratio': ratio,
+              });
+              if (ratio < 4.5) {
+                buttonProblems.add('$name $state on $surfaceName: $ratio');
+              }
+            }
+          }
+        }
+        expect(
+          buttonProblems,
+          isEmpty,
+          reason: '${style.id} dark=$dark enabled button text',
+        );
+        final primaryButton = theme.buttonStyles.primary.base;
+        expect(primaryButton.decoration.resolve({}).color, palette.controlFill);
+        expect(
+          primaryButton.contentStyle.textStyle.resolve({}).color,
+          palette.controlForeground,
+        );
+        expect(
+          contrast(
+            primaryButton.decoration.resolve({}).color!,
+            primaryButton.contentStyle.textStyle.resolve({}).color!,
+          ),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(theme.style.focusedOutlineStyle.color, palette.panel),
+          greaterThanOrEqualTo(3),
         );
         expect(theme.typography.body.md.fontSize, 14);
         expect(theme.typography.body.sm.fontSize, 13);
@@ -143,14 +259,17 @@ void main() {
     });
   }
 
-  for (final dark in [false, true]) {
+  for (final (style, dark) in [
+    for (final style in DashboardThemeStyle.values)
+      for (final dark in [false, true]) (style, dark),
+  ]) {
     for (final acrylic in [false, true]) {
       final name =
-          '${dark ? 'dark' : 'light'} ${acrylic ? 'acrylic' : 'solid'}';
+          '${style.id} ${dark ? 'dark' : 'light'} ${acrylic ? 'acrylic' : 'solid'}';
 
       test('$name keeps shared and interactive surfaces opaque', () {
-        final theme = launcherTheme(dark, acrylic: acrylic);
-        final solid = launcherTheme(dark);
+        final theme = launcherTheme(dark, acrylic: acrylic, style: style);
+        final solid = launcherTheme(dark, style: style);
         expect(theme.colors.card.a, 1);
         expect(theme.colors.background.a, 1);
         expect(theme.colors.foreground.a, 1);
@@ -192,7 +311,7 @@ void main() {
         tester.view.physicalSize = const Size(900, 700);
         addTearDown(tester.view.resetDevicePixelRatio);
         addTearDown(tester.view.resetPhysicalSize);
-        final theme = launcherTheme(dark, acrylic: acrylic);
+        final theme = launcherTheme(dark, acrylic: acrylic, style: style);
         final captureKey = GlobalKey();
         String? basicChoice;
         String? searchChoice;
@@ -267,7 +386,7 @@ void main() {
           await capturePanel(
             tester,
             captureKey,
-            '${dark ? 'dark' : 'light'}-ordinary-dropdown',
+            '${style.id}-${dark ? 'dark' : 'light'}-ordinary-dropdown',
           );
         }
         await tester.tap(find.text('Basic beta'));
@@ -282,7 +401,7 @@ void main() {
           await capturePanel(
             tester,
             captureKey,
-            '${dark ? 'dark' : 'light'}-search-dropdown',
+            '${style.id}-${dark ? 'dark' : 'light'}-search-dropdown',
           );
         }
         final searchInput = find.byWidgetPredicate(

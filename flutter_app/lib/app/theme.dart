@@ -5,20 +5,40 @@ import 'dashboard_style.dart';
 
 // Build dependent component styles from a single desktop type scale, including
 // explicit CJK fallbacks instead of relying on platform font discovery alone.
-FThemeData launcherTheme(bool dark, {bool acrylic = false}) {
+final _themes = <(bool, bool, DashboardThemeStyle), FThemeData>{};
+
+FThemeData launcherTheme(
+  bool dark, {
+  bool acrylic = false,
+  DashboardThemeStyle style = DashboardThemeStyle.soft,
+}) => _themes.putIfAbsent((
+  dark,
+  acrylic,
+  style,
+), () => _buildLauncherTheme(dark, acrylic: acrylic, style: style));
+
+FThemeData _buildLauncherTheme(
+  bool dark, {
+  required bool acrylic,
+  required DashboardThemeStyle style,
+}) {
   final base =
       (dark ? FTheme.neutral.dark.desktop : FTheme.neutral.light.desktop)
           .colors;
   // Forui also uses card for select popovers and text fields. Keep this shared
   // token opaque and apply the acrylic tint only to the page's card surfaces.
-  final palette = DashboardPalette.forBrightness(base.brightness);
+  final palette = DashboardPalette.forBrightness(base.brightness, style: style);
   final colors = base.copyWith(
     background: palette.background,
     foreground: palette.foreground,
-    primary: palette.dataBlue,
-    primaryForeground: dark ? palette.background : palette.panel,
+    // Forui reuses primary for item icons and focus/switch strokes.
+    // Pale champagne belongs only to filled actions, never those small marks.
+    primary: palette.controlAccent,
+    primaryForeground: dark
+        ? palette.controlForeground
+        : const Color(0xffffffff),
     secondary: palette.selected,
-    secondaryForeground: dark ? palette.foreground : palette.dataBlue,
+    secondaryForeground: palette.controlAccent,
     muted: palette.soft,
     mutedForeground: palette.muted,
     card: palette.panel,
@@ -53,7 +73,7 @@ FThemeData launcherTheme(bool dark, {bool acrylic = false}) {
     xl2: text(24, weight: FontWeight.w600),
   );
   final typography = FTypography(display: typeface, body: typeface);
-  final style =
+  final componentStyle =
       FStyle.inherit(
         colors: colors,
         typography: typography,
@@ -70,11 +90,46 @@ FThemeData launcherTheme(bool dark, {bool acrylic = false}) {
           size: 18,
         ),
       );
+  FButtonStyles buttons(FColors buttonColors) => FButtonStyles.inherit(
+    colors: buttonColors,
+    typography: typography,
+    style: componentStyle,
+    touch: false,
+  );
+  final filledColors = colors.copyWith(
+    primary: palette.controlFill,
+    primaryForeground: palette.controlForeground,
+    // Default HSL lightening drops Soft light white text below 4.5 on hover.
+    // Keep a visible change while preserving the action's readable contrast.
+    hoverLighten: !dark && style == DashboardThemeStyle.soft
+        ? 0.03
+        : colors.hoverLighten,
+  );
+  final inheritedButtons = buttons(filledColors);
+  // Secondary hover changes its fill again; body text stays readable there.
+  // Destructive buttons need a solid fill rather than same-hue tinted text.
+  final secondaryButtons = buttons(
+    filledColors.copyWith(secondaryForeground: palette.foreground),
+  ).secondary;
+  final destructiveButtons = buttons(
+    colors.copyWith(
+      primary: palette.danger,
+      primaryForeground: colors.destructiveForeground,
+      hoverLighten: dark ? colors.hoverLighten : 0.02,
+    ),
+  ).primary;
   final theme = FThemeData(
     colors: colors,
     touch: false,
     typography: typography,
-    style: style,
+    style: componentStyle,
+    buttonStyles: FButtonStyles(
+      FVariants.raw(inheritedButtons.base, {
+        ...inheritedButtons.variants,
+        FButtonVariant.secondary: secondaryButtons,
+        FButtonVariant.destructive: destructiveButtons,
+      }),
+    ),
   );
   // The page backdrop and cards reveal the native material; menus and enabled
   // input surfaces retain their opaque fill above the page content.

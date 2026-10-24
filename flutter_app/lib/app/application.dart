@@ -39,12 +39,34 @@ import '../state/benchmark_controller.dart';
 import '../services/benchmark.dart';
 import '../services/benchmark_store.dart';
 
+/// Reads only the app appearance keys; malformed family never hides valid mode.
+({String? appearance, DashboardThemeStyle style})
+readLauncherAppearancePreferences(SharedPreferences prefs) {
+  final mode = prefs.get('flutter-appearance');
+  return (
+    appearance: ['system', 'light', 'dark'].contains(mode)
+        ? mode as String
+        : null,
+    style: DashboardThemeStyle.parse(prefs.get('flutter-theme-style')),
+  );
+}
+
+Future<void> saveLauncherThemeStyle(
+  SharedPreferences prefs,
+  DashboardThemeStyle style,
+) async {
+  if (!await prefs.setString('flutter-theme-style', style.id)) {
+    throw StateError('Theme style preference was not saved');
+  }
+}
+
 class LauncherApplication extends StatefulWidget {
   const LauncherApplication({
     super.key,
     this.preview = false,
     this.backend,
     this.initialAppearance = 'system',
+    this.initialThemeStyle = DashboardThemeStyle.soft,
     this.desktop = const SystemDesktopServices(),
     this.networkFactory,
     this.acrylicEnabled = false,
@@ -64,6 +86,7 @@ class LauncherApplication extends StatefulWidget {
   final bool preview;
   final LauncherBackend? backend;
   final String initialAppearance;
+  final DashboardThemeStyle initialThemeStyle;
   final DesktopServices desktop;
   final NetworkController Function()? networkFactory;
   final bool acrylicEnabled;
@@ -165,10 +188,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
             !widget.preview && (widget.backend == null || widget.offlineTrial),
       );
   late final appearance = ValueNotifier(widget.initialAppearance);
+  late final themeStyle = ValueNotifier(widget.initialThemeStyle);
+  int _appearanceRevision = 0, _styleRevision = 0;
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
   final windowChrome = WindowChrome();
-  bool? chromeDark;
+  (DashboardThemeStyle, bool)? chromeAppearance;
   DesktopMonitor? monitor;
   WorkspaceDestination selected = WorkspaceDestination.launcher;
   SessionAttentionNotice? openedNotice;
@@ -192,10 +217,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   }
 
   void _syncChrome(bool dark) {
-    if (chromeDark == dark) return;
-    chromeDark = dark;
+    final resolved = (themeStyle.value, dark);
+    if (chromeAppearance == resolved) return;
+    chromeAppearance = resolved;
     final palette = DashboardPalette.forBrightness(
       dark ? Brightness.dark : Brightness.light,
+      style: themeStyle.value,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -206,7 +233,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         borderArgb: palette.border.toARGB32(),
         menuSurfaceArgb: palette.panel.toARGB32(),
         menuSelectedArgb: palette.selected.toARGB32(),
-        menuAccentArgb: palette.accent.toARGB32(),
+        menuAccentArgb: palette.controlAccent.toARGB32(),
         menuDangerArgb: palette.danger.toARGB32(),
       );
     });
@@ -309,28 +336,52 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   }
 
   Future<void> _loadAppearance() async {
+    final modeRevision = _appearanceRevision, styleRevision = _styleRevision;
     try {
-      final saved = (await SharedPreferences.getInstance()).getString(
-        'flutter-appearance',
+      final saved = readLauncherAppearancePreferences(
+        await SharedPreferences.getInstance(),
       );
-      if (mounted && ['system', 'light', 'dark'].contains(saved)) {
-        setState(() => appearance.value = saved!);
-      }
+      if (!mounted) return;
+      setState(() {
+        // A delayed disk result must not undo an action taken since startup.
+        if (_appearanceRevision == modeRevision && saved.appearance != null) {
+          appearance.value = saved.appearance!;
+        }
+        if (_styleRevision == styleRevision) themeStyle.value = saved.style;
+      });
     } catch (_) {
-      /* System appearance is a safe fallback. */
+      /* Current in-memory appearance is a safe fallback. */
     }
   }
 
   Future<void> _setAppearance(String value) async {
+    _appearanceRevision++;
     setState(() => appearance.value = value);
     if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
       try {
-        await (await SharedPreferences.getInstance()).setString(
+        if (!await (await SharedPreferences.getInstance()).setString(
           'flutter-appearance',
+          value,
+        )) {
+          throw StateError('Appearance preference was not saved');
+        }
+      } catch (e) {
+        if (mounted) launcher.report('主题已切换，但无法保存偏好。', detail: e.toString());
+      }
+    }
+  }
+
+  Future<void> _setThemeStyle(DashboardThemeStyle value) async {
+    _styleRevision++;
+    setState(() => themeStyle.value = value);
+    if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
+      try {
+        await saveLauncherThemeStyle(
+          await SharedPreferences.getInstance(),
           value,
         );
       } catch (e) {
-        launcher.report('主题已切换，但无法保存偏好。', detail: e.toString());
+        if (mounted) launcher.report('风格已切换，但无法保存偏好。', detail: e.toString());
       }
     }
   }
@@ -351,26 +402,31 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               MediaQuery.platformBrightnessOf(context) == Brightness.dark);
       _syncMaterial(dark);
       _syncChrome(dark);
-      final theme = acrylicEnabled
-          ? (dark ? darkAcrylicTheme : lightAcrylicTheme)
-          : (dark ? darkLauncherTheme : lightLauncherTheme);
-      return FTheme(
-        data: theme,
-        child: ListenableBuilder(
-          listenable: usage,
-          child: FToaster(
-            child: FTooltipGroup(
-              child: DefaultTextStyle(
-                style: theme.typography.body.md.copyWith(
-                  color: theme.colors.foreground,
+      final theme = launcherTheme(
+        dark,
+        acrylic: acrylicEnabled,
+        style: themeStyle.value,
+      );
+      return DashboardStyleScope(
+        style: themeStyle.value,
+        child: FTheme(
+          data: theme,
+          child: ListenableBuilder(
+            listenable: usage,
+            child: FToaster(
+              child: FTooltipGroup(
+                child: DefaultTextStyle(
+                  style: theme.typography.body.md.copyWith(
+                    color: theme.colors.foreground,
+                  ),
+                  child: _benchmarkKeyboard(child!),
                 ),
-                child: _benchmarkKeyboard(child!),
               ),
             ),
-          ),
-          builder: (context, child) => DashboardMotionScope(
-            reducedMotion: usage.reducedMotion || !usage.mainWindowVisible,
-            child: DashboardMotionBackdrop(child: child!),
+            builder: (context, child) => DashboardMotionScope(
+              reducedMotion: usage.reducedMotion || !usage.mainWindowVisible,
+              child: DashboardMotionBackdrop(child: child!),
+            ),
           ),
         ),
       );
@@ -384,6 +440,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           usage,
           metrics,
           appearance,
+          themeStyle,
           benchmark,
           attention,
         ]),
@@ -415,6 +472,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     unreadCount: attention.unreadCount,
                     appearance: appearance.value,
                     onAppearance: _setAppearance,
+                    themeStyle: themeStyle.value,
+                    onThemeStyle: _setThemeStyle,
                     onSettings: !usage.preferencesReady
                         ? null
                         : () => showGeneralDialog<void>(
@@ -488,6 +547,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     metrics.dispose();
     benchmark.dispose();
     appearance.dispose();
+    themeStyle.dispose();
     attention.dispose();
     super.dispose();
   }

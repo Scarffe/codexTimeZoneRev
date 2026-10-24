@@ -69,7 +69,7 @@ class _DashboardMotionBackdropState extends State<DashboardMotionBackdrop>
 
   @override
   Widget build(BuildContext context) {
-    final color = DashboardPalette.of(context).accent;
+    final color = DashboardPalette.of(context).controlAccent;
     return MouseRegion(
       opaque: false,
       onHover: (event) {

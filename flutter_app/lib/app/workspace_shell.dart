@@ -26,6 +26,8 @@ class WorkspaceShell extends StatelessWidget {
     required this.onSelect,
     required this.appearance,
     required this.onAppearance,
+    this.themeStyle = DashboardThemeStyle.soft,
+    this.onThemeStyle,
     required this.launcher,
     required this.overview,
     required this.accounts,
@@ -40,6 +42,8 @@ class WorkspaceShell extends StatelessWidget {
   final ValueChanged<WorkspaceDestination> onSelect;
   final String appearance;
   final ValueChanged<String> onAppearance;
+  final DashboardThemeStyle themeStyle;
+  final ValueChanged<DashboardThemeStyle>? onThemeStyle;
   final Widget launcher, overview, accounts, sessions, analysis, benchmark;
   final VoidCallback? onSettings;
 
@@ -120,7 +124,34 @@ class WorkspaceShell extends StatelessWidget {
                           childAnchor: Alignment.bottomRight,
                           menuBuilder: (context, controller, _) => [
                             FItemGroup(
+                              semanticsLabel: '配色风格',
                               children: [
+                                FItem(
+                                  title: const Text('配色风格'),
+                                  enabled: false,
+                                ),
+                                for (final style in DashboardThemeStyle.values)
+                                  FItem(
+                                    key: ValueKey('theme-style-${style.id}'),
+                                    title: Text(style.label),
+                                    suffix: themeStyle == style
+                                        ? const Icon(FLucideIcons.check)
+                                        : null,
+                                    onPress: onThemeStyle == null
+                                        ? null
+                                        : () {
+                                            onThemeStyle!(style);
+                                            controller.hide();
+                                          },
+                                  ),
+                              ],
+                            ),
+                            FItemGroup(
+                              children: [
+                                FItem(
+                                  title: const Text('明暗模式'),
+                                  enabled: false,
+                                ),
                                 for (final (label, value, icon) in [
                                   ('跟随系统', 'system', FLucideIcons.monitor),
                                   ('浅色', 'light', FLucideIcons.sun),
@@ -268,7 +299,7 @@ class _RailEntry extends StatelessWidget {
                       child: Container(
                         width: 3,
                         decoration: BoxDecoration(
-                          color: DashboardPalette.of(context).chromeGold,
+                          color: DashboardPalette.of(context).chromeAccent,
                           borderRadius: BorderRadius.circular(3),
                         ),
                       ),
@@ -277,7 +308,7 @@ class _RailEntry extends StatelessWidget {
                     icon,
                     size: 18,
                     color: selected
-                        ? DashboardPalette.of(context).accent
+                        ? DashboardPalette.of(context).controlAccent
                         : DashboardPalette.of(context).muted,
                   ),
                 ],

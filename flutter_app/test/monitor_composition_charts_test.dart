@@ -42,16 +42,69 @@ Widget _chart(
 void main() {
   setUpAll(timezone.initializeTimeZones);
 
-  test('palette separates blue data from gold decorative chrome', () {
-    for (final brightness in Brightness.values) {
-      final dark = brightness == Brightness.dark;
-      final palette = DashboardPalette.forBrightness(brightness);
-      expect(palette.background, Color(dark ? 0xff111723 : 0xffe7ebf1));
-      expect(palette.panel, Color(dark ? 0xff1a2232 : 0xfff1f3f6));
-      expect(palette.dataBlue, Color(dark ? 0xff5987ff : 0xff2459eb));
-      expect(palette.chromeGold, Color(dark ? 0xffe6ca93 : 0xffd6ba84));
+  test('each family separates quantitative data from decorative chrome', () {
+    // Independent literals from the confirmed theme table, not the resolver.
+    for (final (style, dark, background, panel, data, chrome) in [
+      (
+        DashboardThemeStyle.soft,
+        false,
+        0xffe6ece8,
+        0xfff0f4ef,
+        0xff326d76,
+        0xff77a9ad,
+      ),
+      (
+        DashboardThemeStyle.soft,
+        true,
+        0xff141d1d,
+        0xff202c2d,
+        0xff89b7c1,
+        0xff9ec9c7,
+      ),
+      (
+        DashboardThemeStyle.tech,
+        false,
+        0xffe7ebf3,
+        0xfff2f5fa,
+        0xff245deb,
+        0xff4d7eff,
+      ),
+      (
+        DashboardThemeStyle.tech,
+        true,
+        0xff121b2b,
+        0xff1e2c40,
+        0xff719aff,
+        0xff85a9ff,
+      ),
+      (
+        DashboardThemeStyle.graphite,
+        false,
+        0xffeae8e3,
+        0xfff5f2ec,
+        0xff356edf,
+        0xffd8c195,
+      ),
+      (
+        DashboardThemeStyle.graphite,
+        true,
+        0xff1b1b1f,
+        0xff28282d,
+        0xff7da1ff,
+        0xffe0cba2,
+      ),
+    ]) {
+      final palette = DashboardPalette.forBrightness(
+        dark ? Brightness.dark : Brightness.light,
+        style: style,
+      );
+      expect(palette.background, Color(background));
+      expect(palette.panel, Color(panel));
+      expect(palette.dataBlue, Color(data));
+      expect(palette.chromeAccent, Color(chrome));
       expect(palette.accent, palette.dataBlue);
-      expect(palette.dataBlue, isNot(palette.chromeGold));
+      expect(palette.chromeGold, palette.chromeAccent);
+      expect(palette.dataBlue, isNot(palette.chromeAccent));
     }
   });
 
@@ -90,7 +143,10 @@ void main() {
 
       // Rasterize the actual production painter: the second ring's denominator
       // remains 100, not 25+75; the zero track has no data-colored circumference.
-      Future<bool> blueAt(int index, double angle) async {
+      final dataArgb = DashboardPalette.of(
+        tester.element(find.byKey(const ValueKey('monitor-ring-0'))),
+      ).dataBlue.toARGB32();
+      Future<bool> dataAt(int index, double angle) async {
         final paint = tester
             .widget<CustomPaint>(find.byKey(ValueKey('monitor-ring-$index')))
             .painter!;
@@ -105,21 +161,21 @@ void main() {
         final y = (44 + 39 * math.sin(angle)).round();
         final offset = (y * 88 + x) * 4;
         final result =
-            bytes!.getUint8(offset) == 0x24 &&
-            bytes.getUint8(offset + 1) == 0x59 &&
-            bytes.getUint8(offset + 2) == 0xeb;
+            bytes!.getUint8(offset) == ((dataArgb >> 16) & 255) &&
+            bytes.getUint8(offset + 1) == ((dataArgb >> 8) & 255) &&
+            bytes.getUint8(offset + 2) == (dataArgb & 255);
         image.dispose();
         picture.dispose();
         return result;
       }
 
       await tester.runAsync(() async {
-        expect(await blueAt(0, -math.pi / 4), isTrue);
-        expect(await blueAt(0, math.pi / 4), isFalse);
-        expect(await blueAt(1, math.pi / 4), isTrue);
-        expect(await blueAt(1, -3 * math.pi / 4), isFalse);
-        expect(await blueAt(2, -math.pi / 4), isFalse);
-        expect(await blueAt(3, -3 * math.pi / 4), isTrue);
+        expect(await dataAt(0, -math.pi / 4), isTrue);
+        expect(await dataAt(0, math.pi / 4), isFalse);
+        expect(await dataAt(1, math.pi / 4), isTrue);
+        expect(await dataAt(1, -3 * math.pi / 4), isFalse);
+        expect(await dataAt(2, -math.pi / 4), isFalse);
+        expect(await dataAt(3, -3 * math.pi / 4), isTrue);
       });
       semantics.dispose();
     },
