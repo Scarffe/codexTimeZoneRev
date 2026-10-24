@@ -63,14 +63,14 @@ FThemeData _buildLauncherTheme(
   TextStyle text(double size, {FontWeight weight = FontWeight.w400}) =>
       inherited.md.copyWith(fontSize: size, height: 1.5, fontWeight: weight);
   final typeface = inherited.copyWith(
-    xs3: text(11),
-    xs2: text(11),
+    xs3: text(12),
+    xs2: text(12),
     xs: text(12),
     sm: text(13),
     md: text(14),
-    lg: text(15, weight: FontWeight.w500),
-    xl: text(22, weight: FontWeight.w600),
-    xl2: text(24, weight: FontWeight.w600),
+    lg: text(16, weight: FontWeight.w500),
+    xl: text(26, weight: FontWeight.w600),
+    xl2: text(30, weight: FontWeight.w600),
   );
   final typography = FTypography(display: typeface, body: typeface);
   final componentStyle =
@@ -81,8 +81,8 @@ FThemeData _buildLauncherTheme(
       ).copyWith(
         borderRadius: const FBorderRadius(
           sm: BorderRadius.all(Radius.circular(7)),
-          md: BorderRadius.all(Radius.circular(7)),
-          lg: BorderRadius.all(Radius.circular(7)),
+          md: BorderRadius.all(Radius.circular(10)),
+          lg: BorderRadius.all(Radius.circular(14)),
         ),
         shadow: const [],
         iconStyle: IconThemeDataDelta.delta(

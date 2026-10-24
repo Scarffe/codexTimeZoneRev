@@ -100,22 +100,46 @@ class WorkspaceShell extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    constraints: const BoxConstraints(minHeight: 52),
+                    constraints: BoxConstraints(minHeight: narrow ? 62 : 78),
                     decoration: BoxDecoration(
+                      color: palette.panel.withValues(alpha: .45),
                       border: Border(bottom: BorderSide(color: colors.border)),
                     ),
                     padding: EdgeInsets.symmetric(
                       horizontal: horizontal,
-                      vertical: 7,
+                      vertical: narrow ? 8 : 11,
                     ),
                     child: Row(
                       children: [
                         Expanded(
                           child: Semantics(
                             header: true,
-                            child: Text(
-                              selected.label,
-                              style: context.theme.typography.display.xl,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!narrow)
+                                  Text(
+                                    'CODEX TIMEZONE',
+                                    style: context.theme.typography.body.xs
+                                        .copyWith(
+                                          color: palette.muted,
+                                          fontSize: 10,
+                                          height: 1.2,
+                                          letterSpacing: 1.7,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                if (!narrow) const SizedBox(height: 3),
+                                Text(
+                                  selected.label,
+                                  style: context.theme.typography.display.xl
+                                      .copyWith(
+                                        height: 1.2,
+                                        letterSpacing: -.4,
+                                      ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -288,30 +312,38 @@ class _RailEntry extends StatelessWidget {
             child: SizedBox(
               width: 44,
               height: 44,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  if (selected)
-                    Positioned(
-                      left: 2,
-                      top: 12,
-                      bottom: 12,
-                      child: Container(
-                        width: 3,
-                        decoration: BoxDecoration(
-                          color: DashboardPalette.of(context).chromeAccent,
-                          borderRadius: BorderRadius.circular(3),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: selected
+                      ? DashboardPalette.of(context).selected
+                      : const Color(0x00000000),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (selected)
+                      Positioned(
+                        left: 2,
+                        top: 12,
+                        bottom: 12,
+                        child: Container(
+                          width: 3,
+                          decoration: BoxDecoration(
+                            color: DashboardPalette.of(context).chromeAccent,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
                         ),
                       ),
+                    Icon(
+                      icon,
+                      size: 18,
+                      color: selected
+                          ? DashboardPalette.of(context).controlAccent
+                          : DashboardPalette.of(context).muted,
                     ),
-                  Icon(
-                    icon,
-                    size: 18,
-                    color: selected
-                        ? DashboardPalette.of(context).controlAccent
-                        : DashboardPalette.of(context).muted,
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

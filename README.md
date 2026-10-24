@@ -17,6 +17,8 @@
 
 本开发分支加入 Windows Codex 订阅多账号监控，使用监控专用目录中的独立官方登录。本候选已接入六工作区、关注收件箱，以及柔和·雾杉、科技·极昼、石墨·香槟三套可切换主题，每套均支持浅色和深色，默认柔和·雾杉。图表数据、可读控件与装饰使用独立颜色角色；实际账户执行切换仍为后续提案。历史方向与后续需求见[下一阶段建议](docs/2026-10-23-next-stage-proposal.md)，近期参考仓库与依据见[功能研究](docs/2026-10-23-feature-research.md)。
 
+rc21 在新分支重构了工作区排版：总览采用自适应数字入口卡，启动器突出目标时间并分组设置，分析页分离来源、筛选和读数。三套主题与原有交互继续保留；账户、会话和 API 的数据及操作仍分别管理。原审美与本轮离线功能修复另存于 `feature/classic-workspace`，rc20 历史版本仍保留于 `feature/k3-2-readonly-preflight`。本轮也完成 K3.2 离线诊断分层与未来 strict 启动模板整理，没有开放真实任务、热切换或模型请求。
+
 ### 字体与后续中英文
 
 Windows 使用 Segoe UI Variable Text，中文回退至 Microsoft YaHei UI / Microsoft YaHei；其他平台保留 PingFang SC、Noto Sans CJK SC 回退。它们是适合屏幕界面的平台字体，但不存在人人最舒适的唯一字体。可读性还取决于字号、字重、行距、对比和控件留白；参见 [Windows 字体指导](https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/typography) 与[微软雅黑说明](https://learn.microsoft.com/en-gb/typography/font-list/microsoft-yahei)。

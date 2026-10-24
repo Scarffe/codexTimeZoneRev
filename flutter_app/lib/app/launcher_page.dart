@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import 'dashboard_motion.dart';
+import 'dashboard_style.dart';
 
 import '../domain/settings.dart';
 import '../services/clocks.dart';
@@ -32,7 +33,7 @@ class LauncherPage extends StatelessWidget {
     List<Widget> children,
   ) => FCard(
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -42,14 +43,14 @@ class LauncherPage extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             description,
             style: context.theme.typography.body.sm.copyWith(
               color: context.theme.colors.mutedForeground,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           ...children,
         ],
       ),
@@ -59,7 +60,7 @@ class LauncherPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = launcher.settings;
-    final settingCard = _section(context, '启动设置', '为新启动的 Codex 设置独立时区。', [
+    final settingCard = _section(context, '启动设置', '新进程使用此时区，系统时区保持不变。', [
       FSelect<String>(
         label: const Text('设置方式'),
         items: const {'地区时区': 'zone', '固定 UTC 偏移': 'offset'},
@@ -75,7 +76,7 @@ class LauncherPage extends StatelessWidget {
       if (settings.mode == 'zone')
         FSelect<String>.search(
           label: const Text('地区时区'),
-          description: const Text('覆盖美国、亚洲、欧洲等常用地区，可搜索城市或时区名称；自动遵循地区夏令时规则。'),
+          description: const Text('搜索城市或时区；自动遵循当地夏令时。'),
           items: {
             for (final zone in launcher.zones)
               '${zone.label} · ${zone.id}': zone.id,
@@ -114,54 +115,15 @@ class LauncherPage extends StatelessWidget {
           title: Text(launcher.validationError!),
         ),
       ],
-      const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: FDivider(),
-      ),
-      _PathField(launcher: launcher),
-      const SizedBox(height: 12),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: _motionButton(
-          FButton(
-            mainAxisSize: MainAxisSize.min,
-            variant: FButtonVariant.outline,
-            onPress:
-                launcher.editable && !launcher.preview && !launcher.offlineTrial
-                ? _browse
-                : null,
-            prefix: const Icon(FLucideIcons.folderOpen),
-            child: const Text('选择客户端'),
-          ),
-        ),
-      ),
-      const SizedBox(height: 12),
-      Text(
-        launcher.effectivePath.isEmpty
-            ? '未找到客户端，请选择 Codex 程序。'
-            : '当前路径：${launcher.effectivePath}',
-        style: context.theme.typography.body.sm.copyWith(
-          color: context.theme.colors.mutedForeground,
-        ),
-      ),
-      const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: FDivider(),
-      ),
-      FSwitch(
-        label: const Text('Dream Skin 兼容启动'),
-        description: const Text('保存后，在下次启动时应用皮肤。'),
-        value: settings.dreamSkinCompatible,
-        enabled: launcher.editable,
-        onChange: (value) =>
-            launcher.update(settings.copyWith(dreamSkinCompatible: value)),
-      ),
-      const SizedBox(height: 16),
-      Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: [
-          _motionButton(
+    ]);
+    final clientPath = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PathField(launcher: launcher),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _motionButton(
             FButton(
               mainAxisSize: MainAxisSize.min,
               variant: FButtonVariant.outline,
@@ -169,39 +131,113 @@ class LauncherPage extends StatelessWidget {
                   launcher.editable &&
                       !launcher.preview &&
                       !launcher.offlineTrial
-                  ? () => launcher.action('launch_dream_skin')
+                  ? _browse
                   : null,
-              child: const Flexible(child: Text('打开 Dream Skin')),
+              prefix: const Icon(FLucideIcons.folderOpen),
+              child: const Text('选择客户端'),
             ),
           ),
-          _motionButton(
-            FButton(
-              mainAxisSize: MainAxisSize.min,
-              variant: FButtonVariant.outline,
-              onPress:
-                  launcher.editable &&
-                      !launcher.preview &&
-                      !launcher.offlineTrial
-                  ? () => launcher.action('reapply_dream_skin')
-                  : null,
-              child: const Flexible(child: Text('重新注入皮肤')),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 8),
-      Text(
-        '重新注入需要客户端由兼容启动打开；不会重启客户端或更改时区。',
-        style: context.theme.typography.body.sm.copyWith(
-          color: context.theme.colors.mutedForeground,
         ),
+        const SizedBox(height: 12),
+        Text(
+          launcher.effectivePath.isEmpty
+              ? '未找到客户端，请选择 Codex 程序。'
+              : '当前路径：${launcher.effectivePath}',
+          style: context.theme.typography.body.sm.copyWith(
+            color: context.theme.colors.mutedForeground,
+          ),
+        ),
+      ],
+    );
+    final skinControls = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FSwitch(
+          label: const Text('Dream Skin 兼容启动'),
+          description: const Text('保存后，在下次启动时应用皮肤。'),
+          value: settings.dreamSkinCompatible,
+          enabled: launcher.editable,
+          onChange: (value) =>
+              launcher.update(settings.copyWith(dreamSkinCompatible: value)),
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            _motionButton(
+              FButton(
+                mainAxisSize: MainAxisSize.min,
+                variant: FButtonVariant.outline,
+                onPress:
+                    launcher.editable &&
+                        !launcher.preview &&
+                        !launcher.offlineTrial
+                    ? () => launcher.action('launch_dream_skin')
+                    : null,
+                child: const Flexible(child: Text('打开 Dream Skin')),
+              ),
+            ),
+            _motionButton(
+              FButton(
+                mainAxisSize: MainAxisSize.min,
+                variant: FButtonVariant.outline,
+                onPress:
+                    launcher.editable &&
+                        !launcher.preview &&
+                        !launcher.offlineTrial
+                    ? () => launcher.action('reapply_dream_skin')
+                    : null,
+                child: const Flexible(child: Text('重新注入皮肤')),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '重新注入仅适用于兼容启动的客户端；保持当前进程与时区。',
+          style: context.theme.typography.body.sm.copyWith(
+            color: context.theme.colors.mutedForeground,
+          ),
+        ),
+      ],
+    );
+    final clientCard = _section(context, '客户端与皮肤', '选择程序并配置下次启动。', [
+      LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 720) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                clientPath,
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: FDivider(),
+                ),
+                skinControls,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 6, child: clientPath),
+              const SizedBox(width: 32),
+              Expanded(flex: 5, child: skinControls),
+            ],
+          );
+        },
       ),
     ]);
 
     return FScaffold(
       childPad: false,
-      footer: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      footer: Container(
+        decoration: BoxDecoration(
+          color: DashboardPalette.of(context).panel,
+          border: Border(top: BorderSide(color: context.theme.colors.border)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -325,7 +361,7 @@ class LauncherPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           clock,
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
                           settingCard,
                         ],
                       );
@@ -333,18 +369,20 @@ class LauncherPage extends StatelessWidget {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 3, child: settingCard),
-                        const SizedBox(width: 12),
-                        Expanded(flex: 2, child: clock),
+                        Expanded(flex: 5, child: clock),
+                        const SizedBox(width: 16),
+                        Expanded(flex: 6, child: settingCard),
                       ],
                     );
                   },
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                clientCard,
+                const SizedBox(height: 16),
                 _section(
                   context,
                   '网络位置参考',
-                  network.cached ? '显示上次查询结果，正在更新。' : '国内与国际线路独立查询；识别时区仅写入草稿。',
+                  network.cached ? '上次查询结果 · 更新中' : '国内 / 国际独立查询 · 应用时区仅写入草稿',
                   [
                     Align(
                       alignment: Alignment.centerLeft,
@@ -540,121 +578,32 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     final local = widget.preview
         ? targetClock(const LauncherSettings(), _now)
         : ClockReading.fromDate(_now.toLocal());
-    if (widget.compact) {
-      return FCard(
-        key: const ValueKey('time-preview-card'),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                '时间预览',
-                style: context.theme.typography.display.lg.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                widget.settings.mode == 'zone'
-                    ? widget.settings.zoneId
-                    : '固定偏移',
-                style: context.theme.typography.body.sm,
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Expanded(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        target?.time ?? '--:--:--',
-                        style: context.theme.typography.display.xl.copyWith(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w600,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  FBadge(child: Text(target?.offset ?? '无效时区')),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                target?.date ?? '请选择有效时区',
-                style: context.theme.typography.body.sm,
-              ),
-              const FDivider(
-                style: FDividerStyleDelta.delta(
-                  padding: EdgeInsetsGeometryDelta.value(
-                    EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
-              ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('本地时间', style: context.theme.typography.body.sm),
-                        const SizedBox(height: 4),
-                        Text(
-                          local.date,
-                          style: context.theme.typography.body.sm.copyWith(
-                            color: context.theme.colors.mutedForeground,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        local.time,
-                        style: context.theme.typography.body.lg.copyWith(
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        local.offset,
-                        style: context.theme.typography.body.sm.copyWith(
-                          color: context.theme.colors.mutedForeground,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final palette = DashboardPalette.of(context);
+    final muted = context.theme.typography.body.sm.copyWith(
+      color: palette.muted,
+    );
     return FCard(
       key: const ValueKey('time-preview-card'),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              '时间预览',
-              style: context.theme.typography.display.lg.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                Icon(
+                  FLucideIcons.clock3,
+                  size: 18,
+                  color: palette.controlAccent,
+                ),
+                const SizedBox(width: 8),
+                Text('时间预览', style: context.theme.typography.display.lg),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 24),
             Text(
               widget.settings.mode == 'zone' ? widget.settings.zoneId : '固定偏移',
-              style: context.theme.typography.body.sm,
+              style: muted,
             ),
             const SizedBox(height: 8),
             FittedBox(
@@ -663,38 +612,57 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
               child: Text(
                 target?.time ?? '--:--:--',
                 style: context.theme.typography.display.xl.copyWith(
-                  fontSize: 36,
+                  fontSize: widget.compact ? 46 : 56,
+                  height: 1.15,
                   fontWeight: FontWeight.w600,
+                  letterSpacing: -1.5,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(target?.date ?? '请选择有效时区'),
+            const SizedBox(height: 12),
+            Text(target?.date ?? '请选择有效时区', style: muted),
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
               child: FBadge(child: Text(target?.offset ?? '无效时区')),
             ),
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
+              padding: EdgeInsets.symmetric(vertical: 20),
               child: FDivider(),
             ),
-            Text(
-              '本地时间 · ${widget.preview ? 'Asia/Shanghai' : _now.toLocal().timeZoneName}',
-              style: context.theme.typography.body.sm,
+            Wrap(
+              spacing: 20,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '本地时间 · ${widget.preview ? 'Asia/Shanghai' : _now.toLocal().timeZoneName}',
+                      style: muted,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(local.date, style: muted),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      local.time,
+                      style: context.theme.typography.display.lg.copyWith(
+                        fontSize: 22,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    Text(local.offset, style: muted),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              local.time,
-              style: context.theme.typography.display.xl.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(local.date, style: context.theme.typography.body.sm),
-            const SizedBox(height: 8),
-            Text(local.offset, style: context.theme.typography.body.sm),
           ],
         ),
       ),

@@ -10,6 +10,7 @@ import '../services/session_attention.dart';
 import 'account_usage_panel.dart';
 import 'session_metrics_panel.dart';
 import 'monitor_charts.dart';
+import 'dashboard_style.dart';
 
 /// Five display classes, with independent account and local-log source owners.
 class MonitoringPage extends StatefulWidget {
@@ -61,6 +62,10 @@ class _MonitoringPageState extends State<MonitoringPage> {
         buckets.where((b) => b.id == _bucket).firstOrNull ??
         buckets.firstOrNull;
     final notice = widget.notice;
+    final palette = DashboardPalette.of(context);
+    final secondary = context.theme.typography.body.sm.copyWith(
+      color: palette.muted,
+    );
     final matchesNotice =
         notice != null &&
         widget.metrics.selected == notice.path &&
@@ -101,20 +106,33 @@ class _MonitoringPageState extends State<MonitoringPage> {
                 ),
               ),
             ),
-          const SizedBox(height: 12),
+          if (notice != null) const SizedBox(height: 16),
           FCard(
             key: const ValueKey('analysis-quota-card'),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    '账号额度 · 独立来源',
-                    style: context.theme.typography.display.sm,
+                  Row(
+                    children: [
+                      Icon(
+                        FLucideIcons.gauge,
+                        size: 18,
+                        color: palette.controlAccent,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '账号额度 · 独立来源',
+                          style: context.theme.typography.display.lg,
+                        ),
+                      ),
+                    ],
                   ),
-                  const Text('额度与本地日志不推断账号归属；各窗口百分比不相加。'),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 4),
+                  Text('各窗口分别计量 · 不从会话日志推断账号', style: secondary),
+                  const SizedBox(height: 20),
                   if (owner != null) ...[
                     MonitorChoice(
                       key: const ValueKey('analysis-account-source'),
@@ -153,9 +171,13 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
                   if (usage.error != null) Text('额度来源：${usage.error}'),
                   if (usage.data != null)
-                    Text('最近额度观测：${usage.data!.fetchedAt.toLocal()}'),
+                    Text(
+                      '最近额度观测：${usage.data!.fetchedAt.toLocal()}',
+                      style: secondary,
+                    ),
                   if (bucket == null)
                     const Text('额度信息暂不可用 · 可在账号额度工作区查询')
                   else
@@ -176,8 +198,9 @@ class _MonitoringPageState extends State<MonitoringPage> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          const Text('本地会话日志 · 独立于账号额度与 API 测速'),
+          const SizedBox(height: 24),
+          Text('本地会话日志 · 独立于账号额度与 API 测速', style: secondary),
+          const SizedBox(height: 8),
           SessionMetricsPanel(
             key: widget.sessionPanelKey,
             controller: widget.metrics,

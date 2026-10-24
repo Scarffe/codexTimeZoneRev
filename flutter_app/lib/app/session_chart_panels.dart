@@ -365,11 +365,11 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final width = MediaQuery.sizeOf(context).width > 620
-          ? (constraints.maxWidth - 12) / 2
+          ? (constraints.maxWidth - 16) / 2
           : constraints.maxWidth;
       return Wrap(
-        spacing: 12,
-        runSpacing: 12,
+        spacing: 16,
+        runSpacing: 16,
         children: [
           for (final panel in [
             _recent(context),

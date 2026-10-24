@@ -212,25 +212,21 @@ void main() {
       final queries = f.sourceService.queries.length;
       await tester.tap(find.byKey(const ValueKey('workspace-overview')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('5 小时额度剩余 72.00%'), findsOneWidget);
-      expect(find.textContaining('周额度剩余 54.00%'), findsOneWidget);
-      expect(
-        find.textContaining('进行中 1 · 已完成 1 · 已取消 0 · 未知 0'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Codex · 5 小时额度 · 剩余 72.00%'), findsOneWidget);
+      expect(find.textContaining('Codex · 周额度 · 剩余 54.00%'), findsOneWidget);
+      expect(find.text('进行中 1 · 已完成 1'), findsOneWidget);
+      expect(find.text('已取消 0 · 未知 0'), findsOneWidget);
       f.sources.select('profile-unknown');
       await tester.pump();
-      expect(find.textContaining('5 小时额度剩余 未知'), findsOneWidget);
+      expect(find.textContaining('5 小时额度 · 剩余 未知'), findsOneWidget);
       expect(find.textContaining('72.00%'), findsNothing);
       f.sources.select('profile-stale');
       await tester.pump();
       expect(find.textContaining('上次观测'), findsOneWidget);
       await f.unreadableB();
       await tester.pump();
-      expect(
-        find.textContaining('进行中 1 · 已完成 0 · 已取消 0 · 未知 1'),
-        findsOneWidget,
-      );
+      expect(find.text('进行中 1 · 已完成 0'), findsOneWidget);
+      expect(find.text('已取消 0 · 未知 1'), findsOneWidget);
       expect(f.sourceService.queries.length, queries);
       await tester.pumpWidget(const SizedBox());
     },

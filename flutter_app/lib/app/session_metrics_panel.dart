@@ -8,6 +8,7 @@ import '../services/session_measurement_quality.dart';
 import 'monitor_information.dart';
 import 'monitor_presentation.dart';
 import 'session_chart_panels.dart';
+import 'dashboard_style.dart';
 
 class SessionMetricsPanel extends StatefulWidget {
   const SessionMetricsPanel({super.key, required this.controller});
@@ -199,22 +200,18 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
         children: [
           FCard(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 10),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Text('会话回合统计', style: context.theme.typography.display.lg),
+                  const SizedBox(height: 16),
                   LayoutBuilder(
                     builder: (context, constraints) => Wrap(
                       spacing: 10,
                       runSpacing: 6,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        Text(
-                          '会话回合统计',
-                          style: context.theme.typography.body.md.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                         if (controller.sessions.isNotEmpty)
                           SizedBox(
                             width: constraints.maxWidth > 650
@@ -272,38 +269,43 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                   if (controller.selected != null &&
                       controller.selectorValue == null)
                     const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 4,
-                    children: [
-                      Semantics(
-                        key: controller.selected == null
-                            ? null
-                            : const ValueKey('session-short-identity'),
-                        label: info == null
-                            ? '会话身份等待核验'
-                            : '${controller.sessionName(info)} · ${info['cwd'] ?? '未知项目'}',
-                        child: Text(
-                          '会话状态：${controller.stateLabel}',
-                          key: const ValueKey('session-state'),
+                  const SizedBox(height: 12),
+                  DefaultTextStyle.merge(
+                    style: context.theme.typography.body.sm.copyWith(
+                      color: DashboardPalette.of(context).muted,
+                    ),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        Semantics(
+                          key: controller.selected == null
+                              ? null
+                              : const ValueKey('session-short-identity'),
+                          label: info == null
+                              ? '会话身份等待核验'
+                              : '${controller.sessionName(info)} · ${info['cwd'] ?? '未知项目'}',
+                          child: Text(
+                            '会话状态：${controller.stateLabel}',
+                            key: const ValueKey('session-state'),
+                          ),
                         ),
-                      ),
-                      if (controller.selected != null) ...[
-                        Text(
-                          controller.data?['catchingUp'] == true
-                              ? '正在读取历史 · 尚无可用最近完成回合'
-                              : last == null
-                              ? '最近完成 · 暂无样本'
-                              : '最近完成 · 含工具与等待',
-                          key: const ValueKey('session-completed-summary'),
-                        ),
-                        Text(
-                          '样本质量：${quality.label}',
-                          key: const ValueKey('session-quality'),
-                        ),
+                        if (controller.selected != null) ...[
+                          Text(
+                            controller.data?['catchingUp'] == true
+                                ? '正在读取历史 · 尚无可用最近完成回合'
+                                : last == null
+                                ? '最近完成 · 暂无样本'
+                                : '最近完成 · 含工具与等待',
+                            key: const ValueKey('session-completed-summary'),
+                          ),
+                          Text(
+                            '样本质量：${quality.label}',
+                            key: const ValueKey('session-quality'),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                   if (controller.listError != null)
                     const Text('列表刷新失败 · 信息中查看诊断'),
@@ -317,58 +319,67 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                   if (controller.selected == null)
                     const Text('请选择会话；不会自动猜测当前对话。')
                   else ...[
-                    const SizedBox(height: 8),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final width = constraints.maxWidth >= 600
-                            ? (constraints.maxWidth - 36) / 4
-                            : (constraints.maxWidth >= 300
-                                  ? (constraints.maxWidth - 12) / 2
-                                  : constraints.maxWidth);
-                        return Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: [
-                            _Metric(
-                              width: width,
-                              label: '回合均值',
-                              value:
-                                  publish &&
-                                      quality.verifiedTokensPerSecond != null
-                                  ? '${quality.verifiedTokensPerSecond!.toStringAsFixed(2)} tokens/s'
-                                  : '不可用',
-                              valueKey: 'session-rate-value',
-                            ),
-                            _Metric(
-                              width: width,
-                              label: '输出 · 含推理',
-                              value:
-                                  last?['outputTokens'] is int &&
-                                      (last!['outputTokens'] as int) >= 0 &&
-                                      (last['outputTokens'] as int) <=
-                                          9007199254740991
-                                  ? '${last['outputTokens']} tokens'
-                                  : '不可用',
-                              valueKey: 'session-output-value',
-                            ),
-                            _Metric(
-                              width: width,
-                              label: '首模型 token 等待',
-                              value: recordedFirst && !contradicts
-                                  ? _seconds(first)
-                                  : '不可用',
-                              valueKey: 'session-first-token-value',
-                              note: '可能含推理',
-                            ),
-                            _Metric(
-                              width: width,
-                              label: '完整回合',
-                              value: validDuration ? _seconds(duration) : '不可用',
-                              valueKey: 'session-duration-value',
-                            ),
-                          ],
-                        );
-                      },
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: DashboardPalette.of(context).soft,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final width = constraints.maxWidth >= 600
+                              ? (constraints.maxWidth - 36) / 4
+                              : (constraints.maxWidth >= 300
+                                    ? (constraints.maxWidth - 12) / 2
+                                    : constraints.maxWidth);
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 8,
+                            children: [
+                              _Metric(
+                                width: width,
+                                label: '回合均值',
+                                value:
+                                    publish &&
+                                        quality.verifiedTokensPerSecond != null
+                                    ? '${quality.verifiedTokensPerSecond!.toStringAsFixed(2)} tokens/s'
+                                    : '不可用',
+                                valueKey: 'session-rate-value',
+                              ),
+                              _Metric(
+                                width: width,
+                                label: '输出 · 含推理',
+                                value:
+                                    last?['outputTokens'] is int &&
+                                        (last!['outputTokens'] as int) >= 0 &&
+                                        (last['outputTokens'] as int) <=
+                                            9007199254740991
+                                    ? '${last['outputTokens']} tokens'
+                                    : '不可用',
+                                valueKey: 'session-output-value',
+                              ),
+                              _Metric(
+                                width: width,
+                                label: '首模型 token 等待',
+                                value: recordedFirst && !contradicts
+                                    ? _seconds(first)
+                                    : '不可用',
+                                valueKey: 'session-first-token-value',
+                                note: '可能含推理',
+                              ),
+                              _Metric(
+                                width: width,
+                                label: '完整回合',
+                                value: validDuration
+                                    ? _seconds(duration)
+                                    : '不可用',
+                                valueKey: 'session-duration-value',
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                     if (contradicts) const Text('首模型 token 不可用：超过完整回合耗时'),
                   ],
@@ -376,7 +387,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           SessionChartPanels(
             sessionIdentity: controller.selected,
             data: charts,
@@ -428,7 +439,7 @@ class _Metric extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: secondary),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text.rich(
             TextSpan(
               children: [
