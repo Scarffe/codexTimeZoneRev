@@ -14,11 +14,11 @@
 - 目前累计与最近一天 token 是观测事实；文档明确没有完整每日投影时不制造趋势。当前“最近回合”不是跨项目/跨日用量账本。
 - 真实 API 执行未开放。离线回放已存在，应作为验证基础，不应再次包装成新增能力。
 
-本地依据：[README](../../README.md)、[监控说明](../../docs/monitoring.md)、[账户控制器](../../flutter_app/lib/state/account_usage_controller.dart)、[原生账户查询](../../native/launcher_core/src/account_usage.rs)。上述“未发现”限定于这次文档及窄范围源码核对，不代表穷尽式全库证明。
+本地依据：[README](../README.md)、[监控说明](monitoring.md)。账户控制器与原生账户查询的源码路径分别为 `flutter_app/lib/state/account_usage_controller.dart` 和 `native/launcher_core/src/account_usage.rs`；它们是源码仓库路径，不是运行时 ZIP 内随附的链接。上述“未发现”限定于这次文档及窄范围源码核对，不代表穷尽式全库证明。
 
 ## 2. 七个值得参考的活跃仓库
 
-表内“最近推送”是 GitHub REST 的 `pushed_at`，不是发布日期；“最新发布”是发布 API 的 `published_at`。UTC 10 月 24 日凌晨对应洛杉矶 10 月 23 日晚间，不能因日期跨日把它称为未来更新。所有仓库在本次 API 查询中均非 archived。详细时间、当前提交和 URL 保存在 [github-sources.json](github-sources.json)。
+表内“最近推送”是 GitHub REST 的 `pushed_at`，不是发布日期；“最新发布”是发布 API 的 `published_at`。UTC 10 月 24 日凌晨对应洛杉矶 10 月 23 日晚间，不能因日期跨日把它称为未来更新。所有仓库在本次 API 查询中均非 archived。详细时间、当前提交和 URL 保存在本地研究产物 `environment/directional-motion-research-20261023-d/github-sources.json`；该文件不随运行时 ZIP 分发。表中的 GitHub URL 是可移植的主要证据链接。
 
 | 仓库 | 最近推送 UTC / 洛杉矶日期 | 最新正式发布（UTC） | 许可证核对 | 最有用的借鉴 |
 | --- | --- | --- | --- | --- |
