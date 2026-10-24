@@ -27,6 +27,7 @@ void main() {
     Key? capture,
     bool dark = false,
     bool fullClient = false,
+    Widget? content,
   }) => MediaQuery(
     data: MediaQueryData(disableAnimations: osReduced),
     child: Directionality(
@@ -48,20 +49,22 @@ void main() {
                     width: fullClient ? null : 300,
                     height: fullClient ? null : 240,
                     child: DashboardMotionBackdrop(
-                      child: Center(
-                        child: DashboardMotionFeedback(
-                          enabled: enabled,
-                          child: GestureDetector(
-                            onTap: enabled ? onPress : null,
-                            child: const SizedBox(
-                              key: ValueKey('target'),
-                              width: 44,
-                              height: 44,
-                              child: ColoredBox(color: Color(0xff808080)),
+                      child:
+                          content ??
+                          Center(
+                            child: DashboardMotionFeedback(
+                              enabled: enabled,
+                              child: GestureDetector(
+                                onTap: enabled ? onPress : null,
+                                child: const SizedBox(
+                                  key: ValueKey('target'),
+                                  width: 44,
+                                  height: 44,
+                                  child: ColoredBox(color: Color(0xff808080)),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
                     ),
                   ),
                 ),
@@ -266,10 +269,20 @@ void main() {
       final left = early.firstWhere((r) => r.center == const Offset(-30, 50));
       final top = early.firstWhere((r) => r.center == const Offset(30, -50));
       expect(direct.radius, closeTo(60, .01));
+      final trailing = early.firstWhere(
+        (r) => r.center == direct.center && r.radius < direct.radius,
+      );
+      expect(trailing.radius, closeTo(44, .01));
+      expect(trailing.alpha / direct.alpha, closeTo(.30, .018));
       expect(left.radius, direct.radius);
       expect(top.radius, direct.radius);
-      expect(left.alpha / direct.alpha, closeTo(.58, .025));
-      expect(top.alpha / direct.alpha, closeTo(.58, .025));
+      expect(left.alpha / direct.alpha, closeTo(.35, .025));
+      expect(top.alpha / direct.alpha, closeTo(.35, .025));
+      final second = early.firstWhere(
+        (r) => r.center == const Offset(-30, -50) && r.radius == direct.radius,
+      );
+      expect(second.alpha / direct.alpha, closeTo(.1225, .018));
+      expect(second.alpha / left.alpha, closeTo(.35, .05));
       expect(early.any((r) => r.center == const Offset(570, 50)), isFalse);
       await tester.pump(const Duration(milliseconds: 475));
       final later = rings(tester);
@@ -284,14 +297,14 @@ void main() {
         canvas.invocations.any((c) => c.invocation.memberName == #saveLayer),
         isFalse,
       );
-      expect(later.length, lessThanOrEqualTo(82));
+      expect(later.length, lessThanOrEqualTo(26));
       await tester.pump(const Duration(seconds: 4));
       expect(rings(tester), isEmpty);
       expect(tester.binding.transientCallbackCount, 0);
     },
   );
 
-  testWidgets('rapid primary contacts keep only four recent event origins', (
+  testWidgets('rapid primary contacts keep only two newest event origins', (
     tester,
   ) async {
     await tester.pumpWidget(surface());
@@ -313,12 +326,235 @@ void main() {
         .where((r) => bounds.size.contains(r.center))
         .map((r) => r.center)
         .toSet();
-    expect(directCenters, points.skip(1).toSet());
-    expect(marks.length, lessThanOrEqualTo(328));
+    expect(directCenters, points.skip(3).toSet());
+    expect(marks.length, lessThanOrEqualTo(52));
     await tester.pump(const Duration(seconds: 4));
     expect(rings(tester), isEmpty);
     expect(tester.binding.transientCallbackCount, 0);
   });
+
+  testWidgets('third reflection sources are absent when their circles cross', (
+    tester,
+  ) async {
+    await tester.pumpWidget(surface());
+    final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+    await tester.tapAt(bounds.topLeft + const Offset(15, 25));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final reflected = rings(tester, size: const Size(100, 80));
+    expect(reflected, isNotEmpty);
+    expect(
+      reflected.map((r) => r.center),
+      isNot(contains(const Offset(-185, -25))),
+      reason: 'order three (-2,-1) crosses this narrow client at radius 240',
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('click field uses unblurred strokes without an explicit layer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(surface());
+    await tester.tap(find.byKey(const ValueKey('target')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final canvas = TestRecordingCanvas();
+    paintRings(tester, canvas);
+    final circles = canvas.invocations.where(
+      (c) => c.invocation.memberName == #drawCircle,
+    );
+    expect(circles, isNotEmpty);
+    for (final call in circles) {
+      expect(
+        (call.invocation.positionalArguments[2] as Paint).maskFilter,
+        isNull,
+      );
+    }
+    expect(
+      canvas.invocations.any((c) => c.invocation.memberName == #saveLayer),
+      isFalse,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('wave expires at three seconds and low alpha is pruned', (
+    tester,
+  ) async {
+    await tester.pumpWidget(surface());
+    await tester.tap(find.byKey(const ValueKey('target')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 2800));
+    final late = rings(tester, size: const Size(1800, 900));
+    final direct = late.firstWhere((r) => r.center == const Offset(150, 120));
+    expect(direct.alpha, closeTo(.24 * .06081006 * .5, .002));
+    expect(late.every((r) => r.alpha >= .006 - 1 / 255), isTrue);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(rings(tester, size: const Size(1800, 900)), isEmpty);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets(
+    'actual paint iteration visits at most 26 sources and 52 crests',
+    (tester) async {
+      await tester.pumpWidget(surface());
+      final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+      for (final point in [const Offset(20, 35), const Offset(220, 180)]) {
+        await tester.tapAt(bounds.topLeft + point);
+      }
+      await tester.pump();
+      var previous = 0;
+      for (final elapsed in [
+        20,
+        80,
+        125,
+        280,
+        600,
+        1400,
+        2400,
+        2800,
+        2900,
+        3000,
+      ]) {
+        await tester.pump(Duration(milliseconds: elapsed - previous));
+        previous = elapsed;
+        for (final size in [
+          Size.zero,
+          const Size(1, 1),
+          const Size(100, 80),
+          const Size(320, 600),
+          const Size(1280, 600),
+          const Size(1800, 900),
+        ]) {
+          var sources = 0;
+          var crests = 0;
+          final canvas = TestRecordingCanvas();
+          final dynamic painter = tester
+              .widget<CustomPaint>(paintFinder())
+              .foregroundPainter!;
+          painter.paintWithObserver(
+            canvas,
+            size,
+            onSource: () {
+              sources++;
+            },
+            onCrest: () {
+              crests++;
+            },
+          );
+          final inactive = size.isEmpty || elapsed == 3000;
+          expect(
+            sources,
+            inactive ? 0 : 26,
+            reason: 'elapsed=$elapsed size=$size',
+          );
+          expect(crests, lessThanOrEqualTo(52));
+          if (!inactive && elapsed == 20) expect(crests, 52);
+          if (!inactive && elapsed == 2800) expect(crests, 2);
+          if (!inactive && elapsed == 2900) expect(crests, 0);
+          final circles = canvas.invocations.where(
+            (c) => c.invocation.memberName == #drawCircle,
+          );
+          expect(circles.length, lessThanOrEqualTo(crests));
+          expect(circles.length, lessThanOrEqualTo(52));
+          expect(
+            canvas.invocations.any(
+              (c) => c.invocation.memberName == #saveLayer,
+            ),
+            isFalse,
+          );
+          for (final circle in circles) {
+            final paint = circle.invocation.positionalArguments[2] as Paint;
+            expect(paint.maskFilter, isNull);
+            expect(paint.color.a, greaterThanOrEqualTo(.006));
+          }
+        }
+      }
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
+
+  testWidgets(
+    'client resize recomputes mirrors while preserving the event origin',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1280, 600);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(surface(fullClient: true));
+      await tester.tapAt(const Offset(24, 90));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(
+        rings(tester, size: const Size(1280, 600)).map((r) => r.center),
+        contains(const Offset(24, 90)),
+      );
+      tester.view.physicalSize = const Size(320, 600);
+      await tester.pump(const Duration(milliseconds: 100));
+      final resized = rings(tester, size: const Size(320, 600));
+      expect(
+        resized.map((r) => r.center),
+        containsAll([const Offset(24, 90), const Offset(616, 90)]),
+      );
+      expect(
+        resized.map((r) => r.center),
+        isNot(contains(const Offset(2536, 90))),
+      );
+      expect(
+        resized.firstWhere((r) => r.center == const Offset(616, 90)).radius,
+        closeTo(336, .01),
+      );
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
+
+  testWidgets(
+    'burst replacement preserves every action and never rebuilds its child',
+    (tester) async {
+      var builds = 0;
+      var taps = 0;
+      await tester.pumpWidget(
+        surface(
+          content: Builder(
+            builder: (_) {
+              builds++;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => taps++,
+                child: const SizedBox.expand(),
+              );
+            },
+          ),
+        ),
+      );
+      final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+      for (var i = 0; i < 5; i++) {
+        await tester.tapAt(bounds.topLeft + Offset(30.0 + 40 * i, 50));
+      }
+      expect(taps, 5);
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 80));
+      }
+      expect(builds, 1);
+      await tester.pump(const Duration(seconds: 3));
+      expect(tester.binding.transientCallbackCount, 0);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: bounds.topLeft + const Offset(20, 20));
+      await mouse.moveTo(bounds.topLeft + const Offset(40, 40));
+      await tester.pump();
+      expect(tester.binding.transientCallbackCount, 0);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(builds, 1);
+      expect(tester.binding.transientCallbackCount, 0);
+      await mouse.removePointer();
+      await tester.tapAt(bounds.center);
+      await tester.pump();
+      expect(tester.binding.transientCallbackCount, greaterThan(0));
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
 
   testWidgets(
     'disabled primary target still shows neutral contact without activation',
@@ -467,8 +703,11 @@ void main() {
               600,
               1400,
               2400,
-              3900,
-              4100,
+              2600,
+              2800,
+              2900,
+              3000,
+              3100,
             ]) {
               await tester.pump(Duration(milliseconds: elapsed - previous));
               previous = elapsed;

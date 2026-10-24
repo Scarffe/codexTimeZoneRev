@@ -112,7 +112,7 @@ class _ClickWave {
 }
 
 class _ClientWaveField extends ChangeNotifier {
-  static const lifetime = Duration(seconds: 4);
+  static const lifetime = Duration(seconds: 3);
   final waves = <_ClickWave>[];
   Duration elapsed = Duration.zero;
   Offset? pointer;
@@ -124,7 +124,7 @@ class _ClientWaveField extends ChangeNotifier {
   }
 
   void contact(Offset origin) {
-    if (waves.length == 4) waves.removeAt(0);
+    if (waves.length == 2) waves.removeAt(0);
     waves.add(_ClickWave(origin, elapsed));
     notifyListeners();
   }
@@ -148,8 +148,26 @@ class _ClientWaves extends CustomPainter {
   final _ClientWaveField field;
   final Color color;
 
-  // Mirror lattice index n counts wall contacts along that axis. The diamond
-  // |nx|+|ny|<=4 contains exactly 41 images, including the original source.
+  // Precomputed diamond |nx|+|ny|<=2: one direct, four first-order and eight
+  // second-order images. Never scan a square grid just to discard its corners.
+  static const _images = [
+    (x: 0, y: 0, order: 0),
+    (x: -1, y: 0, order: 1),
+    (x: 1, y: 0, order: 1),
+    (x: 0, y: -1, order: 1),
+    (x: 0, y: 1, order: 1),
+    (x: -2, y: 0, order: 2),
+    (x: 2, y: 0, order: 2),
+    (x: 0, y: -2, order: 2),
+    (x: 0, y: 2, order: 2),
+    (x: -1, y: -1, order: 2),
+    (x: -1, y: 1, order: 2),
+    (x: 1, y: -1, order: 2),
+    (x: 1, y: 1, order: 2),
+  ];
+  static const _reflectionAlpha = [1.0, .35, .1225];
+
+  // Mirror lattice index n counts wall contacts along that axis.
   static double _mirror(double origin, double extent, int n) =>
       n.isEven ? n * extent + origin : (n + 1) * extent - origin;
 
@@ -165,7 +183,24 @@ class _ClientWaves extends CustomPainter {
   }
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size size) => _paint(canvas, size);
+
+  // Per-call observation of the same renderer path. No release global counters
+  // or widget-constructor changes; ordinary painting supplies no observers.
+  @visibleForTesting
+  void paintWithObserver(
+    Canvas canvas,
+    Size size, {
+    required VoidCallback onSource,
+    required VoidCallback onCrest,
+  }) => _paint(canvas, size, onSource: onSource, onCrest: onCrest);
+
+  void _paint(
+    Canvas canvas,
+    Size size, {
+    VoidCallback? onSource,
+    VoidCallback? onCrest,
+  }) {
     if (size.isEmpty || (field.pointer == null && field.waves.isEmpty)) return;
     canvas.save();
     canvas.clipRect(Offset.zero & size);
@@ -186,32 +221,28 @@ class _ClientWaves extends CustomPainter {
       ..strokeWidth = 1.8;
     for (final wave in field.waves) {
       final t = (field.elapsed - wave.started).inMicroseconds / 1000000;
-      final tail = ((4 - t) / .5).clamp(0.0, 1.0);
+      final tail = ((3 - t) / .4).clamp(0.0, 1.0);
       final fade = tail * tail * (3 - 2 * tail);
-      final amplitude = .24 * math.exp(-.75 * t) * fade;
+      final amplitude = .24 * math.exp(-t) * fade;
       final radius = 480 * t;
-      for (var nx = -4; nx <= 4; nx++) {
-        for (var ny = -4; ny <= 4; ny++) {
-          final order = nx.abs() + ny.abs();
-          if (order > 4) continue;
-          final source = Offset(
-            _mirror(wave.origin.dx, size.width, nx),
-            _mirror(wave.origin.dy, size.height, ny),
-          );
-          final alpha = amplitude * math.pow(.58, order);
-          // Two crests at most: 4 bursts * 41 images * 2 = 328 attempts.
-          // No saveLayer, accumulated particles, or radius-dependent loops.
-          for (var crest = 0; crest < 2; crest++) {
-            final r = radius - crest * 16;
-            if (!_crossesClient(source, r, size)) continue;
-            paint
-              ..color = color.withValues(alpha: alpha * (crest == 0 ? 1 : .4))
-              ..strokeWidth = crest == 0 ? 1.8 : 1.1
-              ..maskFilter = crest == 0
-                  ? const MaskFilter.blur(BlurStyle.normal, .55)
-                  : null;
-            canvas.drawCircle(source, r, paint);
-          }
+      for (final image in _images) {
+        onSource?.call();
+        final source = Offset(
+          _mirror(wave.origin.dx, size.width, image.x),
+          _mirror(wave.origin.dy, size.height, image.y),
+        );
+        final alpha = amplitude * _reflectionAlpha[image.order];
+        // Two bursts * 13 images * two crests = at most 52 intersections.
+        for (var crest = 0; crest < 2; crest++) {
+          final crestAlpha = alpha * (crest == 0 ? 1 : .30);
+          if (crestAlpha < .006) continue;
+          final r = radius - crest * 16;
+          onCrest?.call();
+          if (!_crossesClient(source, r, size)) continue;
+          paint
+            ..color = color.withValues(alpha: crestAlpha)
+            ..strokeWidth = crest == 0 ? 1.8 : 1.1;
+          canvas.drawCircle(source, r, paint);
         }
       }
     }
