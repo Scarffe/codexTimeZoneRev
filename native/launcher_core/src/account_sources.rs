@@ -206,6 +206,17 @@ fn binding(cli: &Path) -> Result<Value> {
         json!({"path":cli,"length":m.len(),"modified":m.modified().ok().and_then(|v|v.duration_since(UNIX_EPOCH).ok()).map(|v|v.as_nanos().to_string())}),
     )
 }
+fn fixed_cli(metadata: &Value) -> Result<PathBuf> {
+    let cli = PathBuf::from(
+        metadata["cli"]["path"]
+            .as_str()
+            .ok_or(Error::new("isolation_failed"))?,
+    );
+    if metadata["cli"] != binding(&cli)? {
+        return Err(Error::new("unavailable"));
+    }
+    Ok(cli)
+}
 struct Job {
     id: String,
     state: &'static str,
@@ -224,7 +235,7 @@ struct Service {
     root: PathBuf,
     state: Mutex<State>,
     timeout: Duration,
-    browser: bool,
+    browser: Option<Arc<dyn Fn(&str) -> Result<()> + Send + Sync>>,
 }
 struct Activity {
     service: Arc<Service>,
@@ -247,7 +258,7 @@ struct Lease {
     source: String,
     _file: Option<File>,
     cancel: Arc<AtomicBool>,
-    cli: PathBuf,
+    metadata: Value,
     home: PathBuf,
 }
 impl Drop for Lease {
@@ -268,7 +279,7 @@ impl Service {
             root,
             state: Mutex::new(State::default()),
             timeout: LOGIN_TIMEOUT,
-            browser: true,
+            browser: Some(Arc::new(open_auth_url)),
         })
     }
     #[cfg(test)]
@@ -281,7 +292,7 @@ impl Service {
                 ..Default::default()
             }),
             timeout,
-            browser: false,
+            browser: None,
         })
     }
     fn activity(self: &Arc<Self>, id: &str) -> Result<Activity> {
@@ -348,7 +359,7 @@ impl Service {
             .map_err(|_| Error::new("isolation_failed"))?;
         Ok(json!({"sourceId":id}))
     }
-    fn profile(&self, id: &str) -> Result<(PathBuf, PathBuf)> {
+    fn owned_profile(&self, id: &str) -> Result<(PathBuf, Value)> {
         source(id)?;
         self.root_ready()?;
         let home = self.root.join(id);
@@ -371,15 +382,11 @@ impl Service {
         if meta["owner"] != OWNER || meta["sourceId"] != id {
             return Err(Error::new("isolation_failed"));
         }
-        let cli = PathBuf::from(
-            meta["cli"]["path"]
-                .as_str()
-                .ok_or(Error::new("isolation_failed"))?,
-        );
-        if meta["cli"] != binding(&cli)? {
-            return Err(Error::new("unavailable"));
-        }
-        Ok((home, cli))
+        Ok((home, meta))
+    }
+    fn profile(&self, id: &str) -> Result<(PathBuf, PathBuf)> {
+        let (home, metadata) = self.owned_profile(id)?;
+        Ok((home, fixed_cli(&metadata)?))
     }
     fn lease(self: &Arc<Self>, id: &str) -> Result<Lease> {
         source(id)?;
@@ -390,7 +397,9 @@ impl Service {
         if s.active.contains_key(id) {
             return Err(Error::new("busy"));
         }
-        let (home, cli) = self.profile(id)?;
+        // Ownership and exclusive deletion must survive an absent/updated CLI.
+        // Executing callers validate the fixed binding separately after leasing.
+        let (home, metadata) = self.owned_profile(id)?;
         let mut o = OpenOptions::new();
         o.read(true).write(true).create(true);
         #[cfg(windows)]
@@ -408,14 +417,15 @@ impl Service {
             source: id.into(),
             _file: Some(file),
             cancel,
-            cli,
+            metadata,
             home,
         })
     }
     fn usage(self: &Arc<Self>, id: &str) -> Result<Value> {
         let lease = self.lease(id)?;
+        let cli = fixed_cli(&lease.metadata)?;
         let mut rpc = Rpc::start_options(
-            &lease.cli,
+            &cli,
             Duration::from_secs(60),
             Some(&lease.home),
             lease.cancel.clone(),
@@ -439,6 +449,7 @@ impl Service {
             }
         }
         let lease = self.lease(id)?;
+        let cli = fixed_cli(&lease.metadata)?;
         let job = opaque("login");
         {
             let mut s = self.state.lock().unwrap();
@@ -465,9 +476,9 @@ impl Service {
             let result = (|| -> Result<()> {
                 // A persisted source retains its original CLI. Revalidate that
                 // binding in an empty home before any authentication starts.
-                service.verify_cli(&lease.cli, lease.cancel.clone())?;
+                service.verify_cli(&cli, lease.cancel.clone())?;
                 let mut rpc = Rpc::start_options(
-                    &lease.cli,
+                    &cli,
                     service.timeout,
                     Some(&lease.home),
                     lease.cancel.clone(),
@@ -484,17 +495,7 @@ impl Service {
                 if lease.cancel.load(Ordering::SeqCst) {
                     return Err(Error::new("cancelled"));
                 }
-                {
-                    let mut s = service.state.lock().unwrap();
-                    if let Some(j) = s.jobs.get_mut(&source_id) {
-                        if j.id == job_id && j.state == "starting" {
-                            j.state = "waiting";
-                        }
-                    }
-                }
-                if service.browser {
-                    open_auth_url(auth)?;
-                }
+                service.dispatch_browser(&source_id, &job_id, auth)?;
                 if !rpc.login_completion(login_id)? {
                     return Err(Error::new("auth_failed"));
                 }
@@ -545,6 +546,26 @@ impl Service {
         Ok(
             json!({"sourceId":id,"jobId":job,"state":j.state,"error":j.error.as_ref().map(|e|e.value())}),
         )
+    }
+    fn dispatch_browser(&self, id: &str, job: &str, auth: &str) -> Result<()> {
+        let mut state = self.state.lock().unwrap();
+        if state.shutdown {
+            return Err(Error::new("cancelled"));
+        }
+        let live = state
+            .jobs
+            .get_mut(id)
+            .filter(|j| j.id == job && j.state == "starting" && !j.cancel.load(Ordering::SeqCst))
+            .ok_or(Error::new("cancelled"))?;
+        live.state = "waiting";
+        // The transition and browser dispatch share the cancellation lock.
+        // Cleanup either wins first and forbids dispatch, or follows a dispatch
+        // that was already accepted; it cannot win in between these steps.
+        if let Some(open) = &self.browser {
+            open(auth)?;
+        }
+        drop(state);
+        Ok(())
     }
     fn cancel(&self, id: &str, job: &str) -> Result<Value> {
         source(id)?;
@@ -1280,5 +1301,153 @@ mod tests {
         c.args(["app-server", "--listen", "stdio://"]);
         quiet(&mut c);
         assert!(c.status().unwrap().success());
+    }
+    #[test]
+    fn owned_profile_removal_survives_deleted_or_replaced_cli_but_execution_stays_denied() {
+        for deleted in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let cli = root
+                .path()
+                .join(if cfg!(windows) { "fixed.exe" } else { "fixed" });
+            fs::copy(fixture("success"), &cli).unwrap();
+            let s = Service::for_test(
+                root.path().join("account-profiles"),
+                cli.clone(),
+                Duration::from_secs(1),
+            );
+            let id = create(&s);
+            fs::write(
+                s.root.join(&id).join("auth.json"),
+                "synthetic credential marker",
+            )
+            .unwrap();
+            if deleted {
+                fs::remove_file(&cli).unwrap();
+            } else {
+                let mut f = OpenOptions::new().append(true).open(&cli).unwrap();
+                f.write_all(b"replaced").unwrap();
+            }
+            assert_eq!(s.usage(&id).unwrap_err().kind, "unavailable");
+            assert_eq!(s.login(&id).unwrap_err().kind, "unavailable");
+            assert_eq!(s.remove(&id).unwrap()["removed"], true);
+            assert!(!s.root.join(id).exists());
+        }
+    }
+    #[test]
+    fn cancelled_removed_or_shutdown_job_never_dispatches_browser_after_cleanup_wins() {
+        for action in ["cancel", "remove", "shutdown"] {
+            let (_root, mut s) = service("success");
+            let calls = Arc::new(AtomicU64::new(0));
+            let opened = calls.clone();
+            Arc::get_mut(&mut s).unwrap().browser = Some(Arc::new(move |_| {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }));
+            let id = create(&s);
+            let job = "synthetic-job".to_owned();
+            let cancel = Arc::new(AtomicBool::new(false));
+            let mut state = s.state.lock().unwrap();
+            state.jobs.insert(
+                id.clone(),
+                Job {
+                    id: job.clone(),
+                    state: "starting",
+                    error: None,
+                    cancel: cancel.clone(),
+                },
+            );
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let gate = barrier.clone();
+            let worker = s.clone();
+            let source = id.clone();
+            let generation = job.clone();
+            let dispatch = thread::spawn(move || {
+                gate.wait();
+                worker.dispatch_browser(
+                    &source,
+                    &generation,
+                    "https://auth.openai.com/authorize?synthetic",
+                )
+            });
+            barrier.wait();
+            // Hold the exact cancellation lock while cleanup wins. Dispatch is blocked behind it.
+            match action {
+                "cancel" => {
+                    let j = state.jobs.get_mut(&id).unwrap();
+                    j.state = "cancelled";
+                    j.cancel.store(true, Ordering::SeqCst);
+                }
+                "remove" => {
+                    state.jobs.remove(&id);
+                    cancel.store(true, Ordering::SeqCst);
+                }
+                _ => {
+                    state.shutdown = true;
+                    let j = state.jobs.get_mut(&id).unwrap();
+                    j.state = "cancelled";
+                    j.cancel.store(true, Ordering::SeqCst);
+                }
+            }
+            drop(state);
+            assert_eq!(dispatch.join().unwrap().unwrap_err().kind, "cancelled");
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+        }
+    }
+    #[test]
+    fn browser_dispatch_keeps_cancel_lock_until_fake_opener_is_invoked() {
+        let (_root, mut s) = service("success");
+        let entered = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let gate = entered.clone();
+        let finish = release.clone();
+        let calls = Arc::new(AtomicU64::new(0));
+        let opened = calls.clone();
+        Arc::get_mut(&mut s).unwrap().browser = Some(Arc::new(move |_| {
+            opened.fetch_add(1, Ordering::SeqCst);
+            gate.wait();
+            finish.wait();
+            Ok(())
+        }));
+        let id = create(&s);
+        let job = "synthetic-job".to_owned();
+        s.state.lock().unwrap().jobs.insert(
+            id.clone(),
+            Job {
+                id: job.clone(),
+                state: "starting",
+                error: None,
+                cancel: Arc::new(AtomicBool::new(false)),
+            },
+        );
+        let worker = s.clone();
+        let source = id.clone();
+        let generation = job.clone();
+        let dispatch = thread::spawn(move || {
+            worker.dispatch_browser(
+                &source,
+                &generation,
+                "https://auth.openai.com/authorize?synthetic",
+            )
+        });
+        entered.wait();
+        let dispatch_owns_cancel_lock = s.state.try_lock().is_err();
+        let cleanup = s.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancel = thread::spawn(move || {
+            let v = cleanup.cancel(&id, &job);
+            tx.send(v).unwrap();
+        });
+        release.wait();
+        dispatch.join().unwrap().unwrap();
+        assert!(
+            dispatch_owns_cancel_lock,
+            "browser dispatch must own the same lock as cancellation"
+        );
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(2)).unwrap().unwrap()["state"],
+            "cancelled"
+        );
+        cancel.join().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
