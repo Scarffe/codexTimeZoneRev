@@ -209,7 +209,10 @@ void main() {
       expect(controller.alertSerial, 1);
       await controller.poll();
       expect(controller.alertSerial, 1);
-      feed.value = state('new-after-replacement', 'completed', epoch: 2);
+      feed.value = {
+        ...state('new-after-replacement', 'completed', epoch: 2),
+        'sourceInfo': {'id': 'same-session', 'path': 'same-path'},
+      };
       await controller.poll();
       expect(controller.alertSerial, 2);
     },

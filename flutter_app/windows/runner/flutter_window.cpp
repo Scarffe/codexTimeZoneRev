@@ -132,6 +132,7 @@ bool FlutterWindow::OnCreate() {
         desktop_prototype::PublishMonitor(wide,*percent,*old,*stopped,number("revision"),number("attempts"),number("failures"),wideField("detail"),wideField("alert"),number("alertSerial"),
           value("reducedMotion")==flutter::EncodableValue(true),static_cast<int>(number("animationState")));
         desktop_prototype::ConfigureSessionAlert(wideField("sessionAlert"),number("sessionAlertSerial"));
+        desktop_prototype::ConfigureAttentionAlert(wideField("attentionAlert"),number("attentionAlertSerial"),static_cast<int>(number("attentionAlertStatus")));
         result->Success(); return;
       }
       result->NotImplemented();

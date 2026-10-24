@@ -13,19 +13,23 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const LauncherApplication(preview: true));
+    await tester.pumpWidget(
+      const LauncherApplication(preview: true, offlineTrial: true),
+    );
     await tester.pumpAndSettle();
     final usage = tester
         .widget<AccountUsagePanel>(
           find.byType(AccountUsagePanel, skipOffstage: false),
         )
         .controller;
-    await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+    await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('monitor-settings')));
     await tester.tap(find.byKey(const ValueKey('monitor-settings')));
     await tester.pumpAndSettle();
     expect(find.text('监控与提醒设置'), findsOneWidget);
+    expect(find.textContaining('关注会话与未关注的所选会话共用开关和静音'), findsOneWidget);
+    expect(find.textContaining('离线试用仅本次生效'), findsOneWidget);
     final reduced = find.byKey(const ValueKey('reduced-motion'));
     expect(reduced, findsOneWidget);
     await tester.ensureVisible(reduced);

@@ -41,12 +41,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('account-source-selector')),
         findsOneWidget,
       );
+      await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
+      await tester.pumpAndSettle();
       for (final key in overviewGraphKeys) {
         expect(find.byKey(ValueKey(key)), findsOneWidget);
       }
@@ -73,7 +75,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('account-source-selector')),

@@ -50,7 +50,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
       await tester.pumpAndSettle();
       final controller = tester
           .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
@@ -65,21 +65,17 @@ void main() {
       await tester.pumpAndSettle();
       final calls = backend.sessionCalls;
       for (var i = 0; i < 10; i++) {
-        await tester.tap(
-          find.byKey(const ValueKey('measurement-independent-api')),
-        );
+        await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
         await tester.pump();
         expect(
           find.byKey(const ValueKey('session-activity-chart')),
           findsNothing,
         );
-        await tester.tap(
-          find.byKey(const ValueKey('measurement-current-session')),
-        );
+        await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
         await tester.pump();
         await tester.tap(find.byKey(const ValueKey('workspace-launcher')));
         await tester.pump();
-        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+        await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
         await tester.pump();
         expect(
           tester

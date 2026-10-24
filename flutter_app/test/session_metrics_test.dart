@@ -39,6 +39,7 @@ class Backend implements LauncherBackend {
     }
     if (pending != null) return pending!.future;
     return {
+      'sourceInfo': {'id': 'main', 'path': listedPath, 'cwd': 'fixture'},
       'active': true,
       'last': {
         'tokensPerSecond': 10.0,

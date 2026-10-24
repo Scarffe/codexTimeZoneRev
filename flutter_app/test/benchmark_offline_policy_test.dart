@@ -121,19 +121,15 @@ void main() {
       expect(shell.appearance, 'light');
       shell.onAppearance('light');
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
       await tester.pumpAndSettle();
       final page = tester.widget<MonitoringPage>(find.byType(MonitoringPage));
       await page.usage.query('fixture');
       page.usage.startMonitoring(() => 'fixture');
       page.usage.systemResumed();
-      await tester.tap(
-        find.byKey(const ValueKey('measurement-independent-api')),
-      );
+      await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('measurement-current-session')),
-      );
+      await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
       await tester.pumpAndSettle();
       expect(page.metrics.selected, isNull);
       expect(native.calls, ['benchmark_catalog']);

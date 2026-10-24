@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
@@ -18,6 +20,14 @@ import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import '../state/account_sources_controller.dart';
 import 'launcher_page.dart';
+import 'accounts_workspace_page.dart';
+import 'workspace_overview_page.dart';
+import 'session_attention_page.dart';
+import 'independent_benchmark_panel.dart';
+import '../services/session_attention.dart';
+import '../services/session_attention_store.dart';
+import '../services/memory_attention_store.dart';
+import '../state/session_attention_controller.dart';
 import 'monitoring_page.dart';
 import 'monitor_settings_dialog.dart';
 import 'workspace_shell.dart';
@@ -48,6 +58,8 @@ class LauncherApplication extends StatefulWidget {
     this.sourcesService,
     this.sourcesStore,
     this.sessionMetricsController,
+    this.attentionController,
+    this.attentionStore,
   });
   final bool preview;
   final LauncherBackend? backend;
@@ -65,6 +77,8 @@ class LauncherApplication extends StatefulWidget {
   final AccountSourcesService? sourcesService;
   final AccountSourceStore? sourcesStore;
   final SessionMetricsController? sessionMetricsController;
+  final SessionAttentionController? attentionController;
+  final SessionAttentionStore? attentionStore;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
 }
@@ -104,7 +118,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
             offlineTrial: widget.offlineTrial,
           ),
       widget.sourcesStore ??
-          (production
+          (production && !widget.offlineTrial
               ? AccountSourceStore.portable()
               : AccountSourceStore.memory()),
       offlineTrial: widget.offlineTrial,
@@ -120,15 +134,31 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     offlineTrial: widget.offlineTrial,
     sources: sources,
   );
+  bool _allowedSessionBackend(LauncherBackend backend) =>
+      !widget.offlineTrial ||
+      backend is SyntheticSessionBackend ||
+      backend is PreviewBackend;
   late final metrics =
-      widget.sessionMetricsController ??
-      SessionMetricsController(launcher.backend);
+      widget.sessionMetricsController != null &&
+          _allowedSessionBackend(widget.sessionMetricsController!.backend)
+      ? widget.sessionMetricsController!
+      : SessionMetricsController(launcher.backend);
+  late final attention =
+      widget.attentionController != null &&
+          _allowedSessionBackend(widget.attentionController!.backend)
+      ? widget.attentionController!
+      : SessionAttentionController(launcher.backend);
+  late final attentionStore =
+      widget.attentionStore ??
+      (!widget.preview && !widget.offlineTrial && widget.backend == null
+          ? SessionAttentionStore.portable()
+          : MemoryAttentionStore());
   // Existing injected launcher fixtures opt in explicitly to the new backend.
   late final benchmark =
       widget.benchmarkController ??
       BenchmarkController(
         BenchmarkService(backend),
-        store: widget.backend == null && !widget.preview
+        store: widget.backend == null && !widget.preview && !widget.offlineTrial
             ? BenchmarkStore.portable()
             : null,
         enabled:
@@ -140,7 +170,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   final windowChrome = WindowChrome();
   bool? chromeDark;
   DesktopMonitor? monitor;
-  bool monitorSelected = false;
+  WorkspaceDestination selected = WorkspaceDestination.launcher;
+  SessionAttentionNotice? openedNotice;
   String recentNotice = '';
 
   void _sourceChanged() {
@@ -183,56 +214,46 @@ class _LauncherApplicationState extends State<LauncherApplication> {
 
   final _navigator = GlobalKey<NavigatorState>();
   final _sessionPanel = GlobalKey();
-  final _accountPanel = GlobalKey();
-  final _independentApiSelected = ValueNotifier(false);
-  Widget _benchmarkKeyboard(Widget child) => ValueListenableBuilder<bool>(
-    valueListenable: _independentApiSelected,
-    builder: (context, api, _) => CallbackShortcuts(
-      bindings: {
-        if (monitorSelected && api) ...{
-          const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
-            if (_navigator.currentState?.canPop() != true &&
-                benchmark.canStart) {
-              benchmark.start();
-            }
-          },
-          const SingleActivator(LogicalKeyboardKey.escape): () {
-            if (_navigator.currentState?.canPop() != true &&
-                benchmark.canCancel) {
-              benchmark.cancel();
-            }
-          },
+  Widget _benchmarkKeyboard(Widget child) => CallbackShortcuts(
+    bindings: {
+      if (selected == WorkspaceDestination.benchmark &&
+          usage.mainWindowVisible) ...{
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+          if (_navigator.currentState?.canPop() != true && benchmark.canStart) {
+            benchmark.start();
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_navigator.currentState?.canPop() != true &&
+              benchmark.canCancel) {
+            benchmark.cancel();
+          }
         },
       },
-      child: child,
-    ),
+    },
+    child: child,
   );
-  void _showMonitor() {
-    if (mounted) setState(() => monitorSelected = true);
+  void _select(WorkspaceDestination value) {
+    if (mounted) setState(() => selected = value);
   }
 
-  void _showAccountDetails() {
-    _independentApiSelected.value = false;
-    _showMonitor();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = _accountPanel.currentContext;
-      if (mounted && context != null) {
-        Scrollable.ensureVisible(context, alignment: .1);
-      }
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-  }
-
+  void _showAccountDetails() => _select(WorkspaceDestination.accounts);
+  void _showAttentionDetails() => _select(WorkspaceDestination.sessions);
   void _showSessionDetails() {
-    _independentApiSelected.value = false;
-    _showMonitor();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = _sessionPanel.currentContext;
-      if (mounted && context != null) {
-        Scrollable.ensureVisible(context, alignment: .1);
-      }
+    if (mounted) {
+      setState(() {
+        openedNotice = null;
+        selected = WorkspaceDestination.analysis;
+      });
+    }
+  }
+
+  void _openAttentionNotice(SessionAttentionNotice notice) {
+    metrics.select(notice.path, expectedId: notice.sessionId);
+    setState(() {
+      openedNotice = notice;
+      selected = WorkspaceDestination.analysis;
     });
-    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override
@@ -267,16 +288,19 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           interval: widget.monitorInterval,
           onMonitor: _showAccountDetails,
           backgroundStart: widget.monitorEnabled,
-          workspace: () => monitorSelected ? 'monitor' : 'launcher',
+          workspace: () => selected.name,
           onNotice: (text) {
             if (mounted) setState(() => recentNotice = text);
           },
           onSessionDetails: _showSessionDetails,
+          onAttentionDetails: _showAttentionDetails,
+          attention: attention,
           metrics: metrics,
           benchmark: benchmark,
         )..start();
       }
     });
+    unawaited(attention.initialize(attentionStore));
     network.initialize();
     benchmark.initialize();
     if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
@@ -361,7 +385,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           metrics,
           appearance,
           benchmark,
-          _independentApiSelected,
+          attention,
         ]),
         builder: (context, _) => TickerMode(
           enabled: usage.mainWindowVisible,
@@ -386,9 +410,9 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                   ),
                 Expanded(
                   child: WorkspaceShell(
-                    monitorSelected: monitorSelected,
-                    onSelect: (value) =>
-                        setState(() => monitorSelected = value),
+                    selected: selected,
+                    onSelect: _select,
+                    unreadCount: attention.unreadCount,
                     appearance: appearance.value,
                     onAppearance: _setAppearance,
                     onSettings: !usage.preferencesReady
@@ -406,17 +430,43 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       launcher: launcher,
                       network: network,
                     ),
-                    monitor: MonitoringPage(
-                      key: const ValueKey('monitor-page'),
+                    overview: WorkspaceOverviewPage(
+                      key: const ValueKey('overview-page'),
+                      usage: usage,
+                      metrics: metrics,
+                      attention: attention,
+                      onSelect: _select,
+                      recentNotice: recentNotice,
+                    ),
+                    accounts: AccountsWorkspacePage(
+                      key: const ValueKey('accounts-page'),
+                      usage: usage,
+                      launcher: launcher,
+                    ),
+                    sessions: SessionAttentionPage(
+                      key: const ValueKey('sessions-page'),
+                      controller: attention,
+                      onOpenNotice: _openAttentionNotice,
+                    ),
+                    analysis: MonitoringPage(
+                      key: const ValueKey('analysis-page'),
                       launcher: launcher,
                       usage: usage,
                       metrics: metrics,
                       sessionPanelKey: _sessionPanel,
-                      accountPanelKey: _accountPanel,
-                      recentNotice: recentNotice,
-                      independentApiSelected: _independentApiSelected,
-                      benchmark: benchmark,
+                      notice: openedNotice,
+                      onDismissNotice: () =>
+                          setState(() => openedNotice = null),
                     ),
+                    benchmark: benchmark.enabled
+                        ? IndependentBenchmarkPanel(
+                            key: const ValueKey('benchmark-page'),
+                            controller: benchmark,
+                          )
+                        : const SingleChildScrollView(
+                            key: PageStorageKey('benchmark-scroll'),
+                            child: Text('独立 API 测速 · 当前预览未启用。'),
+                          ),
                   ),
                 ),
               ],
@@ -438,7 +488,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     metrics.dispose();
     benchmark.dispose();
     appearance.dispose();
-    _independentApiSelected.dispose();
+    attention.dispose();
     super.dispose();
   }
 }

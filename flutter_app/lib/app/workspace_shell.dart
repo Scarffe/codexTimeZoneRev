@@ -5,23 +5,42 @@ import 'monitor_presentation.dart';
 import 'dashboard_style.dart';
 import 'dashboard_motion.dart';
 
-/// Keeps both workspaces mounted; navigation changes visibility, never ownership.
+enum WorkspaceDestination {
+  launcher('启动器', FLucideIcons.clock3),
+  overview('总览', FLucideIcons.layoutDashboard),
+  accounts('账号额度', FLucideIcons.users),
+  sessions('关注与收件箱', FLucideIcons.inbox),
+  analysis('数据分析', FLucideIcons.chartNoAxesCombined),
+  benchmark('独立 API 测速', FLucideIcons.gauge);
+
+  const WorkspaceDestination(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
+
+/// Navigation changes visibility, never controller or page ownership.
 class WorkspaceShell extends StatelessWidget {
   const WorkspaceShell({
     super.key,
-    required this.monitorSelected,
+    required this.selected,
     required this.onSelect,
     required this.appearance,
     required this.onAppearance,
     required this.launcher,
-    required this.monitor,
+    required this.overview,
+    required this.accounts,
+    required this.sessions,
+    required this.analysis,
+    required this.benchmark,
+    this.unreadCount = 0,
     this.onSettings,
   });
-  final bool monitorSelected;
-  final ValueChanged<bool> onSelect;
+  final WorkspaceDestination selected;
+  final int unreadCount;
+  final ValueChanged<WorkspaceDestination> onSelect;
   final String appearance;
   final ValueChanged<String> onAppearance;
-  final Widget launcher, monitor;
+  final Widget launcher, overview, accounts, sessions, analysis, benchmark;
   final VoidCallback? onSettings;
 
   @override
@@ -50,21 +69,18 @@ class WorkspaceShell extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Column(
                 children: [
-                  _RailEntry(
-                    key: const ValueKey('workspace-launcher'),
-                    name: '时区启动器',
-                    icon: FLucideIcons.clock3,
-                    selected: !monitorSelected,
-                    onPress: () => onSelect(false),
-                  ),
-                  const SizedBox(height: 8),
-                  _RailEntry(
-                    key: const ValueKey('workspace-monitor'),
-                    name: '监控与工具',
-                    icon: FLucideIcons.activity,
-                    selected: monitorSelected,
-                    onPress: () => onSelect(true),
-                  ),
+                  for (final destination in WorkspaceDestination.values)
+                    _RailEntry(
+                      key: ValueKey('workspace-${destination.name}'),
+                      name:
+                          destination == WorkspaceDestination.sessions &&
+                              unreadCount > 0
+                          ? '${destination.label} · $unreadCount 未读'
+                          : destination.label,
+                      icon: destination.icon,
+                      selected: selected == destination,
+                      onPress: () => onSelect(destination),
+                    ),
                   const Spacer(),
                   MonitorIconAction(
                     key: const ValueKey('monitor-settings'),
@@ -94,7 +110,7 @@ class WorkspaceShell extends StatelessWidget {
                           child: Semantics(
                             header: true,
                             child: Text(
-                              monitorSelected ? '监控总览' : '启动器',
+                              selected.label,
                               style: context.theme.typography.display.xl,
                             ),
                           ),
@@ -179,22 +195,23 @@ class WorkspaceShell extends StatelessWidget {
                         0,
                       ),
                       child: IndexedStack(
-                        index: monitorSelected ? 1 : 0,
+                        index: selected.index,
                         children: [
-                          TickerMode(
-                            enabled: !monitorSelected,
-                            child: ExcludeFocus(
-                              excluding: monitorSelected,
-                              child: launcher,
+                          for (final (index, page) in [
+                            launcher,
+                            overview,
+                            accounts,
+                            sessions,
+                            analysis,
+                            benchmark,
+                          ].indexed)
+                            TickerMode(
+                              enabled: selected.index == index,
+                              child: ExcludeFocus(
+                                excluding: selected.index != index,
+                                child: page,
+                              ),
                             ),
-                          ),
-                          TickerMode(
-                            enabled: monitorSelected,
-                            child: ExcludeFocus(
-                              excluding: !monitorSelected,
-                              child: monitor,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -240,12 +257,30 @@ class _RailEntry extends StatelessWidget {
             child: SizedBox(
               width: 44,
               height: 44,
-              child: Icon(
-                icon,
-                size: 18,
-                color: selected
-                    ? DashboardPalette.of(context).accent
-                    : DashboardPalette.of(context).muted,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (selected)
+                    Positioned(
+                      left: 2,
+                      top: 12,
+                      bottom: 12,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: DashboardPalette.of(context).chromeGold,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: selected
+                        ? DashboardPalette.of(context).accent
+                        : DashboardPalette.of(context).muted,
+                  ),
+                ],
               ),
             ),
           ),

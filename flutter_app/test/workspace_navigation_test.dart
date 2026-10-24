@@ -124,10 +124,11 @@ void main() {
     expect(find.text('保存并启动'), findsOneWidget);
     expect(find.byType(AccountUsagePanel), findsNothing);
     expect(find.byType(SessionMetricsPanel), findsNothing);
-    await switchPage(tester, 'monitor');
-    expect(find.byType(AccountUsagePanel), findsOneWidget);
+    await switchPage(tester, 'analysis');
+    expect(find.byType(AccountUsagePanel, skipOffstage: false), findsOneWidget);
     expect(find.byType(SessionMetricsPanel), findsOneWidget);
     expect(find.text('保存并启动'), findsNothing);
+    await switchPage(tester, 'overview');
     expect(find.byKey(const ValueKey('recent-monitor-notice')), findsOneWidget);
     await tester.ensureVisible(find.byKey(const ValueKey('monitor-settings')));
     await tester.tap(find.byKey(const ValueKey('monitor-settings')));
@@ -181,9 +182,11 @@ void main() {
             .first,
       );
       launcherScroll.position.jumpTo(130);
-      await switchPage(tester, 'monitor');
+      await switchPage(tester, 'analysis');
       final account = tester
-          .widget<AccountUsagePanel>(find.byType(AccountUsagePanel))
+          .widget<AccountUsagePanel>(
+            find.byType(AccountUsagePanel, skipOffstage: false),
+          )
           .controller;
       final sessions = tester
           .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
@@ -193,7 +196,7 @@ void main() {
       final monitorScroll = tester.state<ScrollableState>(
         find
             .descendant(
-              of: find.byKey(const ValueKey('monitor-page')),
+              of: find.byKey(const ValueKey('analysis-page')),
               matching: find.byType(Scrollable),
             )
             .first,
@@ -213,11 +216,13 @@ void main() {
         );
         expect(pathController.selection.baseOffset, 4);
         expect(launcherScroll.position.pixels, 130);
-        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+        await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
         await tester.pump();
         expect(
           tester
-              .widget<AccountUsagePanel>(find.byType(AccountUsagePanel))
+              .widget<AccountUsagePanel>(
+                find.byType(AccountUsagePanel, skipOffstage: false),
+              )
               .controller,
           same(account),
         );
@@ -235,12 +240,13 @@ void main() {
       service.pending!.complete(AccountUsage.fromJson(usageResponse()));
       await query;
       await tester.pumpAndSettle();
-      final quota = tester.widget<MonitorBarChart>(
-        find.byKey(const ValueKey('account-quota-chart')),
+      final quota = tester.widget<MonitorRingChart>(
+        find.descendant(
+          of: find.byKey(const ValueKey('account-quota-chart')),
+          matching: find.byType(MonitorRingChart),
+        ),
       );
       expect(quota.bars.first.value, 92);
-      expect(quota.unit, '%');
-      expect(quota.maxValue, 100);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -257,17 +263,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await switchPage(tester, 'monitor');
+    await switchPage(tester, 'analysis');
     final metrics = tester
         .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
         .controller;
-    expect(find.text('会话：未选择'), findsOneWidget);
+    expect(find.text('会话状态：未选择会话'), findsOneWidget);
     metrics.select(r'C:\fixture\selected.jsonl');
     await tester.pumpAndSettle();
-    expect(find.text('会话：状态未知'), findsOneWidget);
+    expect(find.text('会话状态：状态未知'), findsOneWidget);
     metrics.select(null);
     await tester.pumpAndSettle();
-    expect(find.text('会话：未选择'), findsOneWidget);
+    expect(find.text('会话状态：未选择会话'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -288,7 +294,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await switchPage(tester, 'monitor');
+      await switchPage(tester, 'analysis');
       final panel = tester.widget<SessionMetricsPanel>(
         find.byType(SessionMetricsPanel),
       );
@@ -298,7 +304,7 @@ void main() {
       final scroll = tester.state<ScrollableState>(
         find
             .descendant(
-              of: find.byKey(const PageStorageKey('monitor-scroll')),
+              of: find.byKey(const PageStorageKey('analysis-scroll')),
               matching: find.byType(Scrollable),
             )
             .first,
@@ -307,12 +313,10 @@ void main() {
       await tester.pump();
       final calls = backend.sessionCalls;
       for (var i = 0; i < 10; i++) {
-        await tester.tap(
-          find.byKey(const ValueKey('measurement-independent-api')),
-        );
+        await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
         await tester.pump();
         expect(find.byType(SessionMetricsPanel), findsNothing);
-        expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
+        expect(find.textContaining('当前预览未启用'), findsOneWidget);
         expect(
           find.descendant(
             of: find.byKey(const PageStorageKey('independent-api-scroll')),
@@ -328,9 +332,7 @@ void main() {
           skipOffstage: false,
         );
         expect(TickerMode.valuesOf(tester.element(hiddenPanel)).enabled, false);
-        await tester.tap(
-          find.byKey(const ValueKey('measurement-current-session')),
-        );
+        await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
         await tester.pump();
         expect(
           tester
@@ -399,12 +401,13 @@ void main() {
       expect(find.text('保存并启动'), findsOneWidget);
       await nativeAction('monitorDetails');
       await tester.pumpAndSettle();
-      expect(find.byType(AccountUsagePanel), findsOneWidget);
-      await tester.tap(
-        find.byKey(const ValueKey('measurement-independent-api')),
+      expect(
+        find.byType(AccountUsagePanel, skipOffstage: false),
+        findsOneWidget,
       );
+      await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
+      expect(find.textContaining('当前预览未启用'), findsOneWidget);
       await switchPage(tester, 'launcher');
       await nativeAction('sessionDetails');
       await tester.pumpAndSettle();
@@ -413,16 +416,17 @@ void main() {
       expect(title.top, greaterThan(0));
       expect(title.bottom, lessThan(600));
       await tester.pump(const Duration(seconds: 1));
-      expect(snapshots.last['workspace'], 'monitor');
+      expect(snapshots.last['workspace'], 'analysis');
       expect(service.calls, 0);
-      await tester.tap(
-        find.byKey(const ValueKey('measurement-independent-api')),
-      );
+      await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
       await switchPage(tester, 'launcher');
       await nativeAction('monitorDetails');
       await tester.pumpAndSettle();
-      expect(find.byType(AccountUsagePanel), findsOneWidget);
+      expect(
+        find.byType(AccountUsagePanel, skipOffstage: false),
+        findsOneWidget,
+      );
       final accountRect = tester.getRect(
         find.byKey(const ValueKey('account-usage-card')),
       );
@@ -445,8 +449,8 @@ void main() {
       await usage.query(r'C:\fixture\Codex.exe');
       await tester.pumpAndSettle();
       expect(find.text('保存并启动'), findsOneWidget);
-      await switchPage(tester, 'monitor');
-      expect(find.text('最近提醒：有新提醒'), findsOneWidget);
+      await switchPage(tester, 'analysis');
+      await switchPage(tester, 'overview');
       await tester.ensureVisible(
         find.byKey(const ValueKey('recent-monitor-notice')),
       );
@@ -482,9 +486,9 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        await switchPage(tester, 'monitor');
+        await switchPage(tester, 'analysis');
         final account = tester.widget<AccountUsagePanel>(
-          find.byType(AccountUsagePanel),
+          find.byType(AccountUsagePanel, skipOffstage: false),
         );
         final sessions = tester.widget<SessionMetricsPanel>(
           find.byType(SessionMetricsPanel),
@@ -527,11 +531,9 @@ void main() {
           find.byKey(const ValueKey('monitor-information-close')),
         );
         await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey('measurement-independent-api')),
-        );
+        await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
         await tester.pumpAndSettle();
-        expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
+        expect(find.textContaining('当前预览未启用'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await switchPage(tester, 'launcher');
         expect(find.text('保存并启动'), findsOneWidget);

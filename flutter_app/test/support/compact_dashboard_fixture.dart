@@ -151,7 +151,7 @@ Map<String, dynamic> compactDashboardSessionData({
   };
 }
 
-class CompactDashboardBackend implements LauncherBackend {
+class CompactDashboardBackend implements SyntheticSessionBackend {
   CompactDashboardBackend({this.scenario = CompactDashboardScenario.populated});
   final CompactDashboardScenario scenario;
   final List<String> calls = [];

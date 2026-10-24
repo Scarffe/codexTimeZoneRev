@@ -13,6 +13,9 @@ abstract interface class LauncherBackend {
   ]);
 }
 
+/// Explicit capability for pure synthetic session fixtures, never native delegates.
+abstract interface class SyntheticSessionBackend implements LauncherBackend {}
+
 /// A process-local denial boundary; no real account/session/target operation.
 class OfflineTrialBackend implements LauncherBackend {
   const OfflineTrialBackend(this.delegate);

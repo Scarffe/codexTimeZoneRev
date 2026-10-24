@@ -239,7 +239,11 @@ class SessionMetricsController extends ChangeNotifier {
       final value = await backend.call('session_metrics', {'path': selected});
       if (!_closed && generation == _generation) {
         final info = value['sourceInfo'];
-        if (_expectedId != null && info is Map && info['id'] != _expectedId) {
+        if (_expectedId != null &&
+            (info is! Map ||
+                info['id'] is! String ||
+                (info['id'] as String).trim().isEmpty ||
+                info['id'] != _expectedId)) {
           throw StateError('所选路径的会话标识已变化，请重新选择');
         }
         if (_expectedId == null && info is Map && info['id'] is String) {

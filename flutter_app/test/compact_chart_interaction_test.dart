@@ -304,11 +304,11 @@ void main() {
       expect(graph(tester, 'session-recent-chart').unit, '回合');
       await chooseOverview(tester, 'session-recent-metric', 'duration');
       expect(tester.widget<MonitorChoice>(choice).value, 'bar');
-      await overviewTap(tester, 'measurement-independent-api', settle: false);
-      await overviewTap(tester, 'measurement-current-session', settle: false);
+      await overviewTap(tester, 'workspace-benchmark', settle: false);
+      await overviewTap(tester, 'workspace-analysis', settle: false);
       expect(tester.widget<MonitorChoice>(choice).value, 'bar');
       await overviewTap(tester, 'workspace-launcher', settle: false);
-      await overviewTap(tester, 'workspace-monitor', settle: false);
+      await overviewTap(tester, 'workspace-analysis', settle: false);
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(760, 900);
       addTearDown(tester.view.resetDevicePixelRatio);

@@ -28,11 +28,9 @@ void main() {
         LauncherApplication(preview: true, benchmarkController: controller),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey('measurement-independent-api')),
-      );
+      await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
       final inspect = find.byKey(const ValueKey('benchmark-inspect-ttftMs'));
       await tester.ensureVisible(inspect);

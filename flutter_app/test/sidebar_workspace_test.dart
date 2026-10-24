@@ -56,7 +56,7 @@ void main() {
     await tester.tap(find.text('完成'));
     await tester.pumpAndSettle();
     expect(find.text('保存并启动'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+    await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('monitor-settings')), findsOneWidget);
     expect(find.byKey(const ValueKey('usage-monitor-interval')), findsNothing);
@@ -75,16 +75,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('query-account-usage')));
       await tester.pumpAndSettle();
-      final quota = tester.widget<MonitorBarChart>(
-        find.byKey(const ValueKey('account-quota-chart')),
+      final quota = tester.widget<MonitorRingChart>(
+        find.descendant(
+          of: find.byKey(const ValueKey('account-quota-chart')),
+          matching: find.byType(MonitorRingChart),
+        ),
       );
       expect(quota.bars.map((bar) => bar.value), [92, 95]);
-      expect(quota.unit, '%');
-      expect(quota.maxValue, 100);
       await openCachedUsageInformation(tester);
       expect(find.text('1,234,567'), findsOneWidget);
       expect(find.text('12,345'), findsOneWidget);
@@ -103,8 +104,11 @@ void main() {
       expect(find.text('监控设置保存失败 · 查看详情'), findsOneWidget);
       expect(find.text('查询失败 · 上次观测'), findsOneWidget);
       expect(find.textContaining('失败退避中'), findsOneWidget);
-      final retained = tester.widget<MonitorBarChart>(
-        find.byKey(const ValueKey('account-quota-chart')),
+      final retained = tester.widget<MonitorRingChart>(
+        find.descendant(
+          of: find.byKey(const ValueKey('account-quota-chart')),
+          matching: find.byType(MonitorRingChart),
+        ),
       );
       expect(retained.bars.map((bar) => bar.value), [92, 95]);
       final information = find.byKey(const ValueKey('account-usage-info'));
@@ -150,18 +154,20 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('保存并启动'), findsOneWidget);
           expect(tester.takeException(), isNull);
-          await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+          await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
           await tester.pumpAndSettle();
           final account = tester.widget<AccountUsagePanel>(
             find.byType(AccountUsagePanel),
           );
           await account.controller.query(account.launcher.effectivePath);
           await tester.pumpAndSettle();
-          final quota = tester.widget<MonitorBarChart>(
-            find.byKey(const ValueKey('account-quota-chart')),
+          final quota = tester.widget<MonitorRingChart>(
+            find.descendant(
+              of: find.byKey(const ValueKey('account-quota-chart')),
+              matching: find.byType(MonitorRingChart),
+            ),
           );
           expect(quota.bars.first.value, 92);
-          expect(quota.maxValue, 100);
           expect(
             find.byKey(const ValueKey('usage-time-basis')),
             findsOneWidget,
@@ -194,7 +200,7 @@ void main() {
         tester.view.physicalSize = Size(width, 700);
         addTearDown(tester.view.resetDevicePixelRatio);
         addTearDown(tester.view.resetPhysicalSize);
-        var selected = false;
+        var selected = WorkspaceDestination.launcher;
         String appearance = 'system';
         await tester.pumpWidget(
           WidgetsApp(
@@ -221,12 +227,16 @@ void main() {
               ),
               child: StatefulBuilder(
                 builder: (context, update) => WorkspaceShell(
-                  monitorSelected: selected,
+                  selected: selected,
                   onSelect: (value) => update(() => selected = value),
                   appearance: appearance,
                   onAppearance: (value) => update(() => appearance = value),
                   launcher: const Text('launcher fixture'),
-                  monitor: const Text('monitor fixture'),
+                  accounts: const Text('monitor fixture'),
+                  overview: const SizedBox(),
+                  analysis: const SizedBox(),
+                  sessions: const SizedBox(),
+                  benchmark: const SizedBox(),
                 ),
               ),
             ),
@@ -243,9 +253,9 @@ void main() {
         expect(rail.left, 0);
         expect(rail.top, 0);
         expect(rail.bottom, 700);
-        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+        await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
         await tester.pumpAndSettle();
-        expect(selected, isTrue);
+        expect(selected, WorkspaceDestination.accounts);
         expect(find.text('monitor fixture'), findsOneWidget);
         await tester.tap(find.byKey(const ValueKey('workspace-theme')));
         await tester.pumpAndSettle();

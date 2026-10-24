@@ -22,6 +22,7 @@ void HideMonitorMain();
 void ReportMonitorState();
 void ConfigureSessionSummary(const std::wstring& summary, double rate, int status=0);
 void ConfigureSessionAlert(const std::wstring& text, int64_t serial);
+void ConfigureAttentionAlert(const std::wstring& text, int64_t serial, int status);
 void PublishMonitor(const std::wstring& text, double remaining, bool stale,
                     bool paused, int64_t revision, int64_t attempts, int64_t failures,
                     const std::wstring& detail, const std::wstring& alert, int64_t alert_serial,

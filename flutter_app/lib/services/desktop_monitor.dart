@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../state/account_usage_controller.dart';
 import '../state/session_metrics_controller.dart';
 import '../state/benchmark_controller.dart';
+import '../state/session_attention_controller.dart';
 
 /// Only publishes display data; native surfaces never query the account.
 class DesktopMonitor {
@@ -14,6 +15,8 @@ class DesktopMonitor {
     this.path, {
     this.onRoles,
     this.onSessionDetails,
+    this.onAttentionDetails,
+    this.attention,
     this.onMonitor,
     this.backgroundStart = false,
     this.workspace,
@@ -23,6 +26,8 @@ class DesktopMonitor {
     this.interval = const Duration(minutes: 2),
   });
   final AccountUsageController usage;
+  final SessionAttentionController? attention;
+  final VoidCallback? onAttentionDetails;
   final SessionMetricsController? metrics;
   final BenchmarkController? benchmark;
   final String Function() path;
@@ -45,9 +50,13 @@ class DesktopMonitor {
     usage.setMainWindowVisible(!backgroundStart);
     usage.addListener(_publish);
     metrics?.addListener(_publish);
+    attention?.addListener(_publish);
     benchmark?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
+        case 'attentionDetails':
+          await _syncMainVisibility();
+          onAttentionDetails?.call();
         case 'sessionDetails':
           await _syncMainVisibility();
           onSessionDetails?.call();
@@ -78,9 +87,11 @@ class DesktopMonitor {
           usage.muteCurrentCycle();
         case 'systemSuspend':
           metrics?.resetObservation();
+          attention?.resetObservation();
           usage.systemSuspending();
           await benchmark?.interrupt();
         case 'systemResume':
+          attention?.resetObservation();
           usage.systemResumed();
         case 'refresh':
           final owner = usage.sources;
@@ -114,6 +125,7 @@ class DesktopMonitor {
       usage.monitoring ||
       usage.sources?.anyBusy == true ||
       metrics?.selected != null ||
+      attention?.watches.any((watch) => watch.enabled) == true ||
       benchmark?.keepAlive == true;
 
   Future<void> _exit() =>
@@ -127,6 +139,7 @@ class DesktopMonitor {
     await Future.wait([
       if (usage.sources != null) usage.sources!.shutdown(),
       if (benchmark != null) benchmark!.shutdown(),
+      if (attention != null) attention!.shutdown(),
     ]);
     await benchmark?.saved;
     await usage.roles.saved;
@@ -152,19 +165,30 @@ class DesktopMonitor {
   void _publish() {
     if (_closed) return;
     metrics?.configureReminders(
+      enabled:
+          usage.sessionAlertsEnabled &&
+          !(metrics?.selected != null &&
+              attention?.hasWatchedPath(metrics!.selected!) == true),
+      muteUntil: usage.sessionMutedUntil,
+    );
+    attention?.configureReminders(
       enabled: usage.sessionAlertsEnabled,
       muteUntil: usage.sessionMutedUntil,
     );
     final snapshot = usage.desktopSnapshot;
     snapshot['keepAlive'] = _keepAlive;
-    snapshot['workspace'] = workspace?.call() == 'monitor'
-        ? 'monitor'
-        : 'launcher';
+    snapshot['workspace'] = workspace?.call() ?? 'launcher';
     snapshot['petVisible'] = false;
     snapshot['roleImage'] = '';
     snapshot['roleName'] = '';
     snapshot['sessionAlert'] = metrics?.alert ?? '';
     snapshot['sessionAlertSerial'] = metrics?.alertSerial ?? 0;
+    snapshot['attentionAlert'] = attention?.alert ?? '';
+    snapshot['attentionAlertSerial'] = attention?.alertSerial ?? 0;
+    // Durable completed notices have a separate status, never selected log status.
+    snapshot['attentionAlertStatus'] = attention?.alert.isNotEmpty == true
+        ? 2
+        : 0;
     final quotaSerial = snapshot['alertSerial'] as int;
     final sessionSerial = snapshot['sessionAlertSerial'] as int;
     final quotaNotice = quotaSerial > _quotaNoticeSerial
@@ -211,6 +235,7 @@ class DesktopMonitor {
     _clock?.cancel();
     usage.removeListener(_publish);
     metrics?.removeListener(_publish);
+    attention?.removeListener(_publish);
     benchmark?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }

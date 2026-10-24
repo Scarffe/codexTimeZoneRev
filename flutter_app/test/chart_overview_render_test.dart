@@ -116,8 +116,9 @@ void main() {
                 ),
               );
               await tester.pumpAndSettle();
-              await overviewTap(tester, 'workspace-monitor');
+              await overviewTap(tester, 'workspace-accounts');
               await overviewTap(tester, 'query-account-usage');
+              await overviewTap(tester, 'workspace-analysis');
               await overviewTap(tester, 'session-refresh');
               tester
                   .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
@@ -140,13 +141,13 @@ void main() {
               // an inner quota chart to the top hides its title/state toolbar.
               Scrollable.of(
                 tester.element(
-                  find.byKey(const ValueKey('account-usage-card')),
+                  find.byKey(const ValueKey('analysis-quota-card')),
                 ),
               ).position.jumpTo(0);
               await tester.pumpAndSettle();
               expect(tester.takeException(), isNull);
               final quotaExtent = tester
-                  .getSize(find.byKey(const ValueKey('account-usage-card')))
+                  .getSize(find.byKey(const ValueKey('analysis-quota-card')))
                   .height;
               final sessionExtent = tester
                   .getSize(

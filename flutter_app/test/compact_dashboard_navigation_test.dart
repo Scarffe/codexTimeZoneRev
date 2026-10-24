@@ -75,12 +75,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     var activations = 0;
-    var monitor = false;
+    var monitor = WorkspaceDestination.launcher;
     await tester.pumpWidget(
       host(
         StatefulBuilder(
           builder: (context, update) => WorkspaceShell(
-            monitorSelected: monitor,
+            selected: monitor,
             onSelect: (value) => update(() {
               monitor = value;
               activations++;
@@ -88,13 +88,17 @@ void main() {
             appearance: 'light',
             onAppearance: (_) {},
             launcher: const Text('launcher content'),
-            monitor: const Text('monitor content'),
+            analysis: const Text('monitor content'),
+            overview: const SizedBox(),
+            accounts: const SizedBox(),
+            sessions: const SizedBox(),
+            benchmark: const SizedBox(),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    final action = find.byKey(const ValueKey('workspace-monitor'));
+    final action = find.byKey(const ValueKey('workspace-analysis'));
     final center = tester.getCenter(action);
     for (final offset in const [
       Offset(-21, -21),
@@ -110,8 +114,8 @@ void main() {
       4,
       reason: 'The narrow rail must retain the whole touch area',
     );
-    expect(monitor, isTrue);
-    expect(find.text('监控总览'), findsOneWidget);
+    expect(monitor, WorkspaceDestination.analysis);
+    expect(find.text('数据分析'), findsOneWidget);
     expect(tester.takeException(), isNull);
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
@@ -123,28 +127,32 @@ void main() {
   testWidgets('rail navigation announces the visible monitor overview', (
     tester,
   ) async {
-    var monitor = false;
+    var monitor = WorkspaceDestination.launcher;
     await tester.pumpWidget(
       host(
         StatefulBuilder(
           builder: (context, update) => WorkspaceShell(
-            monitorSelected: monitor,
+            selected: monitor,
             onSelect: (value) => update(() => monitor = value),
             appearance: 'light',
             onAppearance: (_) {},
             launcher: const Text('launcher content'),
-            monitor: const Text('monitor content'),
+            analysis: const Text('monitor content'),
+            overview: const SizedBox(),
+            accounts: const SizedBox(),
+            sessions: const SizedBox(),
+            benchmark: const SizedBox(),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
     final semantics = tester.ensureSemantics();
-    final monitorAction = find.byKey(const ValueKey('workspace-monitor'));
+    final monitorAction = find.byKey(const ValueKey('workspace-analysis'));
     final launcherNode = tester.getSemantics(
       find.byKey(const ValueKey('workspace-launcher')),
     );
-    expect(launcherNode.getSemanticsData().label, contains('时区启动器'));
+    expect(launcherNode.getSemanticsData().label, contains('启动器'));
     expect(
       tester
           .getSemantics(find.byKey(const ValueKey('workspace-launcher')))
@@ -153,12 +161,12 @@ void main() {
       Tristate.isTrue,
     );
     var monitorFocused = false;
-    for (var step = 0; step < 8; step++) {
+    for (var step = 0; step < 16; step++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       final button = FocusManager.instance.primaryFocus?.context
           ?.findAncestorWidgetOfExactType<FButton>();
-      if (button?.semanticsLabel == '监控与工具') {
+      if (button?.semanticsLabel == '数据分析') {
         monitorFocused = true;
         break;
       }
@@ -170,10 +178,10 @@ void main() {
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
-    expect(find.text('监控总览'), findsOneWidget);
+    expect(find.text('数据分析'), findsOneWidget);
     expect(
       tester.getSemantics(monitorAction).getSemanticsData().label,
-      contains('监控与工具'),
+      contains('数据分析'),
     );
     expect(
       tester.getSemantics(monitorAction).flagsCollection.isSelected,

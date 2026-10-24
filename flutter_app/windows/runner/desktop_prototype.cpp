@@ -54,6 +54,8 @@ struct State {
   double sessionRate=-1;
   int sessionStatus=0, sessionAlertsShown=0, sessionAlertsSuppressed=0;
   int64_t sessionAlertSerial=0;
+  int64_t attentionAlertSerial=0;
+  int attentionStatus=0, attentionAlertsShown=0, attentionAlertsSuppressed=0;
   bool sessionBubble=false, sessionAlertKeptFocus=true;
   int sessionFocusChecks=0, sessionBubbleClicks=0;
   std::wstring rolePath,roleName;
@@ -211,6 +213,10 @@ void Report() {
         << ",\"sessionFocusChecks\":" << s.sessionFocusChecks
         << ",\"sessionAlertKeptFocus\":" << (s.sessionAlertKeptFocus?"true":"false")
         << ",\"bubbleForeground\":" << (GetForegroundWindow()==s.bubble?"true":"false")
+        << ",\"attentionAlertSerial\":" << s.attentionAlertSerial
+        << ",\"attentionStatus\":" << s.attentionStatus
+        << ",\"attentionAlertsShown\":" << s.attentionAlertsShown
+        << ",\"attentionAlertsSuppressed\":" << s.attentionAlertsSuppressed
         << ",\"sessionAlertsShown\":" << s.sessionAlertsShown
         << ",\"sessionAlertsSuppressed\":" << s.sessionAlertsSuppressed
         << ",\"sessionBubble\":" << (s.sessionBubble && IsWindowVisible(s.bubble)?"true":"false")
@@ -245,7 +251,7 @@ bool Notify(const std::wstring& text,const std::string& kind,int64_t serial,cons
   ++s.notificationAttempts; s.notificationText=text; s.notificationKind=kind; s.notificationSerial=serial;
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=s.owner; icon.uID=1; icon.uFlags=NIF_INFO;
   icon.dwInfoFlags=NIIF_INFO|NIIF_NOSOUND;
-  const wchar_t* title=kind=="quota" ? L"Codex 额度提醒" : (kind=="session" ? L"Codex 回合提醒" : L"Codex 后台运行");
+  const wchar_t* title=kind=="quota" ? L"Codex 额度提醒" : ((kind=="session" || kind=="attention") ? L"Codex 回合提醒" : L"Codex 后台运行");
   wcsncpy_s(icon.szInfoTitle,title,_TRUNCATE); wcsncpy_s(icon.szInfo,text.c_str(),_TRUNCATE);
   const bool accepted=Shell_NotifyIconW(NIM_MODIFY,&icon)!=FALSE;
   if(accepted) { ++s.notificationShellAccepted; s.pendingNotificationRoute=route; }
@@ -878,7 +884,8 @@ void ConfigureTrayAppearance(const production_tray::Appearance& appearance) {
 
 void ConfigureWorkspace(bool keep_alive,const std::string& workspace) {
   if(!current || !current->production) return;
-  current->keepAlive=keep_alive; current->workspace=workspace=="monitor"?"monitor":"launcher";
+  current->keepAlive=keep_alive;
+  current->workspace=(workspace=="overview" || workspace=="accounts" || workspace=="sessions" || workspace=="analysis" || workspace=="benchmark" || workspace=="monitor") ? workspace : "launcher";
   current->bridgeReady=true; Report();
 }
 void RecordCloseRequest() { if(current) { ++current->closeRequests; Report(); } }
@@ -893,6 +900,21 @@ void HideMonitorMain() {
 }
 
 void ConfigureSessionSummary(const std::wstring& summary, double rate, int status) { if(current) { current->sessionSummary=summary; current->sessionRate=rate; current->sessionStatus=status; } }
+
+// Attention events are durably validated in Dart. Their status/serial never
+// depend on the currently selected log, and clicks only open the inbox.
+void ConfigureAttentionAlert(const std::wstring& text, int64_t serial, int status) {
+  if(!current || !current->live) return;
+  auto& s=*current;
+  s.attentionStatus=status;
+  if(text.empty() || serial<=s.attentionAlertSerial) return;
+  s.attentionAlertSerial=serial;
+  if(s.powerSuspended || s.attentionStatus!=2 || GetTickCount64()<s.quotaPriorityUntil) {
+    ++s.attentionAlertsSuppressed; Report(); return;
+  }
+  if(Notify(text,"attention",serial,"attentionDetails")) ++s.attentionAlertsShown;
+  Report();
+}
 
 void ConfigureSessionAlert(const std::wstring& text, int64_t serial) {
   if(!current || !current->live) return;

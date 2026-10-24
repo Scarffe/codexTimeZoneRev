@@ -226,7 +226,7 @@ void main() {
             find.byKey(const ValueKey('query-account-usage')),
             findsNothing,
           );
-          await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+          await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
           await tester.pumpAndSettle();
           expect(service.calls, 0);
           expect(find.text('点击按钮查询，或开启自动监控。'), findsOneWidget);
@@ -337,7 +337,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pumpAndSettle();
       final button = find.byKey(const ValueKey('query-account-usage'));
       await tester.ensureVisible(button);
@@ -351,7 +351,7 @@ void main() {
       await tester.pump();
       expect(backend.calls, contains('save'));
       expect(service.calls, 1);
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pump();
       service.pending!.complete(AccountUsage.fromJson(usageResponse()));
       await tester.pumpAndSettle();
@@ -391,7 +391,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+    await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
     await tester.pumpAndSettle();
     final button = find.byKey(const ValueKey('query-account-usage'));
     await tester.ensureVisible(button);
@@ -446,7 +446,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
-        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+        await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
         await tester.pumpAndSettle();
         expect(service.calls, 0);
         final button = find.byKey(const ValueKey('query-account-usage'));
@@ -500,7 +500,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
-        await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+        await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
         await tester.pumpAndSettle();
         expect(service.calls, 0);
         final button = find.byKey(const ValueKey('query-account-usage'));

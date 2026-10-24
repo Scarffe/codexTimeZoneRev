@@ -17,7 +17,7 @@ void main() {
       await tester.pumpWidget(const LauncherApplication(preview: true));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('pet-roles')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(
         find.byKey(const ValueKey('monitor-settings')),

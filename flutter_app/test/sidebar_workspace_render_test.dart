@@ -245,18 +245,20 @@ void main() {
               '$appearance-${width.toInt()}-launcher',
             );
           }
-          await tapAction(tester, 'workspace-monitor');
+          await tapAction(tester, 'workspace-analysis');
           expect(
             tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,
             width <= 620 ? 45 : 56,
           );
           final account = tester.widget<AccountUsagePanel>(
-            find.byType(AccountUsagePanel),
+            find.byType(AccountUsagePanel, skipOffstage: false),
           );
           final metrics = tester
               .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
               .controller;
+          await tapAction(tester, 'workspace-accounts');
           await tapAction(tester, 'query-account-usage');
+          await tapAction(tester, 'workspace-analysis');
           expect(service.calls, 1);
           await tapAction(tester, 'session-refresh');
           expect(backend.sessionCalls, 1);
@@ -279,7 +281,7 @@ void main() {
           final scroll = tester.state<ScrollableState>(
             find
                 .descendant(
-                  of: find.byKey(const ValueKey('monitor-page')),
+                  of: find.byKey(const ValueKey('analysis-page')),
                   matching: find.byType(Scrollable),
                 )
                 .first,
@@ -340,15 +342,17 @@ void main() {
           expect(find.text('深色'), findsOneWidget);
           await tester.tap(find.text(appearance == 'light' ? '深色' : '浅色'));
           await tester.pumpAndSettle();
-          await tapAction(tester, 'measurement-independent-api');
-          expect(find.textContaining('M2 离线内核已验收'), findsOneWidget);
-          await tapAction(tester, 'measurement-current-session');
+          await tapAction(tester, 'workspace-benchmark');
+          expect(find.textContaining('当前预览未启用'), findsOneWidget);
+          await tapAction(tester, 'workspace-analysis');
           expect(metrics.selected, SidebarRenderBackend.path);
           expect(
             account.controller,
             same(
               tester
-                  .widget<AccountUsagePanel>(find.byType(AccountUsagePanel))
+                  .widget<AccountUsagePanel>(
+                    find.byType(AccountUsagePanel, skipOffstage: false),
+                  )
                   .controller,
             ),
           );
@@ -357,7 +361,7 @@ void main() {
             tester.widget<LauncherPage>(find.byType(LauncherPage)).launcher,
             same(launcher.launcher),
           );
-          await tapAction(tester, 'workspace-monitor');
+          await tapAction(tester, 'workspace-analysis');
           expect(
             service.calls,
             1,

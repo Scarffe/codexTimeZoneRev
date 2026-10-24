@@ -75,7 +75,7 @@ void main() {
       await tester.pump();
       expect(tester.widget<Offstage>(pageStage).offstage, false);
       expect(clockTexts(), isNot(equals(frozen)));
-      await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+      await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.binding.transientCallbackCount, greaterThan(0));
       usage.setMainWindowVisible(false);

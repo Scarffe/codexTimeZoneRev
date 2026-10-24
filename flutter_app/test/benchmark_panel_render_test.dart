@@ -130,10 +130,12 @@ void main() {
                 ),
               );
               await tester.pumpAndSettle();
-              await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+              await tester.tap(
+                find.byKey(const ValueKey('workspace-benchmark')),
+              );
               await tester.pumpAndSettle();
               await tester.tap(
-                find.byKey(const ValueKey('measurement-independent-api')),
+                find.byKey(const ValueKey('workspace-benchmark')),
               );
               await tester.pumpAndSettle();
               expect(find.text('离线回放 · 合成数据 · 客户端观测'), findsOneWidget);

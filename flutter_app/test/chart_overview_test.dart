@@ -164,8 +164,9 @@ Future<void> overviewTap(
 }
 
 Future<void> populateOverview(WidgetTester tester) async {
-  await overviewTap(tester, 'workspace-monitor');
+  await overviewTap(tester, 'workspace-accounts');
   await overviewTap(tester, 'query-account-usage');
+  await overviewTap(tester, 'workspace-analysis');
   await overviewTap(tester, 'session-refresh');
   tester
       .widget<SessionMetricsPanel>(find.byType(SessionMetricsPanel))
@@ -377,10 +378,10 @@ void main() {
         10,
       ]);
       expect(find.text('总输出 · 含推理'), findsWidgets);
-      await overviewTap(tester, 'measurement-independent-api', settle: false);
-      await overviewTap(tester, 'measurement-current-session', settle: false);
+      await overviewTap(tester, 'workspace-benchmark', settle: false);
+      await overviewTap(tester, 'workspace-analysis', settle: false);
       await overviewTap(tester, 'workspace-launcher', settle: false);
-      await overviewTap(tester, 'workspace-monitor', settle: false);
+      await overviewTap(tester, 'workspace-analysis', settle: false);
       for (final width in [320.0, 600.0]) {
         tester.view.physicalSize = Size(width, 1000);
         await tester.pump();

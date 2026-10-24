@@ -37,9 +37,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+    await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('measurement-independent-api')));
+    await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
     await tester.pumpAndSettle();
     return controller;
   }
@@ -150,9 +150,9 @@ void main() {
     expect(find.textContaining('尚无测试结果'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('benchmark-start')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('measurement-current-session')));
+    await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('measurement-independent-api')));
+    await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
     await tester.pumpAndSettle();
     expect(backend.sequence, 1);
     expect(controller.keepAlive, true);

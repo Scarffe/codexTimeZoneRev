@@ -86,13 +86,17 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          await tester.tap(find.byKey(const ValueKey('workspace-monitor')));
+          await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
           await tester.pumpAndSettle();
           await f.owner.refresh('profile-stale');
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
           await tester.pumpAndSettle();
           for (final key in overviewGraphKeys) {
             expect(find.byKey(ValueKey(key)), findsOneWidget);
           }
+          await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
+          await tester.pumpAndSettle();
           expect(
             find.byKey(const ValueKey('source-overview-current')),
             findsNothing,
@@ -121,6 +125,8 @@ void main() {
           await tester.tap(
             find.byKey(const ValueKey('toggle-source-overview')),
           );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
           await tester.pumpAndSettle();
           await Scrollable.ensureVisible(
             tester.element(

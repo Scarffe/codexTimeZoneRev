@@ -4,7 +4,7 @@ import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/services/account_sources.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/monitor_presentation.dart';
-import 'package:codex_timezone/app/monitoring_page.dart';
+import 'package:codex_timezone/app/accounts_workspace_page.dart';
 import 'package:codex_timezone/app/theme.dart';
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/state/account_usage_controller.dart';
@@ -65,13 +65,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -201,13 +196,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -266,13 +256,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -353,13 +338,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -424,13 +404,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -498,13 +473,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -548,13 +518,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );
@@ -599,13 +564,8 @@ void main() {
         sourcesHost(
           ListenableBuilder(
             listenable: usage,
-            builder: (_, _) => MonitoringPage(
-              launcher: launcher,
-              usage: usage,
-              metrics: f.metrics,
-              sessionPanelKey: const ValueKey('session'),
-              recentNotice: '',
-            ),
+            builder: (_, _) =>
+                AccountsWorkspacePage(launcher: launcher, usage: usage),
           ),
         ),
       );

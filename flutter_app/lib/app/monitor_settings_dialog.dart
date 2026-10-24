@@ -26,7 +26,11 @@ class MonitorSettingsDialog extends StatelessWidget {
                   children: [
                     const Text('监控与提醒设置'),
                     const SizedBox(height: 12),
-                    const Text('修改立即生效，并保存到当前程序文件夹。'),
+                    Text(
+                      controller.offlineTrial
+                          ? '离线试用仅本次生效，不写入真实监控设置。'
+                          : '修改立即生效，并保存到当前程序文件夹。',
+                    ),
                     const SizedBox(height: 12),
                     FButton(
                       key: const ValueKey('reduced-motion'),
@@ -104,7 +108,9 @@ class MonitorSettingsDialog extends StatelessWidget {
                         controller.sessionMuted ? '取消回合提醒静音' : '回合提醒静音 15 分钟',
                       ),
                     ),
-                    const Text('仅提醒所选会话观察期间的新结束事件；取消不发通知。回合结束不代表任务成功。'),
+                    const Text(
+                      '关注会话与未关注的所选会话共用开关和静音；只提醒观察期间的新完成事件，取消不发通知。回合完成不代表任务成功。',
+                    ),
                     const SizedBox(height: 12),
                     FButton(
                       key: const ValueKey('mute-cycle'),
