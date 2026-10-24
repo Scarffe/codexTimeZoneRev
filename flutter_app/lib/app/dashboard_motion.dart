@@ -1,4 +1,7 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import 'dashboard_style.dart';
@@ -33,7 +36,8 @@ class _MotionPolicy extends InheritedWidget {
       enabled != oldWidget.enabled;
 }
 
-/// Event-driven light behind content and one finite, non-interactive burst.
+/// One client-wide, input-transparent decoration, including Navigator overlays.
+/// Only active click waves tick; a stationary pointer never animates the light.
 class DashboardMotionBackdrop extends StatefulWidget {
   const DashboardMotionBackdrop({super.key, required this.child});
   final Widget child;
@@ -44,15 +48,13 @@ class DashboardMotionBackdrop extends StatefulWidget {
 
 class _DashboardMotionBackdropState extends State<DashboardMotionBackdrop>
     with SingleTickerProviderStateMixin {
-  late final _burst = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 480),
-  )..addListener(_tick);
+  final _field = _ClientWaveField();
+  late final Ticker _ticker = createTicker(_tick);
   bool _enabled = false;
-  Offset? _pointer, _origin;
 
-  void _tick() {
-    if (mounted) setState(() {});
+  void _tick(Duration elapsed) {
+    _field.advance(elapsed);
+    if (_field.waves.isEmpty) _ticker.stop();
   }
 
   @override
@@ -60,8 +62,8 @@ class _DashboardMotionBackdropState extends State<DashboardMotionBackdrop>
     super.didChangeDependencies();
     _enabled = DashboardMotionScope.enabledOf(context);
     if (!_enabled) {
-      _pointer = _origin = null;
-      _burst.reset();
+      _ticker.stop();
+      _field.clear();
     }
   }
 
@@ -71,25 +73,23 @@ class _DashboardMotionBackdropState extends State<DashboardMotionBackdrop>
     return MouseRegion(
       opaque: false,
       onHover: (event) {
-        if (_enabled) setState(() => _pointer = event.localPosition);
+        if (_enabled) _field.pointAt(event.localPosition);
       },
-      onExit: (_) => setState(() => _pointer = null),
+      onExit: (_) => _field.pointAt(null),
       child: Listener(
         behavior: HitTestBehavior.translucent,
         onPointerDown: (event) {
           if (!_enabled || event.buttons != kPrimaryMouseButton) return;
-          _origin = event.localPosition;
-          _burst.forward(from: 0);
+          if (!_ticker.isActive) _field.elapsed = Duration.zero;
+          _field.contact(event.localPosition);
+          if (!_ticker.isActive) _ticker.start();
         },
         child: ClipRect(
-          child: CustomPaint(
-            painter: _Spotlight(_enabled ? _pointer : null, color),
-            foregroundPainter: _OrbitRings(
-              _enabled && _burst.isAnimating ? _origin : null,
-              _burst.value,
-              color,
+          child: RepaintBoundary(
+            child: CustomPaint(
+              foregroundPainter: _ClientWaves(_field, color),
+              child: RepaintBoundary(child: widget.child),
             ),
-            child: widget.child,
           ),
         ),
       ),
@@ -98,56 +98,129 @@ class _DashboardMotionBackdropState extends State<DashboardMotionBackdrop>
 
   @override
   void dispose() {
-    _burst.dispose();
+    _ticker.dispose();
+    _field.dispose();
     super.dispose();
   }
 }
 
-class _Spotlight extends CustomPainter {
-  const _Spotlight(this.center, this.color);
-  final Offset? center;
-  final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (center == null) return;
-    final bounds = Rect.fromCircle(center: center!, radius: 140);
-    canvas.drawCircle(
-      center!,
-      140,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [color.withValues(alpha: .065), color.withValues(alpha: 0)],
-        ).createShader(bounds),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_Spotlight oldDelegate) =>
-      center != oldDelegate.center || color != oldDelegate.color;
+class _ClickWave {
+  const _ClickWave(this.origin, this.started);
+  // Retain the event's client logical-pixel origin if the client is resized.
+  final Offset origin;
+  final Duration started;
 }
 
-class _OrbitRings extends CustomPainter {
-  const _OrbitRings(this.center, this.progress, this.color);
-  final Offset? center;
-  final double progress;
+class _ClientWaveField extends ChangeNotifier {
+  static const lifetime = Duration(seconds: 4);
+  final waves = <_ClickWave>[];
+  Duration elapsed = Duration.zero;
+  Offset? pointer;
+
+  void pointAt(Offset? point) {
+    if (pointer == point) return;
+    pointer = point;
+    notifyListeners();
+  }
+
+  void contact(Offset origin) {
+    if (waves.length == 4) waves.removeAt(0);
+    waves.add(_ClickWave(origin, elapsed));
+    notifyListeners();
+  }
+
+  void advance(Duration value) {
+    elapsed = value;
+    waves.removeWhere((wave) => elapsed - wave.started >= lifetime);
+    notifyListeners();
+  }
+
+  void clear() {
+    waves.clear();
+    pointer = null;
+    elapsed = Duration.zero;
+    notifyListeners();
+  }
+}
+
+class _ClientWaves extends CustomPainter {
+  _ClientWaves(this.field, this.color) : super(repaint: field);
+  final _ClientWaveField field;
   final Color color;
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (center == null) return;
-    final eased = Curves.easeOutCubic.transform(progress);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = color.withValues(alpha: .075 * (1 - progress));
-    canvas.drawCircle(center!, 8 + 140 * eased, paint);
-    canvas.drawCircle(center!, 4 + 102 * eased, paint);
+
+  // Mirror lattice index n counts wall contacts along that axis. The diamond
+  // |nx|+|ny|<=4 contains exactly 41 images, including the original source.
+  static double _mirror(double origin, double extent, int n) =>
+      n.isEven ? n * extent + origin : (n + 1) * extent - origin;
+
+  static bool _crossesClient(Offset center, double radius, Size size) {
+    if (radius <= 0) return false;
+    final nearX = math.max(0.0, math.max(-center.dx, center.dx - size.width));
+    final nearY = math.max(0.0, math.max(-center.dy, center.dy - size.height));
+    final farX = math.max(center.dx.abs(), (center.dx - size.width).abs());
+    final farY = math.max(center.dy.abs(), (center.dy - size.height).abs());
+    final squared = radius * radius;
+    return squared >= nearX * nearX + nearY * nearY &&
+        squared <= farX * farX + farY * farY;
   }
 
   @override
-  bool shouldRepaint(_OrbitRings oldDelegate) =>
-      center != oldDelegate.center ||
-      progress != oldDelegate.progress ||
-      color != oldDelegate.color;
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty || (field.pointer == null && field.waves.isEmpty)) return;
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    final pointer = field.pointer;
+    if (pointer != null) {
+      // Foreground placement keeps the very quiet light coherent across cards.
+      final bounds = Rect.fromCircle(center: pointer, radius: 220);
+      canvas.drawRect(
+        bounds,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [color.withValues(alpha: .035), color.withValues(alpha: 0)],
+          ).createShader(bounds),
+      );
+    }
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8;
+    for (final wave in field.waves) {
+      final t = (field.elapsed - wave.started).inMicroseconds / 1000000;
+      final tail = ((4 - t) / .5).clamp(0.0, 1.0);
+      final fade = tail * tail * (3 - 2 * tail);
+      final amplitude = .24 * math.exp(-.75 * t) * fade;
+      final radius = 480 * t;
+      for (var nx = -4; nx <= 4; nx++) {
+        for (var ny = -4; ny <= 4; ny++) {
+          final order = nx.abs() + ny.abs();
+          if (order > 4) continue;
+          final source = Offset(
+            _mirror(wave.origin.dx, size.width, nx),
+            _mirror(wave.origin.dy, size.height, ny),
+          );
+          final alpha = amplitude * math.pow(.58, order);
+          // Two crests at most: 4 bursts * 41 images * 2 = 328 attempts.
+          // No saveLayer, accumulated particles, or radius-dependent loops.
+          for (var crest = 0; crest < 2; crest++) {
+            final r = radius - crest * 16;
+            if (!_crossesClient(source, r, size)) continue;
+            paint
+              ..color = color.withValues(alpha: alpha * (crest == 0 ? 1 : .4))
+              ..strokeWidth = crest == 0 ? 1.8 : 1.1
+              ..maskFilter = crest == 0
+                  ? const MaskFilter.blur(BlurStyle.normal, .55)
+                  : null;
+            canvas.drawCircle(source, r, paint);
+          }
+        }
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_ClientWaves oldDelegate) =>
+      field != oldDelegate.field || color != oldDelegate.color;
 }
 
 /// Adds paint-only movement without owning focus, gestures, keys or callbacks.

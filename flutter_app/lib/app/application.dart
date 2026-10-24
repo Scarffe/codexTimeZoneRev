@@ -282,22 +282,21 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           : (dark ? darkLauncherTheme : lightLauncherTheme);
       return FTheme(
         data: theme,
-        child: FToaster(
-          child: FTooltipGroup(
-            child: DefaultTextStyle(
-              style: theme.typography.body.md.copyWith(
-                color: theme.colors.foreground,
-              ),
-              child: ListenableBuilder(
-                listenable: usage,
-                child: _benchmarkKeyboard(child!),
-                builder: (context, child) => DashboardMotionScope(
-                  reducedMotion:
-                      usage.reducedMotion || !usage.mainWindowVisible,
-                  child: child!,
+        child: ListenableBuilder(
+          listenable: usage,
+          child: FToaster(
+            child: FTooltipGroup(
+              child: DefaultTextStyle(
+                style: theme.typography.body.md.copyWith(
+                  color: theme.colors.foreground,
                 ),
+                child: _benchmarkKeyboard(child!),
               ),
             ),
+          ),
+          builder: (context, child) => DashboardMotionScope(
+            reducedMotion: usage.reducedMotion || !usage.mainWindowVisible,
+            child: DashboardMotionBackdrop(child: child!),
           ),
         ),
       );

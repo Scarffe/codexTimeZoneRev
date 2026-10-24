@@ -26,6 +26,7 @@ void main() {
     VoidCallback? onPress,
     Key? capture,
     bool dark = false,
+    bool fullClient = false,
   }) => MediaQuery(
     data: MediaQueryData(disableAnimations: osReduced),
     child: Directionality(
@@ -44,8 +45,8 @@ void main() {
                 ).background,
                 child: Center(
                   child: SizedBox(
-                    width: 300,
-                    height: 240,
+                    width: fullClient ? null : 300,
+                    height: fullClient ? null : 240,
                     child: DashboardMotionBackdrop(
                       child: Center(
                         child: DashboardMotionFeedback(
@@ -72,14 +73,36 @@ void main() {
     ),
   );
 
-  Finder paintFinder() => find.descendant(
-    of: find.byType(DashboardMotionBackdrop),
-    matching: find.byType(CustomPaint),
-  );
+  Finder paintFinder() => find
+      .descendant(
+        of: find.byType(DashboardMotionBackdrop),
+        matching: find.byType(CustomPaint),
+      )
+      .first;
   void paintRings(WidgetTester tester, Canvas canvas) => tester
       .widget<CustomPaint>(paintFinder())
       .foregroundPainter!
       .paint(canvas, const Size(300, 240));
+
+  List<({Offset center, double radius, double alpha})> rings(
+    WidgetTester tester, {
+    Size size = const Size(300, 240),
+  }) {
+    final canvas = TestRecordingCanvas();
+    tester
+        .widget<CustomPaint>(paintFinder())
+        .foregroundPainter!
+        .paint(canvas, size);
+    return [
+      for (final call in canvas.invocations)
+        if (call.invocation.memberName == #drawCircle)
+          (
+            center: call.invocation.positionalArguments[0] as Offset,
+            radius: call.invocation.positionalArguments[1] as double,
+            alpha: (call.invocation.positionalArguments[2] as Paint).color.a,
+          ),
+    ];
+  }
 
   testWidgets('application preference and hidden window reach dialog routes', (
     tester,
@@ -115,11 +138,24 @@ void main() {
     usage.setMainWindowVisible(true);
     await tester.pump();
     expect(DashboardMotionScope.enabledOf(tester.element(toggle)), isTrue);
+    expect(
+      find.ancestor(of: toggle, matching: find.byType(DashboardMotionBackdrop)),
+      findsOneWidget,
+      reason: 'the single client decoration must include Navigator dialogs',
+    );
+    expect(find.byType(DashboardMotionBackdrop), findsOneWidget);
+    final contact = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await contact.down(tester.getCenter(toggle));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(rings(tester, size: tester.view.physicalSize), isNotEmpty);
+    await contact.up();
+    await tester.pumpAndSettle();
     expect(service.calls, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('primary clicks pass through and one two-ring burst settles', (
+  testWidgets('control and blank primary contacts remain visible past 480ms', (
     tester,
   ) async {
     var taps = 0;
@@ -128,28 +164,176 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(taps, 1);
-    expect(
-      (Canvas c) => paintRings(tester, c),
-      paintsExactlyCountTimes(#drawCircle, 2),
-    );
-    await tester.tapAt(const Offset(410, 310));
+    expect(rings(tester).any((r) => r.alpha >= .18), isTrue);
+    final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+    await tester.tapAt(bounds.topLeft + const Offset(35, 40));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
     expect(
-      (Canvas c) => paintRings(tester, c),
-      paintsExactlyCountTimes(#drawCircle, 2),
+      rings(tester).map((r) => r.center).toSet(),
+      containsAll([const Offset(150, 120), const Offset(35, 40)]),
     );
-    expect(
-      (Canvas c) => paintRings(tester, c),
-      paints..everything((method, args) {
-        if (method != #drawCircle) return true;
-        return (args[1] as double) <= 150 && (args[2] as Paint).color.a <= .08;
-      }),
-    );
-    await tester.pump(const Duration(milliseconds: 320));
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(rings(tester), isNotEmpty);
+    expect(tester.binding.transientCallbackCount, greaterThan(0));
+    await tester.pump(const Duration(seconds: 4));
     expect((Canvas c) => paintRings(tester, c), paintsNothing);
     expect(tester.binding.transientCallbackCount, 0);
   });
+
+  testWidgets(
+    'popover and toast primary contacts paint above overlays without consuming actions',
+    (tester) async {
+      timezone.initializeTimeZones();
+      SharedPreferences.setMockInitialValues({});
+      final service = PageUsage();
+      await tester.pumpWidget(
+        LauncherApplication(
+          backend: PageBackend(),
+          usageService: service,
+          networkFactory: () => NetworkController(preview: true),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final theme = find.byKey(const ValueKey('workspace-theme'));
+      await tester.tap(theme);
+      await tester.pumpAndSettle();
+      final choice = find.text('深色');
+      final menuPoint = tester.getCenter(choice);
+      await tester.tap(choice);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      final client = tester.getTopLeft(find.byType(DashboardMotionBackdrop));
+      expect(
+        rings(tester, size: tester.view.physicalSize).map((r) => r.center),
+        contains(menuPoint - client),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.element(theme).theme.colors.brightness, Brightness.dark);
+      var toastTaps = 0;
+      final toast = showRawFToast(
+        context: tester.element(theme),
+        duration: null,
+        swipeToDismiss: const [],
+        builder: (_, _) => GestureDetector(
+          onTap: () => toastTaps++,
+          child: const SizedBox(
+            key: ValueKey('neutral-toast-contact'),
+            width: 120,
+            height: 60,
+            child: ColoredBox(color: Color(0xff808080)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toastPoint = tester.getCenter(
+        find.byKey(const ValueKey('neutral-toast-contact')),
+      );
+      await tester.tapAt(toastPoint);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(toastTaps, 1);
+      expect(
+        rings(tester, size: tester.view.physicalSize).map((r) => r.center),
+        contains(toastPoint - client),
+      );
+      expect(service.calls, 0);
+      toast.dismiss();
+      await tester.pumpAndSettle();
+      expect(tester.binding.transientCallbackCount, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'all four walls reflect at travel time with weaker mirrored crests',
+    (tester) async {
+      await tester.pumpWidget(surface());
+      final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+      await tester.tapAt(bounds.topLeft + const Offset(30, 50));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 125));
+      final early = rings(tester);
+      expect(
+        early.map((r) => r.center),
+        containsAll([
+          const Offset(30, 50),
+          const Offset(-30, 50),
+          const Offset(30, -50),
+        ]),
+      );
+      final direct = early.firstWhere((r) => r.center == const Offset(30, 50));
+      final left = early.firstWhere((r) => r.center == const Offset(-30, 50));
+      final top = early.firstWhere((r) => r.center == const Offset(30, -50));
+      expect(direct.radius, closeTo(60, .01));
+      expect(left.radius, direct.radius);
+      expect(top.radius, direct.radius);
+      expect(left.alpha / direct.alpha, closeTo(.58, .025));
+      expect(top.alpha / direct.alpha, closeTo(.58, .025));
+      expect(early.any((r) => r.center == const Offset(570, 50)), isFalse);
+      await tester.pump(const Duration(milliseconds: 475));
+      final later = rings(tester);
+      expect(later.any((r) => r.center == const Offset(570, 50)), isTrue);
+      expect(later.any((r) => r.center == const Offset(30, 430)), isTrue);
+      final faded = later.firstWhere((r) => r.center == const Offset(-30, 50));
+      expect(faded.alpha, lessThan(left.alpha));
+      expect(faded.radius, closeTo(288, .01));
+      final canvas = TestRecordingCanvas();
+      paintRings(tester, canvas);
+      expect(
+        canvas.invocations.any((c) => c.invocation.memberName == #saveLayer),
+        isFalse,
+      );
+      expect(later.length, lessThanOrEqualTo(82));
+      await tester.pump(const Duration(seconds: 4));
+      expect(rings(tester), isEmpty);
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
+
+  testWidgets('rapid primary contacts keep only four recent event origins', (
+    tester,
+  ) async {
+    await tester.pumpWidget(surface());
+    final bounds = tester.getRect(find.byType(DashboardMotionBackdrop));
+    const points = [
+      Offset(20, 35),
+      Offset(60, 70),
+      Offset(110, 95),
+      Offset(160, 130),
+      Offset(220, 180),
+    ];
+    for (final point in points) {
+      await tester.tapAt(bounds.topLeft + point);
+    }
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final marks = rings(tester);
+    final directCenters = marks
+        .where((r) => bounds.size.contains(r.center))
+        .map((r) => r.center)
+        .toSet();
+    expect(directCenters, points.skip(1).toSet());
+    expect(marks.length, lessThanOrEqualTo(328));
+    await tester.pump(const Duration(seconds: 4));
+    expect(rings(tester), isEmpty);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets(
+    'disabled primary target still shows neutral contact without activation',
+    (tester) async {
+      var taps = 0;
+      await tester.pumpWidget(surface(enabled: false, onPress: () => taps++));
+      await tester.tap(find.byKey(const ValueKey('target')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(taps, 0);
+      expect(rings(tester).any((r) => r.alpha >= .18), isTrue);
+      await tester.pump(const Duration(seconds: 4));
+      expect(tester.binding.transientCallbackCount, 0);
+    },
+  );
 
   for (final suppression in ['app', 'os', 'page']) {
     testWidgets(
@@ -159,10 +343,7 @@ void main() {
         await tester.tapAt(const Offset(400, 300));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 80));
-        expect(
-          (Canvas c) => paintRings(tester, c),
-          paintsExactlyCountTimes(#drawCircle, 2),
-        );
+        expect(rings(tester), isNotEmpty);
         await tester.pumpWidget(
           surface(
             reduced: suppression == 'app',
@@ -272,10 +453,23 @@ void main() {
             addTearDown(tester.view.resetPhysicalSize);
             addTearDown(tester.view.resetDevicePixelRatio);
             final capture = GlobalKey();
-            await tester.pumpWidget(surface(dark: dark, capture: capture));
-            await tester.tap(find.byKey(const ValueKey('target')));
+            await tester.pumpWidget(
+              surface(dark: dark, capture: capture, fullClient: true),
+            );
+            await tester.tapAt(const Offset(24, 90));
+            await tester.pump();
             var previous = 0;
-            for (final elapsed in [0, 80, 160, 280, 420, 600]) {
+            for (final elapsed in [
+              0,
+              80,
+              125,
+              280,
+              600,
+              1400,
+              2400,
+              3900,
+              4100,
+            ]) {
               await tester.pump(Duration(milliseconds: elapsed - previous));
               previous = elapsed;
               await tester.runAsync(() async {
@@ -293,6 +487,7 @@ void main() {
                 image.dispose();
               });
             }
+            expect(tester.binding.transientCallbackCount, 0);
           },
         );
       }
