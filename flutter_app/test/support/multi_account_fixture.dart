@@ -79,12 +79,13 @@ class SyntheticMultiSources extends AccountSourcesService {
           (jobs[id] = (jobs[id] ?? 0) + 1) < 3 ? 'waiting' : 'succeeded',
         );
   @override
-  Future<void> loginCancel(String id, String job) async {
+  Future<SourceLoginStatus> loginCancel(String id, String job) async {
     if (cancelFailures > 0) {
       cancelFailures--;
       throw const SourceFailure('network');
     }
     jobs.remove(id);
+    return const SourceLoginStatus('cancelled');
   }
 
   @override

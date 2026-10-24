@@ -116,14 +116,19 @@ class DesktopMonitor {
       metrics?.selected != null ||
       benchmark?.keepAlive == true;
 
-  Future<void> _exit() => _exitRequest ??= _gracefulExit();
+  Future<void> _exit() =>
+      _exitRequest ??= _gracefulExit().catchError((Object _) {
+        _exitRequest = null;
+        onNotice?.call('退出清理未完成，监控已停止；请再次选择退出以重试。');
+      });
 
   Future<void> _gracefulExit() async {
     usage.pause(persist: false);
-    final sourcesShutdown = usage.sources?.shutdown();
-    await benchmark?.shutdown();
+    await Future.wait([
+      if (usage.sources != null) usage.sources!.shutdown(),
+      if (benchmark != null) benchmark!.shutdown(),
+    ]);
     await benchmark?.saved;
-    await sourcesShutdown;
     await usage.roles.saved;
     await usage.settingsSaved;
     // Query owns its short-lived app-server. Let Rust Drop clean it first.

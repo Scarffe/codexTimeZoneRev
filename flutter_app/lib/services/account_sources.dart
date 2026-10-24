@@ -42,7 +42,7 @@ abstract class AccountSourcesService {
   Future<String> create();
   Future<String> loginStart(String id);
   Future<SourceLoginStatus> loginStatus(String id, String job);
-  Future<void> loginCancel(String id, String job);
+  Future<SourceLoginStatus> loginCancel(String id, String job);
   Future<AccountUsage> query(
     String id, {
     String desktopPath = '',
@@ -119,8 +119,21 @@ class NativeAccountSourcesService extends AccountSourcesService {
   }
 
   @override
-  Future<void> loginCancel(String id, String job) async {
-    await _sourceCall('account_source_login_cancel', id, {'jobId': job});
+  Future<SourceLoginStatus> loginCancel(String id, String job) async {
+    final value = await _sourceCall('account_source_login_cancel', id, {
+      'jobId': job,
+    });
+    final state = value['state'];
+    if (!['succeeded', 'failed', 'timed_out', 'cancelled'].contains(state)) {
+      throw const SourceFailure('unavailable');
+    }
+    final error = value['error'];
+    return SourceLoginStatus(
+      state as String,
+      errorKind: error is Map && error['kind'] is String
+          ? error['kind'] as String
+          : null,
+    );
   }
 
   @override

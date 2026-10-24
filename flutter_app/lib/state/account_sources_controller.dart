@@ -52,6 +52,10 @@ class AccountSourcesController extends ChangeNotifier {
   final _alerts = PetAlerts();
   Future<void> _queue = Future<void>.value(), _saved = Future<void>.value();
   Future<void>? _shutdown;
+  Future<void>? _initialization;
+  bool _ready = false;
+  String? _bootstrapPath;
+  String shutdownState = 'idle';
   String Function() _path = () => '';
   String _currentPath = '';
   bool _disposed = false, _stopped = false, _suspended = false;
@@ -73,9 +77,10 @@ class AccountSourcesController extends ChangeNotifier {
       _loginSource != null ||
       _removeRequests.isNotEmpty;
   bool get canOperate =>
-      !_stopped && !_disposed && (!offlineTrial || service.synthetic);
+      _ready && !_stopped && !_disposed && (!offlineTrial || service.synthetic);
   bool get canMutateCatalog => canOperate && catalogError == null;
   Future<void> get saved => _saved;
+  DateTime get currentTime => _now();
   void _publish() {
     if (!_disposed) notifyListeners();
   }
@@ -90,9 +95,12 @@ class AccountSourcesController extends ChangeNotifier {
       (state.errorKind != null ||
           _now().difference(state.usage!.fetchedAt) > interval * 2);
 
-  Future<void> initialize(String Function() path) async {
+  Future<void> initialize(String Function() path) {
     _path = path;
-    _currentPath = path();
+    return _initialization ??= _restore();
+  }
+
+  Future<void> _restore() async {
     final epoch = _epoch;
     try {
       final value = await store.read();
@@ -148,6 +156,10 @@ class AccountSourcesController extends ChangeNotifier {
       store.protectCorruptCatalog();
       catalogError = '来源目录读取失败，原文件保持不变。';
     }
+    if (_disposed || _stopped || epoch != _epoch) return;
+    _currentPath = _bootstrapPath ?? _path();
+    _bootstrapPath = null;
+    _ready = true;
     _publish();
   }
 
@@ -202,7 +214,7 @@ class AccountSourcesController extends ChangeNotifier {
   }
 
   void _save() {
-    if (_disposed || catalogError != null) return;
+    if (!_ready || _disposed || catalogError != null) return;
     final snapshot = <String, Object?>{
       'selectedId': selectedId,
       'pinnedId': pinnedId,
@@ -450,6 +462,7 @@ class AccountSourcesController extends ChangeNotifier {
       ? false
       : _alerts.isMuted(_alertUsage(selected!)!, _now());
   void muteCurrentCycle() {
+    if (!canMutateCatalog) return;
     final value = selected == null ? null : _alertUsage(selected!);
     if (value == null) return;
     _alerts.mute(value, _now());
@@ -554,6 +567,11 @@ class AccountSourcesController extends ChangeNotifier {
   }
 
   void sourceChanged(String path) {
+    if (!_ready) {
+      _bootstrapPath = path;
+      return;
+    }
+    if (!canMutateCatalog) return;
     if (_currentPath == path) return;
     _currentPath = path;
     final state = _states[currentAccountSource]!;
@@ -692,6 +710,8 @@ class AccountSourcesController extends ChangeNotifier {
 
   Future<void> cancelLogin(String id) => _track(() => _cancelLogin(id));
   Future<void> _cancelLogin(String id) async {
+    final pending = _cancelRequests[id];
+    if (pending != null) return pending;
     final state = _states[id];
     if (!canOperate ||
         state == null ||
@@ -735,18 +755,25 @@ class AccountSourcesController extends ChangeNotifier {
   }
 
   Future<void> _doCancelOwnedJob(AccountSourceState state, String job) async {
+    final generation = state.generation;
     if (!state.pendingRemoval) state.loginState = 'cancelling';
     state.jobId = job;
     _loginSource = state.id;
     _publish();
     _arm();
     try {
-      await service.loginCancel(state.id, job);
+      final status = await service.loginCancel(state.id, job);
       if (identical(_states[state.id], state) && state.jobId == job) {
         state.jobId = null;
         if (_loginSource == state.id) _loginSource = null;
-        if (!state.pendingRemoval) state.loginState = 'cancelled';
-        state.errorKind = null;
+        if (_valid(state, generation)) {
+          state.loginState = status.state;
+          state.errorKind = status.errorKind == null
+              ? null
+              : (_publicErrorKinds.contains(status.errorKind)
+                    ? status.errorKind
+                    : 'unavailable');
+        }
         operationError = null;
       }
     } catch (error) {
@@ -817,25 +844,41 @@ class AccountSourcesController extends ChangeNotifier {
     await saved;
   }
 
-  Future<void> shutdown() => _shutdown ??= _shutdownAll();
+  Future<void> shutdown() =>
+      _shutdown ??= _shutdownAll().catchError((Object error) {
+        _shutdown = null;
+        throw error;
+      });
   Future<void> _shutdownAll() async {
-    _stopped = true;
-    ++_epoch;
+    if (!_stopped) {
+      _stopped = true;
+      ++_epoch;
+      for (final state in _states.values) {
+        state.generation++;
+      }
+    }
+    shutdownState = 'pending';
     monitoring = false;
     _timer?.cancel();
     _loginTimer?.cancel();
-    for (final state in _states.values) {
-      state.generation++;
-    }
     _publish();
     try {
-      if (!offlineTrial || service.synthetic) await service.shutdown();
-    } finally {
-      await _queue;
-      while (_operations.isNotEmpty) {
-        await Future.wait(_operations.toList());
+      try {
+        if (!offlineTrial || service.synthetic) await service.shutdown();
+      } finally {
+        await _initialization;
+        await _queue;
+        while (_operations.isNotEmpty) {
+          await Future.wait(_operations.toList());
+        }
+        await saved;
       }
-      await saved;
+      shutdownState = 'succeeded';
+    } catch (error) {
+      shutdownState = 'failed';
+      throw SourceFailure(_kind(error));
+    } finally {
+      _publish();
     }
   }
 

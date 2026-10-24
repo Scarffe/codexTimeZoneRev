@@ -238,7 +238,6 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   @override
   void initState() {
     super.initState();
-    launcher.addListener(_sourceChanged);
     launcher.initialize().then((_) async {
       if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
@@ -246,6 +245,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       if (!mounted) return;
       await sources?.initialize(() => launcher.effectivePath);
       if (!mounted) return;
+      launcher.addListener(_sourceChanged);
+      _sourceChanged();
       if (mounted &&
           !widget.preview &&
           !widget.offlineTrial &&

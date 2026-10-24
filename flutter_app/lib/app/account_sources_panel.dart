@@ -21,6 +21,7 @@ class AccountSourcesPanel extends StatefulWidget {
 
 class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
   bool expanded = false;
+  Timer? _overviewClock;
   String sort = 'remaining';
   final _loginStates = <String, String>{};
   AccountSourcesController get owner => widget.owner;
@@ -59,8 +60,36 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
 
   @override
   void dispose() {
+    _overviewClock?.cancel();
     owner.removeListener(_observeLogin);
     super.dispose();
+  }
+
+  void _toggleOverview() {
+    setState(() => expanded = !expanded);
+    _overviewClock?.cancel();
+    _overviewClock = expanded
+        ? Timer.periodic(const Duration(minutes: 1), (_) => setState(() {}))
+        : null;
+  }
+
+  Map<String, String> _sourceChoices() {
+    final states = owner.states
+        .where((source) => !source.pendingRemoval)
+        .toList();
+    final aliases = states.map((source) => source.alias).toSet();
+    final choices = <String, String>{};
+    for (final source in states) {
+      var label = source.alias;
+      if (choices.containsKey(label)) {
+        var suffix = 1;
+        do {
+          label = '${source.alias} · ${suffix++}';
+        } while (aliases.contains(label) || choices.containsKey(label));
+      }
+      choices[label] = source.id;
+    }
+    return choices;
   }
 
   Future<void> _login([String? id]) => showMonitorInformation(
@@ -143,7 +172,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
     listenable: owner,
     builder: (context, _) {
       final selected = owner.selected;
-      final canEdit = owner.canOperate && owner.catalogError == null;
+      final canEdit = owner.canMutateCatalog;
       final states = owner.states.toList()
         ..sort((a, b) {
           final av = _sortValue(a), bv = _sortValue(b);
@@ -164,12 +193,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                   key: const ValueKey('account-source-selector'),
                   label: '额度来源',
                   value: owner.selectedId,
-                  items: {
-                    for (var i = 0; i < owner.states.length; i++)
-                      if (!owner.states[i].pendingRemoval)
-                        '${owner.states[i].alias}${owner.states.where((s) => s.alias == owner.states[i].alias).length > 1 ? ' · ${i + 1}' : ''}':
-                            owner.states[i].id,
-                  },
+                  items: _sourceChoices(),
                   onChanged: owner.select,
                 ),
               ),
@@ -182,7 +206,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                   expanded ? FLucideIcons.chevronDown : FLucideIcons.layoutGrid,
                   size: 16,
                 ),
-                onPress: () => setState(() => expanded = !expanded),
+                onPress: _toggleOverview,
                 child: Text('总览 (${owner.states.length})'),
               ),
               FButton(
@@ -298,6 +322,9 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
           if (owner.catalogError != null)
             const Text('来源目录不可用，原文件已保留；添加与登录已停用。'),
           if (owner.operationError != null) const Text('来源操作未完成，请检查环境后重试。'),
+          if (owner.shutdownState == 'pending') const Text('正在等待退出清理确认…'),
+          if (owner.shutdownState == 'failed')
+            const Text('退出清理未完成，监控已停止；请再次选择退出以重试。'),
           if (expanded) ...[
             const SizedBox(height: 6),
             Wrap(
@@ -373,7 +400,7 @@ class _SourceCard extends StatelessWidget {
   final VoidCallback onDetails;
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = owner.currentTime;
     final windows =
         source.usage?.buckets.expand((b) => b.windows).toList() ??
         const <UsageWindow>[];

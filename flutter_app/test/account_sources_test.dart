@@ -59,9 +59,10 @@ class SyntheticSources extends AccountSourcesService {
       ? const SourceLoginStatus('succeeded')
       : statusPending!.future;
   @override
-  Future<void> loginCancel(String id, String job) async {
+  Future<SourceLoginStatus> loginCancel(String id, String job) async {
     calls.add('cancel:$id');
     if (cancelError != null) throw SourceFailure(cancelError!);
+    return const SourceLoginStatus('cancelled');
   }
 
   @override
@@ -152,6 +153,7 @@ void main() {
         AccountSourceStore.memory(),
         now: () => now,
       );
+      await scheduled.initialize(() => 'fixture-cli');
       final id = (await scheduled.create('Work'))!;
       scheduled.start(() => 'fixture-cli');
       await tester.pump(const Duration(milliseconds: 1));
@@ -767,6 +769,7 @@ void main() {
         AccountSourceStore.memory(),
         now: () => now,
       );
+      await scheduled.initialize(() => 'fixture-cli');
       final id = (await scheduled.create('Work'))!;
       scheduled.start(() => 'fixture-cli');
       await tester.pump(const Duration(milliseconds: 1));
