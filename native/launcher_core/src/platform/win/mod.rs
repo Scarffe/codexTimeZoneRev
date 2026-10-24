@@ -75,6 +75,22 @@ pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
     };
     crate::account_usage::query(desktop.as_deref(), payload["details"].as_bool().unwrap_or(true))
 }
+pub(crate) fn account_usage_typed(
+    payload: Value,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<Value, crate::account_usage::RpcError> {
+    use crate::account_usage::RpcError;
+    let _runtime = Runtime::new().map_err(|_| RpcError::Failed)?;
+    let selected = payload["desktopPath"].as_str().unwrap_or_default();
+    let desktop = if selected.is_empty() {
+        target::discover().map(|t| t.executable)
+    } else {
+        Some(target::for_usage(selected).map_err(|_| RpcError::Failed)?.executable)
+    };
+    crate::account_usage::query_typed(
+        desktop.as_deref(), payload["details"].as_bool().unwrap_or(false), cancel,
+    )
+}
 fn same_path(a: &Path, b: &Path) -> bool {
     let normalize = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().trim_start_matches(r"\\?\").to_lowercase();
     normalize(a) == normalize(b)

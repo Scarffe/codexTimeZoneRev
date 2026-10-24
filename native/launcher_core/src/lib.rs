@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::sync::Mutex;
 
+mod account_sources;
 mod account_usage;
 mod benchmark;
 #[path = "platform/common.rs"]
@@ -46,6 +47,9 @@ fn dispatch(request: &str) -> Result<Value, String> {
     // Benchmark jobs own a separate runtime; never wait on REQUEST_LOCK.
     if request.command.starts_with("benchmark_") {
         return benchmark::execute(&request.command, request.payload);
+    }
+    if request.command.starts_with("account_source_") {
+        return account_sources::execute(&request.command, request.payload);
     }
     // Account reads can wait on the network. Never hold the settings/launch lock.
     if request.command == "account_usage" {
@@ -138,6 +142,24 @@ pub unsafe extern "C" fn launcher_free(pointer: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_source_guard_bypasses_settings_lock_without_auth_mutation() {
+        let guard = REQUEST_LOCK.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let request = json!({"version":1,"command":"account_source_remove","payload":{"sourceId":"current"}});
+            tx.send(dispatch(&request.to_string())).unwrap();
+        });
+        let result = rx.recv_timeout(std::time::Duration::from_millis(500));
+        drop(guard);
+        worker.join().unwrap();
+        let data = result
+            .expect("source command blocked behind settings lock")
+            .unwrap();
+        assert_eq!(data["ok"], false);
+        assert_eq!(data["error"]["kind"], "protected_source");
+    }
 
     #[test]
     fn benchmark_fast_path_and_stalled_body_leave_settings_lock_available() {

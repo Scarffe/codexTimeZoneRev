@@ -85,6 +85,17 @@ pub(crate) fn account_usage(payload: Value) -> Result<Value, String> {
     let desktop = validate(&path).ok().map(|(bundle, _)| bundle);
     crate::account_usage::query(desktop.as_deref(), payload["details"].as_bool().unwrap_or(true))
 }
+pub(crate) fn account_usage_typed(
+    payload: Value,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<Value, crate::account_usage::RpcError> {
+    let selected = payload["desktopPath"].as_str().unwrap_or_default();
+    let path = if selected.is_empty() { discover() } else { selected.to_owned() };
+    let desktop = validate(&path).map_err(|_| crate::account_usage::RpcError::Failed)?.0;
+    crate::account_usage::query_typed(
+        Some(&desktop), payload["details"].as_bool().unwrap_or(false), cancel,
+    )
+}
 fn is_running(executable: &Path) -> Result<bool, String> {
     let output = Command::new("/bin/ps")
         .args(["-axo", "comm="])
