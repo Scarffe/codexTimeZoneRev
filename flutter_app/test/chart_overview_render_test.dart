@@ -46,9 +46,11 @@ void main() {
       isTrue,
       reason: 'Chinese evidence requires Microsoft YaHei',
     );
-    await (FontLoader(
-      'Microsoft YaHei',
-    )..addFont(cjk.readAsBytes().then(ByteData.sublistView))).load();
+    for (final family in ['Microsoft YaHei UI', 'Microsoft YaHei']) {
+      await (FontLoader(
+        family,
+      )..addFont(cjk.readAsBytes().then(ByteData.sublistView))).load();
+    }
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 

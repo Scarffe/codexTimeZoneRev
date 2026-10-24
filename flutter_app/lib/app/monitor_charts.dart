@@ -46,7 +46,7 @@ TextStyle _labelStyle(BuildContext context) =>
 class _ChartPalette {
   const _ChartPalette(this.blue, this.purple, this.teal, this.amber);
   factory _ChartPalette.of(BuildContext context) => _ChartPalette(
-    DashboardPalette.of(context).accent,
+    DashboardPalette.of(context).dataBlue,
     DashboardPalette.of(context).reasoning,
     DashboardPalette.of(context).tool,
     DashboardPalette.of(context).muted,
@@ -685,6 +685,340 @@ class _HorizontalTicks extends StatelessWidget {
       );
     },
   );
+}
+
+// Duplicate labels are not stable identity. Preserve an occurrence discriminator
+// for legacy callers while new projections supply explicit record identities.
+Object _compositionRowIdentity(List<ChartBar> bars, int index) {
+  Object base(ChartBar bar) => bar.identity ?? (bar.label, bar.detail);
+  return (
+    base(bars[index]),
+    bars.take(index).where((bar) => base(bar) == base(bars[index])).length,
+  );
+}
+
+String _compositionRecord(ChartBar bar, double? value, String unit) =>
+    '${bar.label}：${bar.cancelled
+        ? '取消'
+        : value == null
+        ? '未知'
+        : '${inspectionNumber(value)} $unit'}'
+    '${bar.detail == null ? '' : '\n${bar.detail}'}';
+
+String _compositionValue(double? value, String unit) => value == null
+    ? '未知'
+    : value > 0 && value < .01
+    ? '<0.01 $unit'
+    : '${value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toStringAsFixed(2)} $unit';
+
+/// Independent percentage windows, each with its own fixed 0..100 denominator.
+/// Missing observations are visibly unknown, never an empty known-zero ring.
+class MonitorRingChart extends StatelessWidget {
+  const MonitorRingChart({
+    super.key,
+    required this.bars,
+    this.inspectionIdentity,
+    this.hoverDetails = true,
+  });
+  final List<ChartBar> bars;
+  final Object? inspectionIdentity;
+  final bool hoverDetails;
+
+  double? _percent(ChartBar bar) {
+    final value = _known(bar.value);
+    return bar.cancelled || value == null || value > 100 ? null : value;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (bars.isEmpty) return const Text('暂无可绘制数据');
+    final palette = DashboardPalette.of(context);
+    final records = [
+      for (final bar in bars) _compositionRecord(bar, _percent(bar), '%'),
+    ];
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: '独立额度环图，${bars.length} 项，每项分母 100%，未知不计为零。',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = math.max(1, (constraints.maxWidth / 240).floor());
+              final width =
+                  (constraints.maxWidth - (columns - 1) * 12) / columns;
+              return Wrap(
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  for (var i = 0; i < bars.length; i++)
+                    SizedBox(
+                      key: ValueKey(_compositionRowIdentity(bars, i)),
+                      width: width,
+                      child: Semantics(
+                        label: records[i],
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: _HoverMark(
+                                identity: (
+                                  inspectionIdentity,
+                                  _compositionRowIdentity(bars, i),
+                                  _percent(bars[i]),
+                                  records[i],
+                                ),
+                                record: records[i],
+                                showDetails: hoverDetails,
+                                motion: (_percent(bars[i]) ?? 0) > 0
+                                    ? _MarkMotion.point
+                                    : null,
+                                maxPointScale: 1.04,
+                                color: palette.dataBlue,
+                                viewport: const Rect.fromLTWH(-8, -8, 104, 104),
+                                child: CustomPaint(
+                                  key: ValueKey(
+                                    'monitor-ring-$i${_percent(bars[i]) == null ? '-unknown' : ''}',
+                                  ),
+                                  painter: _QuotaRingPainter(
+                                    percent: _percent(bars[i]),
+                                    color: palette.dataBlue,
+                                    track: palette.border,
+                                  ),
+                                  child: SizedBox(
+                                    width: 88,
+                                    height: 88,
+                                    child: Center(
+                                      child: Text(
+                                        bars[i].cancelled
+                                            ? '×'
+                                            : _compositionValue(
+                                                _percent(bars[i]),
+                                                '%',
+                                              ),
+                                        style: _labelStyle(
+                                          context,
+                                        ).copyWith(fontWeight: FontWeight.w600),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    bars[i].label,
+                                    style: _labelStyle(context)
+                                        .copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                  if (bars[i].detail != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      bars[i].detail!,
+                                      style: _labelStyle(context)
+                                          .copyWith(color: palette.muted),
+                                    ),
+                                  ],
+                                  if (bars[i].cancelled)
+                                    Text('取消', style: _labelStyle(context)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          _InspectValues(records: records, identity: inspectionIdentity),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuotaRingPainter extends CustomPainter {
+  const _QuotaRingPainter({
+    required this.percent,
+    required this.color,
+    required this.track,
+  });
+  final double? percent;
+  final Color color, track;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = (Offset.zero & size).deflate(5);
+    final brush = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 7
+      ..color = track;
+    if (percent == null) {
+      for (var i = 0; i < 16; i++) {
+        canvas.drawArc(
+          rect,
+          -math.pi / 2 + i * math.pi / 8,
+          math.pi / 13,
+          false,
+          brush,
+        );
+      }
+      return;
+    }
+    canvas.drawOval(rect, brush);
+    if (percent! > 0) {
+      canvas.drawArc(
+        rect,
+        -math.pi / 2,
+        math.pi * 2 * percent! / 100,
+        false,
+        brush..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_QuotaRingPainter oldDelegate) =>
+      percent != oldDelegate.percent ||
+      color != oldDelegate.color ||
+      track != oldDelegate.track;
+}
+
+/// One aggregate mark per named category, not a distribution of individuals.
+class MonitorCategoryDotChart extends StatelessWidget {
+  const MonitorCategoryDotChart({
+    super.key,
+    required this.bars,
+    required this.unit,
+    this.integers = false,
+    this.inspectionIdentity,
+    this.hoverDetails = true,
+  });
+  final List<ChartBar> bars;
+  final String unit;
+  final bool integers;
+  final Object? inspectionIdentity;
+  final bool hoverDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    if (bars.isEmpty) return const Text('暂无可绘制数据');
+    double? value(ChartBar bar) => bar.cancelled ? null : _known(bar.value);
+    final scale = _Scale(
+      bars.fold<double>(0, (max, bar) => math.max(max, value(bar) ?? 0)),
+      integers: integers,
+    );
+    final records = [
+      for (final bar in bars) _compositionRecord(bar, value(bar), unit),
+    ];
+    final palette = DashboardPalette.of(context);
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: '分类点图，${bars.length} 个汇总组，每组一个点，单位 $unit，未知保留缺口。',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('分类汇总 · $unit', style: _labelStyle(context)),
+          const SizedBox(height: 8),
+          for (var i = 0; i < bars.length; i++)
+            Padding(
+              key: ValueKey(_compositionRowIdentity(bars, i)),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Semantics(
+                label: records[i],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      bars[i].label,
+                      style: _labelStyle(context),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      bars[i].cancelled
+                          ? '取消 ×'
+                          : _compositionValue(value(bars[i]), unit),
+                      style: _labelStyle(context)
+                          .copyWith(color: palette.muted),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: SizedBox(
+                        height: 22,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => CustomPaint(
+                            painter: _Grid(
+                              color: palette.grid,
+                              divisions: scale.ticks.length - 1,
+                            ),
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                if (value(bars[i]) != null)
+                                  Positioned(
+                                    left:
+                                        constraints.maxWidth *
+                                            value(bars[i])! /
+                                            scale.max -
+                                        5,
+                                    top: 6,
+                                    child: _HoverMark(
+                                      identity: (
+                                        inspectionIdentity,
+                                        unit,
+                                        _compositionRowIdentity(bars, i),
+                                        records[i],
+                                      ),
+                                      record: records[i],
+                                      showDetails: hoverDetails,
+                                      motion: _MarkMotion.point,
+                                      color: palette.dataBlue,
+                                      viewport: const Rect.fromLTWH(
+                                        -6,
+                                        -6,
+                                        22,
+                                        22,
+                                      ),
+                                      child: Container(
+                                        key: ValueKey('monitor-dot-$i'),
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: palette.dataBlue,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: _HorizontalTicks(scale: scale),
+          ),
+          _InspectValues(records: records, identity: inspectionIdentity),
+        ],
+      ),
+    );
+  }
 }
 
 class MonitorBarChart extends StatelessWidget {

@@ -235,30 +235,18 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         else if (windows.isEmpty)
           Text('额度信息暂不可用', style: muted)
         else
-          MonitorBarChart(
+          AccountQuotaPresentation(
             key: const ValueKey('account-quota-chart'),
             inspectionIdentity: (
               controller.sources?.selectedId,
               controller.sources?.selected?.generation,
               data.identity,
-              bucket?.id,
-              _view,
             ),
-            bars: [
-              for (final window in windows)
-                ChartBar(
-                  identity: (window.durationMinutes, window.label),
-                  label: window.label,
-                  value: _chartValue(window, now),
-                  detail:
-                      '${_resetTime(window, settings, controller.useLocalTime)} · ${_resetState(window, now)}',
-                ),
-            ],
-            horizontal: true,
-            compactMeters: true,
-            hoverDetails: false,
-            unit: _view == 'reset' ? '小时' : '%',
-            maxValue: _view == 'reset' ? null : 100,
+            bucket: bucket!,
+            settings: settings,
+            useLocalTime: controller.useLocalTime,
+            now: now,
+            view: _view,
           ),
         if (data == null && !controller.busy)
           Text(
@@ -293,23 +281,74 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
     );
   }
 
-  double? _chartValue(UsageWindow window, DateTime now) {
-    if (_view == 'reset') {
-      final reset = window.resetsAt;
-      if (reset == null || !reset.isAfter(now)) return null;
-      return reset.difference(now).inMilliseconds /
-          Duration.millisecondsPerHour;
-    }
-    final used = window.usedPercent;
-    if (used == null) return null;
-    return _view == 'used' ? used : 100 - used;
-  }
-
   @override
   void dispose() {
     _clock?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+}
+
+/// Pure quota chart assembly for analysis and other display-only workspaces.
+/// Reads, refresh actions, choices, source state and countdown ticks are owned
+/// by the caller. The default account panel retains those responsibilities.
+class AccountQuotaPresentation extends StatelessWidget {
+  const AccountQuotaPresentation({
+    super.key,
+    required this.bucket,
+    required this.settings,
+    required this.useLocalTime,
+    required this.now,
+    this.view = 'remaining',
+    this.inspectionIdentity,
+  });
+  final UsageBucket bucket;
+  final LauncherSettings settings;
+  final bool useLocalTime;
+  final DateTime now;
+  final String view;
+  final Object? inspectionIdentity;
+
+  double? _value(UsageWindow window) {
+    if (view == 'reset') {
+      final reset = window.resetsAt;
+      return reset == null || !reset.isAfter(now)
+          ? null
+          : reset.difference(now).inMilliseconds / Duration.millisecondsPerHour;
+    }
+    final used = window.usedPercent;
+    if (used == null || !used.isFinite || used < 0 || used > 100) return null;
+    return view == 'used' ? used : 100 - used;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (bucket.windows.isEmpty) return const Text('额度信息暂不可用');
+    final identity = (inspectionIdentity, bucket.id, view);
+    final bars = [
+      for (final window in bucket.windows)
+        ChartBar(
+          identity: (window.durationMinutes, window.label),
+          label: window.label,
+          value: _value(window),
+          detail:
+              '${_resetTime(window, settings, useLocalTime)} · ${_resetState(window, now)}',
+        ),
+    ];
+    return view == 'reset'
+        ? MonitorBarChart(
+            inspectionIdentity: identity,
+            bars: bars,
+            horizontal: true,
+            compactMeters: true,
+            hoverDetails: false,
+            unit: '小时',
+          )
+        : MonitorRingChart(
+            inspectionIdentity: identity,
+            bars: bars,
+            hoverDetails: false,
+          );
   }
 }
 

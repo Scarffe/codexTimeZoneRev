@@ -15,10 +15,10 @@ FThemeData launcherTheme(bool dark, {bool acrylic = false}) {
   final colors = base.copyWith(
     background: palette.background,
     foreground: palette.foreground,
-    primary: palette.accent,
+    primary: palette.dataBlue,
     primaryForeground: dark ? palette.background : palette.panel,
     secondary: palette.selected,
-    secondaryForeground: palette.accent,
+    secondaryForeground: dark ? palette.foreground : palette.dataBlue,
     muted: palette.soft,
     mutedForeground: palette.muted,
     card: palette.panel,

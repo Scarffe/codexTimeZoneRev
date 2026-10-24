@@ -401,9 +401,7 @@ class _SourceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final now = owner.currentTime;
-    final windows =
-        source.usage?.buckets.expand((b) => b.windows).toList() ??
-        const <UsageWindow>[];
+    final buckets = source.usage?.buckets ?? const <UsageBucket>[];
     final age = source.usage == null
         ? null
         : math.max(0, now.difference(source.usage!.fetchedAt).inMinutes);
@@ -467,40 +465,48 @@ class _SourceCard extends StatelessWidget {
               ),
             const SizedBox(height: 6),
             const Text('剩余额度'),
-            MonitorBarChart(
+            MonitorRingChart(
               inspectionIdentity: (source.id, source.generation, 'remaining'),
               bars: [
-                for (final w in windows)
-                  ChartBar(
-                    label: w.label,
-                    value: w.usedPercent == null ? null : 100 - w.usedPercent!,
-                    identity: (w.durationMinutes, w.label),
-                  ),
+                for (final bucket in buckets)
+                  for (final w in bucket.windows)
+                    ChartBar(
+                      label: buckets.length > 1
+                          ? '${bucket.label} · ${w.label}'
+                          : w.label,
+                      value:
+                          w.usedPercent == null ||
+                              !w.usedPercent!.isFinite ||
+                              w.usedPercent! < 0 ||
+                              w.usedPercent! > 100
+                          ? null
+                          : 100 - w.usedPercent!,
+                      identity: (bucket.id, w.durationMinutes, w.label),
+                    ),
               ],
-              horizontal: true,
-              compactMeters: true,
               hoverDetails: false,
-              unit: '%',
-              maxValue: 100,
             ),
             const SizedBox(height: 8),
             const Text('距重置 · 小时'),
             MonitorBarChart(
               inspectionIdentity: (source.id, source.generation, 'reset'),
               bars: [
-                for (final w in windows)
-                  ChartBar(
-                    label: w.label,
-                    value: w.resetsAt == null || !w.resetsAt!.isAfter(now)
-                        ? null
-                        : w.resetsAt!.difference(now).inMinutes / 60,
-                    detail: w.resetsAt == null
-                        ? '重置时间未知'
-                        : !w.resetsAt!.isAfter(now)
-                        ? '到期 · 待查询'
-                        : '本地重置时间：${w.resetsAt!.toLocal()}',
-                    identity: (w.durationMinutes, w.label),
-                  ),
+                for (final bucket in buckets)
+                  for (final w in bucket.windows)
+                    ChartBar(
+                      label: buckets.length > 1
+                          ? '${bucket.label} · ${w.label}'
+                          : w.label,
+                      value: w.resetsAt == null || !w.resetsAt!.isAfter(now)
+                          ? null
+                          : w.resetsAt!.difference(now).inMinutes / 60,
+                      detail: w.resetsAt == null
+                          ? '重置时间未知'
+                          : !w.resetsAt!.isAfter(now)
+                          ? '到期 · 待查询'
+                          : '本地重置时间：${w.resetsAt!.toLocal()}',
+                      identity: (bucket.id, w.durationMinutes, w.label),
+                    ),
               ],
               horizontal: true,
               compactMeters: true,

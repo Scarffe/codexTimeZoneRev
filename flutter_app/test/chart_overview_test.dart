@@ -184,6 +184,14 @@ MonitorBarChart graph(WidgetTester tester, String key) =>
           .first,
     );
 
+MonitorCategoryDotChart configurationGraph(WidgetTester tester) =>
+    tester.widget<MonitorCategoryDotChart>(
+      find.descendant(
+        of: find.byKey(const ValueKey('session-configuration-chart')),
+        matching: find.byType(MonitorCategoryDotChart),
+      ),
+    );
+
 Future<void> chooseOverview(
   WidgetTester tester,
   String key,
@@ -196,6 +204,55 @@ Future<void> chooseOverview(
 }
 
 void main() {
+  testWidgets(
+    'configuration uses aggregate category dots without sample clouds',
+    (tester) async {
+      await tester.pumpWidget(
+        overviewApplication(OverviewBackend(), PageUsage()),
+      );
+      await tester.pumpAndSettle();
+      await populateOverview(tester);
+      final configuration = find.byKey(
+        const ValueKey('session-configuration-chart'),
+      );
+      expect(
+        find.descendant(
+          of: configuration,
+          matching: find.byKey(const ValueKey('monitor-dot-0')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: configuration,
+          matching: find.byKey(const ValueKey('monitor-dot-1')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: configuration,
+          matching: find.byKey(const ValueKey('monitor-dot-2')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: configuration,
+          matching: find.byKey(const ValueKey('monitor-dot-3')),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: configuration,
+          matching: find.byType(MonitorBarChart),
+        ),
+        findsNothing,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -245,7 +302,7 @@ void main() {
       expect(find.textContaining('最近完成'), findsWidgets);
       expect(find.textContaining('已取消'), findsWidgets);
       expect(graph(tester, 'session-recent-chart').bars.length, 16);
-      expect(graph(tester, 'session-configuration-chart').bars.length, 3);
+      expect(configurationGraph(tester).bars.length, 3);
       final responses = graph(tester, 'session-response-chart');
       expect(responses.stacked, isTrue);
       expect(
@@ -296,11 +353,12 @@ void main() {
         [6, 2],
       );
       await chooseOverview(tester, 'session-configuration-metric', 'output');
-      expect(graph(tester, 'session-configuration-chart').unit, 'tokens');
-      expect(
-        graph(tester, 'session-configuration-chart').bars.map((b) => b.value),
-        [100, 200, 300],
-      );
+      expect(configurationGraph(tester).unit, 'tokens');
+      expect(configurationGraph(tester).bars.map((b) => b.value), [
+        100,
+        200,
+        300,
+      ]);
       await chooseOverview(tester, 'session-activity-view', 'duration');
       expect(graph(tester, 'session-activity-chart').bars.map((b) => b.value), [
         3,

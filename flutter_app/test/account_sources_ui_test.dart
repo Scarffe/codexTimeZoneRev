@@ -130,14 +130,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       final first = tester
-          .widget<MonitorBarChart>(
+          .widget<AccountQuotaPresentation>(
             find.byKey(const ValueKey('account-quota-chart')),
           )
           .inspectionIdentity;
       f.owner.select('profile-stale');
       await tester.pumpAndSettle();
       final next = tester
-          .widget<MonitorBarChart>(
+          .widget<AccountQuotaPresentation>(
             find.byKey(const ValueKey('account-quota-chart')),
           )
           .inspectionIdentity;

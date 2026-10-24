@@ -186,7 +186,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
       footnotes: const ['已核验分组 · 会话 / 模型 / 推理强度 / 服务层级'],
       child: rows.isEmpty
           ? _empty()
-          : MonitorBarChart(
+          : MonitorCategoryDotChart(
               inspectionIdentity: (
                 widget.sessionIdentity,
                 'configuration',
@@ -203,11 +203,10 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                       'count' => row.turnCount.toDouble(),
                       _ => row.tokensPerSecond,
                     },
-                    detail: row.label,
+                    detail: '${row.label} · ${row.turnCount} 回合 · 分组汇总',
                   ),
               ],
               unit: unit,
-              horizontal: true,
               integers:
                   configurationMetric == 'count' ||
                   configurationMetric == 'output',

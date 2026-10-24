@@ -99,9 +99,26 @@ Widget _app(
   ),
 );
 
-MonitorBarChart _chart(WidgetTester tester) => tester.widget<MonitorBarChart>(
-  find.byKey(const ValueKey('account-quota-chart')),
-);
+({List<ChartBar> bars, String unit, double? maxValue}) _chart(
+  WidgetTester tester,
+) {
+  final owner = find.byKey(const ValueKey('account-quota-chart'));
+  final rings = find.descendant(
+    of: owner,
+    matching: find.byType(MonitorRingChart),
+  );
+  if (rings.evaluate().isNotEmpty) {
+    return (
+      bars: tester.widget<MonitorRingChart>(rings).bars,
+      unit: '%',
+      maxValue: 100,
+    );
+  }
+  final chart = tester.widget<MonitorBarChart>(
+    find.descendant(of: owner, matching: find.byType(MonitorBarChart)),
+  );
+  return (bars: chart.bars, unit: chart.unit, maxValue: chart.maxValue);
+}
 
 Future<void> _choose(WidgetTester tester, String key, String value) async {
   tester.widget<MonitorChoice>(find.byKey(ValueKey(key))).onChanged(value);
@@ -123,6 +140,29 @@ void main() {
     controller.dispose();
     launcher.dispose();
   });
+
+  testWidgets(
+    'quota percentage windows use independent rings and unknown gaps',
+    (tester) async {
+      await controller.query('desktop');
+      await tester.pumpWidget(_app(controller, launcher));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('monitor-ring-0')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('monitor-ring-1-unknown')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('monitor-ring-1')), findsNothing);
+      expect(find.text('75 %'), findsOneWidget);
+      await _choose(tester, 'account-quota-view', 'used');
+      expect(find.text('25 %'), findsOneWidget);
+      await _choose(tester, 'account-quota-view', 'reset');
+      expect(find.byKey(const ValueKey('monitor-ring-0')), findsNothing);
+      expect(find.byType(MonitorBarChart), findsOneWidget);
+      expect(service.calls, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'cached account information preserves identity plan tokens and dates without a read',
@@ -162,31 +202,17 @@ void main() {
       await controller.query('desktop');
       await tester.pumpWidget(_app(controller, launcher));
       await tester.pumpAndSettle();
-      expect(_chart(tester).horizontal, isTrue);
+      expect(find.byType(MonitorRingChart), findsOneWidget);
       expect(_chart(tester).unit, '%');
       expect(_chart(tester).maxValue, 100);
       expect(_chart(tester).bars.map((b) => b.label), ['5 小时额度', '45 分钟额度']);
       expect(_chart(tester).bars.map((b) => b.value), [75, null]);
-      // Each independent meter owns its full 0..100 domain; a shared axis
-      // across the side-by-side meters would misstate the first percentage.
-      final meter = tester.getRect(
-        find.byKey(const ValueKey('monitor-bar-0-primary')),
+      // Each window owns its ring, including a visibly distinct unknown track.
+      expect(find.byKey(const ValueKey('monitor-ring-0')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('monitor-ring-1-unknown')),
+        findsOneWidget,
       );
-      final axes = find.descendant(
-        of: find.byKey(const ValueKey('account-quota-chart')),
-        matching: find.byKey(const ValueKey('monitor-axis-tick-4')),
-      );
-      expect(axes, findsNWidgets(2));
-      final end = tester.getRect(axes.first);
-      final start = tester.getRect(
-        find
-            .descendant(
-              of: find.byKey(const ValueKey('account-quota-chart')),
-              matching: find.byKey(const ValueKey('monitor-axis-tick-0')),
-            )
-            .first,
-      );
-      expect(meter.width, closeTo((end.right - start.left) * .75, .1));
       await _choose(tester, 'account-quota-view', 'used');
       expect(_chart(tester).bars.map((b) => b.value), [25, null]);
       expect(_chart(tester).maxValue, 100);

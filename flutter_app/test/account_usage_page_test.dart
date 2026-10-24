@@ -65,20 +65,35 @@ class LiveUsage implements AccountUsageService {
   }
 }
 
-MonitorBarChart quotaChart(WidgetTester tester) => tester
-    .widget<MonitorBarChart>(find.byKey(const ValueKey('account-quota-chart')));
+MonitorRingChart quotaChart(WidgetTester tester) =>
+    tester.widget<MonitorRingChart>(
+      find.descendant(
+        of: find.byKey(const ValueKey('account-quota-chart')),
+        matching: find.byType(MonitorRingChart),
+      ),
+    );
 
 void expectQuotaBucket(WidgetTester tester, UsageBucket bucket) {
   final chart = quotaChart(tester);
-  expect(chart.horizontal, isTrue);
-  expect(chart.unit, '%');
-  expect(chart.maxValue, 100);
+  expect(chart.hoverDetails, isFalse);
   final figure = find.byKey(const ValueKey('account-quota-chart'));
   expect(
     find.descendant(of: figure, matching: find.textContaining('%')),
     findsWidgets,
   );
-  expect(find.descendant(of: figure, matching: find.text('100')), findsWidgets);
+  for (var i = 0; i < bucket.windows.length; i++) {
+    expect(
+      find.descendant(
+        of: figure,
+        matching: find.byKey(
+          ValueKey(
+            'monitor-ring-$i${bucket.windows[i].usedPercent == null ? '-unknown' : ''}',
+          ),
+        ),
+      ),
+      findsOneWidget,
+    );
+  }
   expect(
     chart.bars.map((bar) => bar.label),
     bucket.windows.map((window) => window.label),
