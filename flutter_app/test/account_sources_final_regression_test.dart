@@ -7,6 +7,7 @@ import 'package:codex_timezone/app/application.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/services/account_source_store.dart';
 import 'package:codex_timezone/services/account_sources.dart';
+import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/backend.dart';
 import 'package:codex_timezone/services/desktop_monitor.dart';
 import 'package:codex_timezone/state/account_sources_controller.dart';
@@ -66,6 +67,22 @@ class _RetryShutdown extends SyntheticMultiSources {
   }
 }
 
+class _PathUsage extends SyntheticMultiSources {
+  final paths = <String>[];
+  @override
+  Future<AccountUsage> query(
+    String id, {
+    String desktopPath = '',
+    bool details = false,
+  }) async {
+    paths.add(desktopPath);
+    return sample(
+      DateTime.utc(2026, 10, 24).add(Duration(minutes: paths.length)),
+      paths.length * 10,
+    );
+  }
+}
+
 class _SaveGate extends AccountSourceStore {
   _SaveGate() : super.memory();
   Completer<void>? gate;
@@ -112,6 +129,45 @@ class _LoginEnvelope implements LauncherBackend {
 void main() {
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('locked corrupt catalog still accepts consecutive current queries after path change', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'source-final-locked-path-',
+    );
+    final file = File('${temp.path}/account-sources-v1.json');
+    final original = utf8.encode('{original corrupt catalog\n');
+    await file.writeAsBytes(original, flush: true);
+    final store = AccountSourceStore(file);
+    final service = _PathUsage();
+    final owner = AccountSourcesController(service, store);
+    var path = 'old-synthetic-cli';
+    addTearDown(() async {
+      owner.dispose();
+      await temp.delete(recursive: true);
+    });
+    await owner.initialize(() => path);
+    expect(owner.catalogError, isNotNull);
+    expect(owner.selected!.usage, isNull);
+    final generation = owner.selected!.generation;
+    path = 'new-synthetic-cli';
+    owner.sourceChanged(path);
+    await owner.refresh('current');
+    expect(
+      owner.selected!.usage?.buckets.single.windows.single.usedPercent,
+      10,
+    );
+    await owner.refresh('current');
+    expect(
+      owner.selected!.usage?.buckets.single.windows.single.usedPercent,
+      20,
+    );
+    expect(owner.selected!.generation, generation + 1);
+    expect(service.paths, ['new-synthetic-cli', 'new-synthetic-cli']);
+    expect(owner.canMutateCatalog, isFalse);
+    await owner.saved;
+    expect(await file.readAsBytes(), original);
+    await expectLater(store.write({'sources': []}), throwsStateError);
+  });
 
   test('fresh owner refuses catalog mutations until restoration and retains bootstrap path', () async {
     final service = SyntheticMultiSources();

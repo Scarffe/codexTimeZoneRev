@@ -571,7 +571,9 @@ class AccountSourcesController extends ChangeNotifier {
       _bootstrapPath = path;
       return;
     }
-    if (!canMutateCatalog) return;
+    // A locked catalog still permits queries and safe in-memory invalidation.
+    // _save keeps the original file protected until catalog recovery.
+    if (!canOperate) return;
     if (_currentPath == path) return;
     _currentPath = path;
     final state = _states[currentAccountSource]!;
