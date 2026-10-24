@@ -4,6 +4,18 @@ use std::{
     path::Path,
     time::Duration,
 };
+fn json_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"), '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"), '\r' => out.push_str("\\r"), '\t' => out.push_str("\\t"),
+            c if c < ' ' => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"'); out
+}
 fn main() {
     let mode = std::env::current_exe()
         .unwrap()
@@ -88,8 +100,19 @@ fn main() {
             continue;
         };
         let id: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if mode.starts_with("home_") && (line.contains("\"method\":\"config/read\"") || line.contains("\"method\":\"account/")) {
+            std::fs::write(Path::new(&home).parent().unwrap().join(".home-gate-bypassed"), "synthetic").unwrap();
+        }
         let result = if line.contains("\"method\":\"initialize\"") {
-            "{}"
+            if mode == "home_missing" {
+                println!(r#"{{"id":{id},"result":{{}}}}"#);
+            } else if mode == "home_nonstring" {
+                println!(r#"{{"id":{id},"result":{{"codexHome":true}}}}"#);
+            } else {
+                let reported = if mode == "home_mismatch" { Path::new(&home).parent().unwrap().to_path_buf() } else { Path::new(&home).join(".") };
+                println!(r#"{{"id":{id},"result":{{"codexHome":{}}}}}"#, json_string(&reported.to_string_lossy()));
+            }
+            continue;
         } else if line.contains("\"method\":\"config/read\"") {
             assert!(line.contains("\"includeLayers\":false"));
             if mode == "store_unsupported" {

@@ -959,6 +959,10 @@ mod tests {
                 "store_missing",
                 "store_unsupported",
                 "profile_keyring",
+                "home_missing",
+                "home_mismatch",
+                "home_nonstring",
+                "home_alias",
             ] {
                 fs::copy(
                     &exe,
@@ -1000,6 +1004,28 @@ mod tests {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn managed_handshake_rejects_missing_wrong_or_nonstring_home_before_config_or_account() {
+        for mode in ["home_missing", "home_mismatch", "home_nonstring"] {
+            let (_root, s) = service(mode);
+            let id = create(&s);
+            let result = s.usage(&id);
+            assert!(result.is_err(), "unverified managed handshake was accepted: {mode}");
+            assert_eq!(result.unwrap_err().kind, "isolation_failed");
+            assert!(!s.root.join(".home-gate-bypassed").exists(), "RPC crossed managed home gate: {mode}");
+            assert!(!s.state.lock().unwrap().active.contains_key(&id));
+        }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn managed_handshake_accepts_canonical_home_alias_and_preserves_source_affinity() {
+        let (_root, s) = service("home_alias");
+        let id = create(&s);
+        let value = s.usage(&id).unwrap();
+        assert_eq!(value["sourceId"], id);
+        assert!(s.root.join(".home-gate-bypassed").is_file());
     }
     #[test]
     fn inherited_auth_provider_overrides_are_removed_but_network_and_cert_environment_survive() {

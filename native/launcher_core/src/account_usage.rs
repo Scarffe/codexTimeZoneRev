@@ -301,7 +301,15 @@ impl Rpc {
         }
     }
     pub(crate) fn initialize(&mut self) -> Result<(), RpcError> {
-        self.call("initialize",json!({"clientInfo":{"name":"codex_timezone","version":env!("CARGO_PKG_VERSION")},"capabilities":null}))?;
+        let handshake = self.call("initialize",json!({"clientInfo":{"name":"codex_timezone","version":env!("CARGO_PKG_VERSION")},"capabilities":null}))?;
+        if let Some(expected) = &self.profile_home {
+            let reported = handshake["codexHome"].as_str().ok_or(RpcError::Isolation)?;
+            let reported = std::fs::canonicalize(reported).map_err(|_| RpcError::Isolation)?;
+            let expected = std::fs::canonicalize(expected).map_err(|_| RpcError::Isolation)?;
+            if !reported.is_dir() || reported != expected {
+                return Err(RpcError::Isolation);
+            }
+        }
         self.send(json!({"method":"initialized","params":{}}))?;
         if let Some(home) = self.profile_home.clone() {
             // Administrator policy may override -c. Inspect only the effective
