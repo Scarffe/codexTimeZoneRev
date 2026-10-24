@@ -48,7 +48,30 @@ struct Reader {
     response_owners: BTreeMap<String, String>,
 }
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
-static READER: Mutex<Option<Reader>> = Mutex::new(None);
+#[derive(Default)]
+struct ReaderPool {
+    // Least recently used first; bounded independently of Dart isolate lifetimes.
+    readers: Vec<Reader>,
+}
+impl ReaderPool {
+    fn poll(&mut self, path: PathBuf) -> Result<Value, String> {
+        let mut reader = self
+            .readers
+            .iter()
+            .position(|r| r.path == path)
+            .map(|index| self.readers.remove(index))
+            .unwrap_or_default();
+        let result = reader.poll(path);
+        self.readers.push(reader);
+        if self.readers.len() > 16 {
+            self.readers.remove(0);
+        }
+        result
+    }
+}
+static READERS: Mutex<ReaderPool> = Mutex::new(ReaderPool {
+    readers: Vec::new(),
+});
 fn root() -> Result<PathBuf, String> {
     let home = std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
@@ -414,13 +437,97 @@ pub fn execute(payload: Value) -> Result<Value, String> {
     {
         return Err("仅允许读取本机会话目录中的主会话日志".into());
     }
-    let mut guard = READER.lock().map_err(|_| "会话采集锁不可用")?;
-    guard.get_or_insert_with(Reader::default).poll(path)
+    let mut guard = READERS.lock().map_err(|_| "会话采集锁不可用")?;
+    guard.poll(path)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn pool_keeps_nine_interleaved_readers_and_reuses_same_path() {
+        let mut files: Vec<_> = (0..9)
+            .map(|_| tempfile::NamedTempFile::new().unwrap())
+            .collect();
+        let mut pool = ReaderPool::default();
+        let mut epochs = Vec::new();
+        for (i, f) in files.iter_mut().enumerate() {
+            writeln!(f, "{}", json!({"type":"event_msg","payload":{"type":"task_started","turn_id":format!("t{i}")}})).unwrap();
+            epochs.push(pool.poll(f.path().to_path_buf()).unwrap()["logEpoch"].clone());
+        }
+        for (i, f) in files.iter_mut().enumerate() {
+            writeln!(f, "{}", json!({"type":"event_msg","payload":{"type":"task_complete","turn_id":format!("t{i}")}})).unwrap();
+            let value = pool.poll(f.path().to_path_buf()).unwrap();
+            assert_eq!(value["logEpoch"], epochs[i]);
+            assert_eq!(value["current"]["status"], "completed");
+            assert_eq!(
+                pool.poll(f.path().to_path_buf()).unwrap()["logEpoch"],
+                epochs[i]
+            );
+        }
+    }
+    #[test]
+    fn pool_lru_is_bounded_and_path_reset_does_not_reset_other_readers() {
+        let mut files: Vec<_> = (0..17)
+            .map(|_| tempfile::NamedTempFile::new().unwrap())
+            .collect();
+        let mut pool = ReaderPool::default();
+        let mut epochs = Vec::new();
+        for f in files.iter_mut().take(16) {
+            writeln!(
+                f,
+                "{}",
+                json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"t"}})
+            )
+            .unwrap();
+            epochs.push(pool.poll(f.path().to_path_buf()).unwrap()["logEpoch"].clone());
+        }
+        pool.poll(files[0].path().to_path_buf()).unwrap();
+        pool.poll(files[16].path().to_path_buf()).unwrap();
+        assert_eq!(pool.readers.len(), 16);
+        assert_eq!(
+            pool.poll(files[0].path().to_path_buf()).unwrap()["logEpoch"],
+            epochs[0]
+        );
+        assert_ne!(
+            pool.poll(files[1].path().to_path_buf()).unwrap()["logEpoch"],
+            epochs[1]
+        );
+        files[0].as_file().set_len(0).unwrap();
+        assert_ne!(
+            pool.poll(files[0].path().to_path_buf()).unwrap()["logEpoch"],
+            epochs[0]
+        );
+        assert_eq!(
+            pool.poll(files[3].path().to_path_buf()).unwrap()["logEpoch"],
+            epochs[3]
+        );
+    }
+    #[test]
+    fn pool_file_rotation_changes_only_that_paths_epoch() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("rollout-a.jsonl");
+        let b = dir.path().join("rollout-b.jsonl");
+        for path in [&a, &b] {
+            fs::write(
+                path,
+                format!(
+                    "{}\n",
+                    json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"before"}})
+                ),
+            )
+            .unwrap();
+        }
+        let mut pool = ReaderPool::default();
+        let a_epoch = pool.poll(a.clone()).unwrap()["logEpoch"].clone();
+        let b_epoch = pool.poll(b.clone()).unwrap()["logEpoch"].clone();
+        fs::rename(&a, dir.path().join("rotated.jsonl")).unwrap();
+        fs::write(&a, format!("{}\n", json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"after-rotation"}}))).unwrap();
+        let after = pool.poll(a).unwrap();
+        assert_ne!(after["logEpoch"], a_epoch);
+        assert_eq!(after["current"]["turnId"], "after-rotation");
+        assert_eq!(pool.poll(b).unwrap()["logEpoch"], b_epoch);
+    }
     fn m1_usage(turn: &str, response: &str, output: u64, total: u64) -> Value {
         json!({"type":"token_usage_record","timestamp":"1970-01-01T00:00:02.000Z","payload":{"turn_id":turn,"thread_id":"session","response_id":response,"model":"model","usage":{"input_tokens":100,"output_tokens":output,"reasoning_output_tokens":5},"turn_token_usage":{"input_tokens":100,"output_tokens":total,"reasoning_output_tokens":5},"thread_token_usage":{"input_tokens":100,"output_tokens":total,"reasoning_output_tokens":5}}})
     }
