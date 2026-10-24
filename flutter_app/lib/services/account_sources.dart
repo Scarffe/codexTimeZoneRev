@@ -161,9 +161,15 @@ class AccountSourceState {
   String? errorKind, jobId;
   String loginState = 'idle';
   bool busy = false;
+  bool pendingRemoval = false;
   int failures = 0, attempts = 0, revision = 0;
   DateTime? nextRefreshAt, lastAttempt;
   bool get isCurrent => id == currentAccountSource;
-  bool get loggingIn => ['starting', 'waiting'].contains(loginState);
+  bool get loggingIn => [
+    'starting',
+    'waiting',
+    'cancelling',
+    'cancel_failed',
+  ].contains(loginState);
   String? get error => errorKind == null ? null : sourceErrorMessage(errorKind);
 }

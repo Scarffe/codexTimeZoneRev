@@ -46,6 +46,9 @@ class AccountSourcesController extends ChangeNotifier {
   final _refreshes = <String, Future<void>>{};
   final _operations = <Future<void>>{};
   final _observed = <String>{};
+  final _startingNative = <String>{};
+  final _cancelRequests = <String, Future<void>>{};
+  final _removeRequests = <String, Future<void>>{};
   final _alerts = PetAlerts();
   Future<void> _queue = Future<void>.value(), _saved = Future<void>.value();
   Future<void>? _shutdown;
@@ -65,7 +68,10 @@ class AccountSourcesController extends ChangeNotifier {
   List<AccountSourceState> get states => List.unmodifiable(_states.values);
   AccountSourceState? get selected => _states[selectedId];
   AccountSourceState? get pinned => _states[pinnedId];
-  bool get anyBusy => _refreshes.isNotEmpty || _loginSource != null;
+  bool get anyBusy =>
+      _refreshes.isNotEmpty ||
+      _loginSource != null ||
+      _removeRequests.isNotEmpty;
   bool get canOperate =>
       !_stopped && !_disposed && (!offlineTrial || service.synthetic);
   bool get canMutateCatalog => canOperate && catalogError == null;
@@ -77,6 +83,7 @@ class AccountSourcesController extends ChangeNotifier {
   bool _valid(AccountSourceState source, int generation) =>
       canOperate &&
       identical(_states[source.id], source) &&
+      !source.pendingRemoval &&
       source.generation == generation;
   bool isStale(AccountSourceState state) =>
       state.usage != null &&
@@ -113,7 +120,16 @@ class AccountSourcesController extends ChangeNotifier {
             item['usage'] as Map<String, dynamic>,
           );
         }
+        final pendingRemoval = item['pendingRemoval'] ?? false;
+        if (pendingRemoval is! bool || (state.isCurrent && pendingRemoval)) {
+          throw const FormatException('Invalid pending source cleanup');
+        }
+        state.pendingRemoval = pendingRemoval;
         _restoreStatus(state, item);
+        if (pendingRemoval) {
+          state.usage = null;
+          state.loginState = 'removing';
+        }
         restored[id] = state;
       }
       _states.addAll(restored);
@@ -123,6 +139,10 @@ class AccountSourcesController extends ChangeNotifier {
       pinnedId = _states.containsKey(value['pinnedId'])
           ? value['pinnedId'] as String
           : currentAccountSource;
+      if (_states[selectedId]!.pendingRemoval) {
+        selectedId = currentAccountSource;
+      }
+      if (_states[pinnedId]!.pendingRemoval) pinnedId = currentAccountSource;
       _alerts.restore(value['cycles'], _now());
     } catch (_) {
       store.protectCorruptCatalog();
@@ -192,6 +212,7 @@ class AccountSourcesController extends ChangeNotifier {
             'id': state.id,
             'alias': state.alias,
             'generation': state.generation,
+            'pendingRemoval': state.pendingRemoval,
             'errorKind':
                 state.errorKind ?? (state.failures > 0 ? 'unavailable' : null),
             'failures': state.failures,
@@ -213,21 +234,33 @@ class AccountSourcesController extends ChangeNotifier {
   }
 
   void select(String id) {
-    if (!canMutateCatalog || !_states.containsKey(id)) return;
+    if (!canMutateCatalog ||
+        !_states.containsKey(id) ||
+        _states[id]!.pendingRemoval) {
+      return;
+    }
     selectedId = id;
     _save();
     _publish();
   }
 
   void pin(String id) {
-    if (!canMutateCatalog || !_states.containsKey(id)) return;
+    if (!canMutateCatalog ||
+        !_states.containsKey(id) ||
+        _states[id]!.pendingRemoval) {
+      return;
+    }
     pinnedId = id;
     _save();
     _publish();
   }
 
   void rename(String id, String alias) {
-    if (!canMutateCatalog || !_states.containsKey(id)) return;
+    if (!canMutateCatalog ||
+        !_states.containsKey(id) ||
+        _states[id]!.pendingRemoval) {
+      return;
+    }
     _states[id]!.alias = _alias(alias);
     _save();
     _publish();
@@ -278,6 +311,7 @@ class AccountSourcesController extends ChangeNotifier {
       _states[id] = AccountSourceState(id: id, alias: _alias(alias));
       _save();
       _publish();
+      _arm();
       return id;
     } catch (error) {
       if (canOperate && epoch == _epoch) {
@@ -314,6 +348,7 @@ class AccountSourcesController extends ChangeNotifier {
         _suspended ||
         state == null ||
         state.loggingIn ||
+        state.pendingRemoval ||
         (state.failures > 0 && state.nextRefreshAt?.isAfter(_now()) == true)) {
       return Future<void>.value();
     }
@@ -340,8 +375,9 @@ class AccountSourcesController extends ChangeNotifier {
               sourceChanged(_path());
               return;
             }
-            if (result.limitsError != null && result.buckets.isEmpty) {
-              throw const SourceFailure('unavailable');
+            if (result.limitsErrorKind != null ||
+                (result.limitsError != null && result.buckets.isEmpty)) {
+              throw SourceFailure(result.limitsErrorKind ?? 'unavailable');
             }
             state.usage = retainUsageDetails(result, state.usage);
             state.errorKind = null;
@@ -454,28 +490,48 @@ class AccountSourcesController extends ChangeNotifier {
     _publish();
   }
 
+  List<AccountSourceState> _eligible() =>
+      _states.values
+          .where(
+            (source) =>
+                !source.loggingIn &&
+                !source.pendingRemoval &&
+                !_refreshes.containsKey(source.id),
+          )
+          .toList()
+        ..sort(
+          (a, b) =>
+              (a.nextRefreshAt ?? _now()).compareTo(b.nextRefreshAt ?? _now()),
+        );
+
   void _arm() {
     _timer?.cancel();
-    if (!canOperate || !monitoring || _suspended) return;
-    final candidates =
-        _states.values
-            .where((s) => !s.loggingIn && !_refreshes.containsKey(s.id))
-            .toList()
-          ..sort(
-            (a, b) => (a.nextRefreshAt ?? _now()).compareTo(
-              b.nextRefreshAt ?? _now(),
-            ),
-          );
+    if (!canOperate || !monitoring || _suspended || _refreshes.isNotEmpty) {
+      return;
+    }
+    final candidates = _eligible();
     if (candidates.isEmpty) return;
     final due = candidates.first.nextRefreshAt ?? _now();
     _timer = Timer(
       due.isAfter(_now()) ? due.difference(_now()) : Duration.zero,
-      () {
-        if (!canOperate || !monitoring || _suspended) return;
-        // At most one due read is admitted per tick; no periodic queue buildup.
-        if (_refreshes.isEmpty) unawaited(refresh(candidates.first.id));
-      },
+      _dispatchDue,
     );
+  }
+
+  void _dispatchDue() {
+    if (!canOperate || !monitoring || _suspended || _refreshes.isNotEmpty) {
+      return;
+    }
+    // Eligibility can change after arming, especially while login starts/cancels.
+    final candidates = _eligible();
+    if (candidates.isEmpty) return;
+    final source = candidates.first;
+    if (source.nextRefreshAt?.isAfter(_now()) == true) {
+      _arm();
+      return;
+    }
+    unawaited(refresh(source.id));
+    if (!_refreshes.containsKey(source.id)) _arm();
   }
 
   void systemSuspending() {
@@ -516,6 +572,7 @@ class AccountSourcesController extends ChangeNotifier {
     if (!canMutateCatalog ||
         state == null ||
         state.isCurrent ||
+        state.pendingRemoval ||
         _loginSource != null) {
       return;
     }
@@ -526,6 +583,7 @@ class AccountSourcesController extends ChangeNotifier {
     _loginSource = id;
     _save();
     _publish();
+    _arm();
     try {
       await saved;
       if (!_valid(state, generation)) return;
@@ -539,15 +597,34 @@ class AccountSourcesController extends ChangeNotifier {
       if (supported?.supported != true || supported?.managedLogin != true) {
         throw const SourceFailure('unsupported');
       }
-      final job = await service.loginStart(id);
+      late String job;
+      _startingNative.add(id);
+      try {
+        job = await service.loginStart(id);
+      } finally {
+        _startingNative.remove(id);
+      }
       if (!_valid(state, generation)) {
-        await service.loginCancel(id, job);
+        if (identical(_states[id], state)) {
+          state.jobId = job;
+          _loginSource = id;
+          await _cancelOwnedJob(state, job);
+        } else {
+          // Native removal acknowledgement already proves source cleanup.
+          try {
+            await service.loginCancel(id, job);
+          } catch (error) {
+            operationError = sourceErrorMessage(_kind(error));
+            _publish();
+          }
+        }
         return;
       }
       state.jobId = job;
       state.loginState = 'waiting';
       _pollLater(id, generation);
       _publish();
+      _arm();
     } catch (error) {
       if (_valid(state, generation)) {
         state.loginState = 'failed';
@@ -555,6 +632,15 @@ class AccountSourcesController extends ChangeNotifier {
         _loginSource = null;
         _save();
         _publish();
+        _arm();
+      } else if (identical(_states[id], state) &&
+          state.loginState == 'cancelling' &&
+          state.jobId == null) {
+        state.loginState = 'cancelled';
+        if (_loginSource == id) _loginSource = null;
+        _save();
+        _publish();
+        _arm();
       }
     }
   }
@@ -571,7 +657,8 @@ class AccountSourcesController extends ChangeNotifier {
     final state = _states[id];
     if (!canOperate ||
         state == null ||
-        !state.loggingIn ||
+        !['starting', 'waiting'].contains(state.loginState) ||
+        state.pendingRemoval ||
         state.jobId == null) {
       return;
     }
@@ -606,47 +693,128 @@ class AccountSourcesController extends ChangeNotifier {
   Future<void> cancelLogin(String id) => _track(() => _cancelLogin(id));
   Future<void> _cancelLogin(String id) async {
     final state = _states[id];
-    if (!canOperate || state == null || state.isCurrent) return;
-    final job = state.jobId;
-    ++state.generation;
-    state.jobId = null;
-    state.loginState = 'cancelled';
-    state.usage = null;
-    if (_loginSource == id) {
-      _loginSource = null;
-      _loginTimer?.cancel();
+    if (!canOperate ||
+        state == null ||
+        state.isCurrent ||
+        state.pendingRemoval) {
+      return;
     }
-    _save();
-    _publish();
+    ++state.generation;
+    state.usage = null;
+    if (_loginSource == id) _loginTimer?.cancel();
+    final job = state.jobId;
     if (job != null) {
-      try {
-        await service.loginCancel(id, job);
-      } catch (_) {}
+      await _cancelOwnedJob(state, job);
+    } else if (_startingNative.contains(id)) {
+      // The native job handle is not known yet; retain exclusive cleanup ownership.
+      state.loginState = 'cancelling';
+      _loginSource = id;
+      _save();
+      _publish();
+      _arm();
+    } else {
+      state.loginState = 'cancelled';
+      state.errorKind = null;
+      if (_loginSource == id) _loginSource = null;
+      _save();
+      _publish();
+      _arm();
+    }
+    await saved;
+  }
+
+  Future<void> _cancelOwnedJob(AccountSourceState state, String job) {
+    final pending = _cancelRequests[state.id];
+    if (pending != null) return pending;
+    late Future<void> operation;
+    operation = _doCancelOwnedJob(state, job).whenComplete(() {
+      _cancelRequests.remove(state.id);
+    });
+    _cancelRequests[state.id] = operation;
+    return operation;
+  }
+
+  Future<void> _doCancelOwnedJob(AccountSourceState state, String job) async {
+    if (!state.pendingRemoval) state.loginState = 'cancelling';
+    state.jobId = job;
+    _loginSource = state.id;
+    _publish();
+    _arm();
+    try {
+      await service.loginCancel(state.id, job);
+      if (identical(_states[state.id], state) && state.jobId == job) {
+        state.jobId = null;
+        if (_loginSource == state.id) _loginSource = null;
+        if (!state.pendingRemoval) state.loginState = 'cancelled';
+        state.errorKind = null;
+        operationError = null;
+      }
+    } catch (error) {
+      if (identical(_states[state.id], state) && state.jobId == job) {
+        if (!state.pendingRemoval) state.loginState = 'cancel_failed';
+        state.errorKind = _kind(error);
+        operationError = sourceErrorMessage(state.errorKind);
+      }
+    } finally {
+      _save();
+      _publish();
+      _arm();
     }
   }
 
-  Future<void> remove(String id) => _track(() => _remove(id));
+  Future<void> remove(String id) {
+    final pending = _removeRequests[id];
+    if (pending != null) return pending;
+    late Future<void> operation;
+    operation = _track(() => _remove(id)).whenComplete(() {
+      _removeRequests.remove(id);
+      _publish();
+    });
+    _removeRequests[id] = operation;
+    return operation;
+  }
+
   Future<void> _remove(String id) async {
     final state = _states[id];
     if (!canMutateCatalog || state == null || state.isCurrent) return;
     ++state.generation;
-    _states.remove(id);
-    if (_loginSource == id) {
-      _loginSource = null;
-      _loginTimer?.cancel();
-    }
+    state.pendingRemoval = true;
+    state.usage = null;
+    state.loginState = 'removing';
+    state.errorKind = null;
+    state.failures = 0;
+    state.nextRefreshAt = null;
     if (selectedId == id) selectedId = currentAccountSource;
     if (pinnedId == id) pinnedId = currentAccountSource;
+    if (_loginSource == id) _loginTimer?.cancel();
     _save();
     _publish();
+    _arm();
+    await saved;
+    if (catalogError != null) return;
+    var acknowledged = false;
     try {
       await service.remove(id);
+      acknowledged = true;
     } catch (error) {
-      operationError = sourceErrorMessage(_kind(error));
-      _publish();
+      if (error is SourceFailure && error.kind == 'not_found') {
+        acknowledged = true;
+      } else if (identical(_states[id], state)) {
+        state.errorKind = _kind(error);
+        operationError = sourceErrorMessage(state.errorKind);
+      }
     }
-    await saved;
+    if (acknowledged && identical(_states[id], state)) {
+      operationError = null;
+      _states.remove(id);
+      if (_loginSource == id) _loginSource = null;
+      if (selectedId == id) selectedId = currentAccountSource;
+      if (pinnedId == id) pinnedId = currentAccountSource;
+    }
+    _save();
+    _publish();
     _arm();
+    await saved;
   }
 
   Future<void> shutdown() => _shutdown ??= _shutdownAll();

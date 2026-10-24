@@ -39,6 +39,7 @@ class SyntheticSources extends AccountSourcesService {
   Completer<SourceCapability>? probePending;
   Completer<SourceLoginStatus>? statusPending;
   Completer<void>? shutdownPending;
+  String? cancelError, removeError;
   @override
   Future<SourceCapability> probe() async => probePending == null
       ? const SourceCapability(true, true)
@@ -60,6 +61,7 @@ class SyntheticSources extends AccountSourcesService {
   @override
   Future<void> loginCancel(String id, String job) async {
     calls.add('cancel:$id');
+    if (cancelError != null) throw SourceFailure(cancelError!);
   }
 
   @override
@@ -75,6 +77,7 @@ class SyntheticSources extends AccountSourcesService {
   @override
   Future<void> remove(String id) async {
     calls.add('remove:$id');
+    if (removeError != null) throw SourceFailure(removeError!);
   }
 
   @override
@@ -138,6 +141,211 @@ void main() {
   });
   tearDown(() {
     owner.dispose();
+  });
+
+  testWidgets(
+    'pending login and cancellation cannot consume healthy source schedule',
+    (tester) async {
+      final fixture = SyntheticSources();
+      final scheduled = AccountSourcesController(
+        fixture,
+        AccountSourceStore.memory(),
+        now: () => now,
+      );
+      final id = (await scheduled.create('Work'))!;
+      scheduled.start(() => 'fixture-cli');
+      await tester.pump(const Duration(milliseconds: 1));
+      fixture.pending['current']!.complete(sample(now, 30));
+      await tester.pump();
+      fixture.loginPending = Completer<String>();
+      final login = scheduled.login(id);
+      await tester.pump();
+      now = now.add(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 250));
+      now = now.add(const Duration(seconds: 120));
+      await tester.pump(const Duration(seconds: 120));
+      expect(fixture.calls.where((c) => c == 'current:false').length, 2);
+      fixture.pending['current']!.complete(sample(now, 35));
+      await tester.pump();
+      await scheduled.cancelLogin(id);
+      fixture.loginPending!.complete('late-job');
+      await login;
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(fixture.calls, contains('$id:false'));
+      fixture.pending[id]!.complete(sample(now, 40));
+      await tester.pump();
+      scheduled.pause();
+      scheduled.dispose();
+    },
+  );
+
+  test('cancel failure keeps native ownership and retry handle until acknowledgement', () async {
+    final a = (await owner.create('Work'))!,
+        b = (await owner.create('Personal'))!;
+    await owner.login(a);
+    final job = owner.states[1].jobId;
+    service.cancelError = 'network';
+    await owner.cancelLogin(a);
+    expect(owner.states[1].jobId, job);
+    expect(owner.states[1].loginState, 'cancel_failed');
+    expect(owner.states[1].errorKind, 'network');
+    expect(owner.anyBusy, isTrue);
+    await owner.login(b);
+    expect(service.calls, isNot(contains('login:$b')));
+    service.cancelError = null;
+    await owner.cancelLogin(a);
+    expect(owner.operationError, isNull);
+    expect(owner.states[1].jobId, isNull);
+    expect(owner.states[1].loginState, 'cancelled');
+    await owner.login(b);
+    expect(service.calls, contains('login:$b'));
+    await owner.cancelLogin(b);
+  });
+
+  test(
+    'late login start cancellation failure remains owned and addressable',
+    () async {
+      final a = (await owner.create('Work'))!,
+          b = (await owner.create('Personal'))!;
+      service.loginPending = Completer<String>();
+      final login = owner.login(a);
+      await Future<void>.delayed(Duration.zero);
+      await owner.cancelLogin(a);
+      unawaited(owner.login(b));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.calls, isNot(contains('login:$b')));
+      service.cancelError = 'timeout';
+      service.loginPending!.complete('late-job');
+      await login;
+      expect(owner.states[1].jobId, 'late-job');
+      expect(owner.states[1].loginState, 'cancel_failed');
+      service.cancelError = null;
+      await owner.cancelLogin(a);
+      expect(owner.states[1].jobId, isNull);
+    },
+  );
+
+  test('failed removal persists cleanup row across restart until native acknowledgement', () async {
+    final id = (await owner.create('Work'))!;
+    final query = owner.refresh(id);
+    await Future<void>.delayed(Duration.zero);
+    service.pending[id]!.complete(sample(now, 20));
+    await query;
+    service.removeError = 'unavailable';
+    owner.select(id);
+    owner.pin(id);
+    await owner.remove(id);
+    await owner.saved;
+    expect(owner.states.map((s) => s.id), contains(id));
+    expect(owner.selectedId, 'current');
+    expect(owner.pinnedId, 'current');
+    expect(owner.states.last.usage, isNull);
+    final item = ((await store.read())['sources'] as List).last as Map;
+    expect(item['pendingRemoval'], isTrue);
+    expect(item['alias'], 'Work');
+    final fixture = SyntheticSources();
+    final restored = AccountSourcesController(fixture, store, now: () => now);
+    await restored.initialize(() => 'fixture-cli');
+    await restored.refresh(id);
+    await restored.login(id);
+    expect(fixture.calls, isEmpty);
+    expect(restored.states.last.usage, isNull);
+    await restored.remove(id);
+    await restored.saved;
+    expect(restored.states.map((s) => s.id), ['current']);
+    expect(jsonEncode(await store.read()), isNot(contains(id)));
+    restored.dispose();
+  });
+
+  test('synthetic native envelopes retain typed partial availability and cached detail kinds', () async {
+    Map<String, dynamic> payload({
+      String? limitsKind,
+      String? tokensKind,
+      bool details = true,
+    }) => {
+      'account': {'email': null, 'planType': 'plus'},
+      'identityKey': 'fixture',
+      'detailsIncluded': details,
+      'limits': limitsKind == null
+          ? {
+              'rateLimits': {
+                'primary': {'usedPercent': 20, 'windowDurationMins': 300},
+              },
+            }
+          : null,
+      if (limitsKind != null) ...{
+        'limitsError': 'Sanitized failure',
+        'limitsErrorKind': limitsKind,
+      },
+      if (tokensKind != null) ...{
+        'tokensError': 'Sanitized token failure',
+        'tokensErrorKind': tokensKind,
+      },
+    };
+    for (final kind in ['auth_required', 'network', 'rate_limited']) {
+      final backend = RecordingBackend();
+      backend.result = {'ok': true, 'sourceId': 'current', 'usage': payload()};
+      final native = NativeAccountSourcesService(backend);
+      final monitored = AccountSourcesController(
+        native,
+        AccountSourceStore.memory(),
+        now: () => now,
+      );
+      await monitored.initialize(() => 'fixture-cli');
+      await monitored.refresh('current');
+      final original = monitored.selected!.usage!.fetchedAt;
+      backend.result = {
+        'ok': true,
+        'sourceId': 'current',
+        'usage': payload(limitsKind: kind),
+      };
+      await monitored.refresh('current');
+      expect(monitored.selected!.errorKind, kind);
+      if (kind == 'auth_required') {
+        expect(monitored.selected!.usage, isNull);
+      } else {
+        expect(monitored.selected!.usage!.fetchedAt, original);
+      }
+      final parsed = await native.query('current');
+      expect(
+        AccountUsage.fromCacheJson(parsed.toCacheJson())
+            .toCacheJson()['limitsErrorKind'],
+        kind,
+      );
+      monitored.dispose();
+    }
+    final backend = RecordingBackend();
+    backend.result = {
+      'ok': true,
+      'sourceId': 'current',
+      'usage': payload(tokensKind: 'network'),
+    };
+    final native = NativeAccountSourcesService(backend);
+    final monitored = AccountSourcesController(
+      native,
+      AccountSourceStore.memory(),
+      now: () => now,
+    );
+    await monitored.initialize(() => 'fixture-cli');
+    await monitored.refresh('current', details: true);
+    expect(monitored.selected!.errorKind, isNull);
+    expect(monitored.selected!.usage!.buckets, isNotEmpty);
+    final previous = monitored.selected!.usage!;
+    backend.result = {
+      'ok': true,
+      'sourceId': 'current',
+      'usage': payload(details: false),
+    };
+    final retained = retainUsageDetails(
+      await native.query('current'),
+      previous,
+    );
+    expect(
+      AccountUsage.fromCacheJson(retained.toCacheJson())
+          .toCacheJson()['tokensErrorKind'],
+      'network',
+    );
+    monitored.dispose();
   });
 
   test('FIFO global arbiter and duplicate refresh share completion', () async {

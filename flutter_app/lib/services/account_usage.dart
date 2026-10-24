@@ -2,6 +2,29 @@ import 'dart:math' as math;
 
 import 'backend.dart';
 
+String? _usageErrorKind(Object? value) {
+  if (value == null) return null;
+  return const {
+        'invalid_source',
+        'protected_source',
+        'unavailable',
+        'unsupported',
+        'isolation_failed',
+        'busy',
+        'auth_required',
+        'auth_failed',
+        'timeout',
+        'rate_limited',
+        'network',
+        'identity_changed',
+        'cancelled',
+        'not_found',
+        'shutdown',
+      }.contains(value)
+      ? value as String
+      : 'unavailable';
+}
+
 class UsageWindow {
   const UsageWindow({this.usedPercent, this.durationMinutes, this.resetsAt});
   final double? usedPercent;
@@ -66,6 +89,8 @@ class AccountUsage {
     this.latestDate,
     this.limitsError,
     this.tokensError,
+    this.limitsErrorKind,
+    this.tokensErrorKind,
     this.identityKey,
     this.detailsIncluded = true,
     this.tokensFetchedAt,
@@ -80,6 +105,7 @@ class AccountUsage {
   String get identity => identityKey ?? '$email|$plan';
   final int? lifetimeTokens, latestDailyTokens;
   final String? latestDate, limitsError, tokensError;
+  final String? limitsErrorKind, tokensErrorKind;
 
   /// Durable cache format, distinct from a fresh native RPC observation.
   Map<String, Object?> toCacheJson() => {
@@ -89,8 +115,10 @@ class AccountUsage {
     'detailsIncluded': detailsIncluded, 'lifetimeTokens': lifetimeTokens,
     'latestDailyTokens': latestDailyTokens, 'latestDate': latestDate,
     // Raw backend errors are intentionally excluded from durable state.
-    'limitsUnavailable': limitsError != null,
-    'tokensUnavailable': tokensError != null,
+    'limitsUnavailable': limitsError != null || limitsErrorKind != null,
+    'tokensUnavailable': tokensError != null || tokensErrorKind != null,
+    'limitsErrorKind': _usageErrorKind(limitsErrorKind),
+    'tokensErrorKind': _usageErrorKind(tokensErrorKind),
     'buckets': [
       for (final bucket in buckets)
         {
@@ -124,6 +152,8 @@ class AccountUsage {
       latestDate: json['latestDate'] as String?,
       limitsError: json['limitsUnavailable'] == true ? '额度暂不可用' : null,
       tokensError: json['tokensUnavailable'] == true ? '用量暂不可用' : null,
+      limitsErrorKind: _usageErrorKind(json['limitsErrorKind']),
+      tokensErrorKind: _usageErrorKind(json['tokensErrorKind']),
       buckets: [
         for (final value in json['buckets'] as List)
           UsageBucket(
@@ -183,6 +213,8 @@ class AccountUsage {
       latestDate: validDays.isEmpty ? null : validDays.last.date,
       limitsError: json['limitsError'] as String?,
       tokensError: json['tokensError'] as String?,
+      limitsErrorKind: _usageErrorKind(json['limitsErrorKind']),
+      tokensErrorKind: _usageErrorKind(json['tokensErrorKind']),
       fetchedAt: DateTime.now(),
     );
   }
@@ -204,9 +236,11 @@ AccountUsage retainUsageDetails(AccountUsage current, AccountUsage? previous) {
     lifetimeTokens: previous.lifetimeTokens,
     latestDailyTokens: previous.latestDailyTokens,
     latestDate: previous.latestDate,
-    tokensError: previous.tokensError,
+    tokensError: current.tokensError ?? previous.tokensError,
+    tokensErrorKind: current.tokensErrorKind ?? previous.tokensErrorKind,
     tokensFetchedAt: previous.tokensFetchedAt,
     limitsError: current.limitsError,
+    limitsErrorKind: current.limitsErrorKind,
   );
 }
 
