@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+/// Quantitative direction of the measured mark, independent of its aspect ratio.
+enum ChartFlowAxis { vertical, horizontal }
+
 /// One mark's paint-only liquid and perimeter halo. The mark's measured rectangle
 /// is never resized by this painter. Its owner runs the clock only while hovered.
 class ChartHoverPainter extends CustomPainter {
@@ -11,6 +14,7 @@ class ChartHoverPainter extends CustomPainter {
     required this.color,
     required this.viewport,
     this.liquid = true,
+    this.flowAxis = ChartFlowAxis.vertical,
   }) : super(repaint: elapsed);
 
   final ValueListenable<Duration?> elapsed;
@@ -19,6 +23,7 @@ class ChartHoverPainter extends CustomPainter {
   /// Plot coordinates relative to this mark, including reserved decoration space.
   final Rect viewport;
   final bool liquid;
+  final ChartFlowAxis flowAxis;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -34,33 +39,41 @@ class ChartHoverPainter extends CustomPainter {
       final paint = Paint()
         ..blendMode = BlendMode.plus
         ..shader = LinearGradient(
+          begin: flowAxis == ChartFlowAxis.vertical
+              ? Alignment.centerLeft
+              : Alignment.topCenter,
+          end: flowAxis == ChartFlowAxis.vertical
+              ? Alignment.centerRight
+              : Alignment.bottomCenter,
           colors: [
             color.withValues(alpha: 0),
             color.withValues(alpha: .24),
             color.withValues(alpha: 0),
           ],
         ).createShader(mark);
-      for (var i = -1; i < 3; i++) {
-        final y = (phase * 2 + i) * size.height / 2;
+      // Repeated bands extend past both ends: wrapping removes/adds a band only
+      // outside the measured clip. Normalized cross/length coordinates transpose
+      // for horizontal marks, including marks narrower than they are tall.
+      Offset point(double cross, double length) =>
+          flowAxis == ChartFlowAxis.vertical
+          ? Offset(cross * size.width, length * size.height)
+          : Offset(length * size.width, cross * size.height);
+      for (var i = -3; i <= 4; i++) {
+        final length =
+            i / 2 + (flowAxis == ChartFlowAxis.vertical ? -phase : phase);
+        final start = point(-.2, length);
+        final a = point(.15, length - .30);
+        final b = point(.65, length + .18);
+        final c = point(1.2, length - .12);
+        final d = point(1.2, length + .08);
+        final e = point(.65, length + .38);
+        final f = point(.15, length - .10);
+        final g = point(-.2, length + .20);
         final band = Path()
-          ..moveTo(-size.width * .2, y)
-          ..cubicTo(
-            size.width * .15,
-            y - size.height * .30,
-            size.width * .65,
-            y + size.height * .18,
-            size.width * 1.2,
-            y - size.height * .12,
-          )
-          ..lineTo(size.width * 1.2, y + size.height * .08)
-          ..cubicTo(
-            size.width * .65,
-            y + size.height * .38,
-            size.width * .15,
-            y - size.height * .10,
-            -size.width * .2,
-            y + size.height * .20,
-          )
+          ..moveTo(start.dx, start.dy)
+          ..cubicTo(a.dx, a.dy, b.dx, b.dy, c.dx, c.dy)
+          ..lineTo(d.dx, d.dy)
+          ..cubicTo(e.dx, e.dy, f.dx, f.dy, g.dx, g.dy)
           ..close();
         canvas.drawPath(band, paint);
       }
@@ -76,9 +89,11 @@ class ChartHoverPainter extends CustomPainter {
       ),
     );
     final perimeter = 2 * (size.width + size.height);
-    for (var i = 0; i < 24; i++) {
-      final age = (phase + i * .61803398875) % 1;
-      var distance = (i / 24 + phase * .13) % 1 * perimeter;
+    for (var i = 0; i < 16; i++) {
+      // Integer stagger preserves a separate exact 1700ms particle period.
+      // Emitters and seeded drift never depend on the liquid's wrapped phase.
+      final age = ((time.inMicroseconds + i * 1050657) % 1700000) / 1700000;
+      var distance = (i + .5) / 16 * perimeter;
       late Offset origin, normal;
       if (distance < size.width) {
         origin = Offset(distance, 0);
@@ -94,7 +109,12 @@ class ChartHoverPainter extends CustomPainter {
         origin = Offset(0, size.height - distance);
         normal = const Offset(-1, 0);
       }
-      final center = origin + normal * (2.8 + 6.2 * age);
+      final tangent = Offset(-normal.dy, normal.dx);
+      final drift = ((i * 37 % 17) / 8 - 1) * 2.5;
+      final spread = 6 + (i * 13 % 11) / 10;
+      // Maximum normal reach 9px plus the 3px glow fits existing 12px gutters.
+      final center =
+          origin + normal * (2 + spread * age) + tangent * drift * age;
       final alpha = .8 * math.sin(math.pi * age);
       final glowBounds = Rect.fromCircle(center: center, radius: 3);
       canvas.drawCircle(
@@ -122,5 +142,6 @@ class ChartHoverPainter extends CustomPainter {
       elapsed != oldDelegate.elapsed ||
       color != oldDelegate.color ||
       viewport != oldDelegate.viewport ||
-      liquid != oldDelegate.liquid;
+      liquid != oldDelegate.liquid ||
+      flowAxis != oldDelegate.flowAxis;
 }

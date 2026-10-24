@@ -160,7 +160,7 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, resting.size),
-        paintsExactlyCountTimes(#drawCircle, 48),
+        paintsExactlyCountTimes(#drawCircle, 32),
       );
       await tester.pump(const Duration(milliseconds: 480));
       expect(tester.getRect(mark), resting);
@@ -299,7 +299,7 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, before.size),
-        paintsExactlyCountTimes(#drawCircle, 48),
+        paintsExactlyCountTimes(#drawCircle, 32),
       );
       await mouse.removePointer();
       await tester.pump();
@@ -335,7 +335,7 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => painter.paint(canvas, tester.getSize(second)),
-        paintsExactlyCountTimes(#drawCircle, 48),
+        paintsExactlyCountTimes(#drawCircle, 32),
       );
       await mouse.moveTo(const Offset(1, 1));
       await mouse.moveTo(tester.getCenter(second));
@@ -346,7 +346,7 @@ void main() {
           .foregroundPainter!;
       expect(
         (Canvas canvas) => replaced.paint(canvas, tester.getSize(second)),
-        paintsExactlyCountTimes(#drawCircle, 48),
+        paintsExactlyCountTimes(#drawCircle, 32),
       );
       await tester.pump(const Duration(milliseconds: 480));
       expect(tester.binding.transientCallbackCount, greaterThan(0));

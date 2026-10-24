@@ -488,6 +488,10 @@ class _HoverMarkState extends State<_HoverMark>
         color: widget.color!,
         viewport: widget.viewport,
         liquid: widget.motion != _MarkMotion.point,
+        flowAxis: switch (widget.motion!) {
+          _MarkMotion.horizontal => ChartFlowAxis.horizontal,
+          _MarkMotion.column || _MarkMotion.point => ChartFlowAxis.vertical,
+        },
       ),
       child: Transform(
         alignment: Alignment.center,
