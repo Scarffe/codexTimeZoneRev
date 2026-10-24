@@ -256,6 +256,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
             ],
             horizontal: true,
             compactMeters: true,
+            hoverDetails: false,
             unit: _view == 'reset' ? '小时' : '%',
             maxValue: _view == 'reset' ? null : 100,
           ),

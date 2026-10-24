@@ -393,6 +393,7 @@ class _HoverMark extends StatefulWidget {
     this.motion,
     this.color,
     this.maxPointScale = 1.18,
+    this.showDetails = true,
   });
   final String record;
   final Object identity;
@@ -401,6 +402,7 @@ class _HoverMark extends StatefulWidget {
   final _MarkMotion? motion;
   final Color? color;
   final double maxPointScale;
+  final bool showDetails;
   @override
   State<_HoverMark> createState() => _HoverMarkState();
 }
@@ -441,7 +443,8 @@ class _HoverMarkState extends State<_HoverMark>
   void didUpdateWidget(_HoverMark oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.identity != widget.identity ||
-        oldWidget.motion != widget.motion) {
+        oldWidget.motion != widget.motion ||
+        oldWidget.showDetails != widget.showDetails) {
       _clearBurst();
       _clearInspection();
     }
@@ -589,7 +592,7 @@ class _HoverMarkState extends State<_HoverMark>
       onEnter: (_) {
         if (!TickerMode.valuesOf(context).enabled) return;
         ++_inspectionGeneration;
-        _portal.show();
+        if (widget.showDetails) _portal.show();
         final box = this.context.findRenderObject() as RenderBox?;
         if (_motionEnabled &&
             widget.motion != null &&
@@ -700,6 +703,7 @@ class MonitorBarChart extends StatelessWidget {
     this.line = false,
     this.compactMeters = false,
     this.inspectionIdentity,
+    this.hoverDetails = true,
   });
   final List<ChartBar> bars;
   final String unit, xLabel, primaryLabel, secondaryLabel;
@@ -712,6 +716,10 @@ class MonitorBarChart extends StatelessWidget {
   /// Optional requested domain (e.g. 100%). Valid actual data is never clipped.
   final double? maxValue;
   final Object? inspectionIdentity;
+
+  /// Disable redundant pointer details without changing motion, semantics or
+  /// the explicit numeric inspector.
+  final bool hoverDetails;
 
   Object _baseIdentity(int index) =>
       bars[index].identity ?? (bars[index].label, bars[index].detail);
@@ -930,6 +938,7 @@ class MonitorBarChart extends StatelessWidget {
         Center(
           child: _HoverMark(
             identity: _markIdentity(index, 'cancelled'),
+            showDetails: hoverDetails,
             record: _record(bar),
             child: Text('×', key: ValueKey('monitor-bar-$index-cancelled')),
           ),
@@ -947,6 +956,7 @@ class MonitorBarChart extends StatelessWidget {
           width: width * primary / max,
           child: _HoverMark(
             identity: _markIdentity(index, 'primary'),
+            showDetails: hoverDetails,
             viewport: Rect.fromLTWH(0, -top, width, plotHeight),
             record: _record(bar),
             motion: primary > 0 ? _MarkMotion.horizontal : null,
@@ -962,6 +972,7 @@ class MonitorBarChart extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: _HoverMark(
             identity: _markIdentity(index, 'unknown'),
+            showDetails: hoverDetails,
             record: _record(bar),
             child: Text('—', key: ValueKey('monitor-bar-$index-unknown')),
           ),
@@ -975,6 +986,7 @@ class MonitorBarChart extends StatelessWidget {
           width: width * secondary / max,
           child: _HoverMark(
             identity: _markIdentity(index, 'secondary'),
+            showDetails: hoverDetails,
             viewport: Rect.fromLTWH(
               -width * (primary ?? 0) / max,
               -top,
@@ -1180,6 +1192,7 @@ class MonitorBarChart extends StatelessWidget {
                                   label: _record(bars[i]),
                                   child: Center(
                                     child: _HoverMark(
+                                      showDetails: hoverDetails,
                                       identity: _markIdentity(
                                         i,
                                         bars[i].cancelled
@@ -1224,6 +1237,7 @@ class MonitorBarChart extends StatelessWidget {
                                   label: _record(bars[i]),
                                   child: _HoverMark(
                                     identity: _markIdentity(i, 'primary'),
+                                    showDetails: hoverDetails,
                                     viewport: viewport(i),
                                     record: _record(bars[i]),
                                     motion: _known(bars[i].value) == 0
@@ -1266,6 +1280,7 @@ class MonitorBarChart extends StatelessWidget {
                                     scale.max,
                                 child: _HoverMark(
                                   identity: _markIdentity(i, 'secondary'),
+                                  showDetails: hoverDetails,
                                   viewport: viewport(i, secondary: true),
                                   record: _record(bars[i]),
                                   motion: _known(bars[i].secondaryValue) == 0
