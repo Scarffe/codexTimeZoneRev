@@ -1,4 +1,6 @@
 $ErrorActionPreference='Stop'
+$script:checks=0
+function Assert($condition,[string]$label){if(!$condition){throw ('assertion_failed:'+ $label)};$script:checks++}
 # Exercise the actual caller function with a deterministic child object. No
 # native process, official CLI, auth directory, or network is used by this test.
 Add-Type -TypeDefinition @'
@@ -27,16 +29,22 @@ namespace K32Probe {
 $parseErrors=$null;$tokens=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'run-official-preflight.ps1'),[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw 'caller_parse_failed'}
-$blocked=& (Join-Path $PSScriptRoot 'run-official-preflight.ps1') | ConvertFrom-Json
-if($blocked.status -cne 'blocked' -or $blocked.reasonCode -cne 'startup_auth_backend_unverified' -or $blocked.processesStarted -ne 0 -or $null -ne [K32Probe.OwnedStdioChild]::Last){throw 'unverified_startup_must_not_launch'}
-$script:checks+=4
+foreach($evidencePath in @('',(Join-Path $PSScriptRoot 'not-created-by-test'),'Z:\missing\not-created')){
+  $blocked=& (Join-Path $PSScriptRoot 'run-official-preflight.ps1') -EvidenceDirectory $evidencePath | ConvertFrom-Json
+  Assert ($blocked.status -ceq 'blocked' -and $blocked.reasonCode -ceq 'startup_auth_backend_unverified') 'public_entry_remains_blocked_for_any_evidence_path'
+  Assert ($blocked.processesStarted -eq 0 -and $blocked.accountReads -eq 0 -and $null -eq [K32Probe.OwnedStdioChild]::Last) 'public_entry_returns_before_child_start_or_account_read'
+}
+$argumentsFunction=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-K32ReadonlyArguments'},$true)
+Assert ($null -ne $argumentsFunction) 'pure_future_arguments_builder_exists'
+Invoke-Expression $argumentsFunction.Extent.Text
+$futureArgs=@(Get-K32ReadonlyArguments)
+Assert (($futureArgs -join '|') -ceq '--no-daemon|-c|cli_auth_credentials_store="file"|-c|analytics.enabled=false|app-server|--strict-config|--listen|stdio://') 'future_arguments_are_strict_stdio_with_explicit_file_store'
+Assert (($futureArgs | Where-Object {$_ -match 'print-startup|login|turn/|task|proxy'}).Count -eq 0) 'future_arguments_have_no_diagnostic_or_task_command'
 $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Invoke-OwnStep'},$true)
 Invoke-Expression $function.Extent.Text
 $cli=$PSCommandPath;$cliHash=(Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash
 $workspace=$PSScriptRoot;$envChild=@{}
 function Get-Process { throw 'synthetic_metadata_unavailable' }
-$checks=4
-function Assert($condition,[string]$label){if(!$condition){throw ('assertion_failed:'+ $label)};$script:checks++}
 $directoryFunction=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Assert-PlainDirectory'},$true)
 Invoke-Expression $directoryFunction.Extent.Text
 $validDirectory=$true

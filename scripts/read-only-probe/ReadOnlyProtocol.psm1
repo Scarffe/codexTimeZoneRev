@@ -83,6 +83,50 @@ function Test-K32Keys($Value,[string[]]$Keys) {
     foreach($key in $Keys) { if (!(Has-K32Key $Value $key)) { return $false } }
     return $true
 }
+function Get-K32JsonKind($Value,[bool]$Present=$true) {
+    if (!$Present) { return 'missing' }
+    if ($null -eq $Value) { return 'null' }
+    if ($Value -is [Collections.IDictionary]) { return 'object' }
+    if ($Value -is [array]) { return 'array' }
+    if ($Value -is [string]) { return 'string' }
+    if ($Value -is [bool]) { return 'boolean' }
+    if ($Value -is [long] -or $Value -is [double]) { return 'number' }
+    'unavailable'
+}
+function Get-K32FrameShape($Frame,[bool]$Parsed=$true) {
+    # Only fixed field names, JSON-kind enums and presence booleans leave here.
+    $shape=[ordered]@{topLevelKind='unavailable';idKind='unavailable';resultKind='unavailable';errorKind='unavailable';methodKind='unavailable';requirementsKind='unavailable';configKind='unavailable';originsKind='unavailable';storeConstraintKind='unavailable';effectiveStoreKind='unavailable';accountKind='unavailable';requiresOpenaiAuthKind='unavailable';unknownTopLevelKeyPresent=$false}
+    if (!$Parsed) { return $shape }
+    $shape.topLevelKind=Get-K32JsonKind $Frame
+    foreach($key in @('id','result','error','method')) {
+        $present=Has-K32Key $Frame $key
+        $value=$null; if ($present) { $value=$Frame[$key] }
+        $shape[$key+'Kind']=Get-K32JsonKind $value $present
+    }
+    if ($Frame -is [Collections.IDictionary]) {
+        foreach($key in $Frame.Keys) {
+            if ($key -cnotin @('id','result','error','method','params')) { $shape.unknownTopLevelKeyPresent=$true }
+        }
+    }
+    $body=$null; if (Has-K32Key $Frame 'result') { $body=$Frame.result }
+    foreach($key in @('requirements','config','origins','account','requiresOpenaiAuth')) {
+        $present=Has-K32Key $body $key
+        $value=$null; if ($present) { $value=$body[$key] }
+        $shape[$key+'Kind']=Get-K32JsonKind $value $present
+    }
+    $requirements=$null; if (Has-K32Key $body 'requirements') { $requirements=$body.requirements }
+    $present=Has-K32Key $requirements 'cliAuthCredentialsStore'
+    $value=$null; if ($present) { $value=$requirements.cliAuthCredentialsStore }
+    $shape.storeConstraintKind=Get-K32JsonKind $value $present
+    $config=$null; if (Has-K32Key $body 'config') { $config=$body.config }
+    $present=Has-K32Key $config 'cli_auth_credentials_store'
+    $value=$null; if ($present) { $value=$config.cli_auth_credentials_store }
+    $shape.effectiveStoreKind=Get-K32JsonKind $value $present
+    $shape
+}
+function Set-K32Boundary($State,[string]$Boundary,$Frame,[bool]$Parsed=$false) {
+    $State.Diagnostic=[ordered]@{boundary=$Boundary;shape=(Get-K32FrameShape $Frame $Parsed)}
+}
 function Get-K32Path([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value) -or ![IO.Path]::IsPathRooted($Value)) { Stop-K32 'home_mismatch' }
     $resolved=Resolve-Path -LiteralPath $Value -ErrorAction Stop
@@ -127,22 +171,26 @@ function Get-K32TransportReason($ErrorRecord) {
 }
 function Receive-K32Frame {
     param($Child,$State,[int]$TimeoutMs,[bool]$Quiet=$false)
+    Set-K32Boundary $State 'transport' $null
     try { $line=$Child.ReadLine($TimeoutMs) } catch {
         if ($Quiet -and (Get-K32TransportReason $_) -ceq 'read_timeout') { return $null }
         Stop-K32 'read_failed'
     }
     if ($null -eq $line -or $line -isnot [string]) { Stop-K32 'read_failed' }
     if ($line.Length -gt 1048576) { Stop-K32 'frame_too_large' }
+    Set-K32Boundary $State 'utf8' $null
     try { $bytes=[Text.UTF8Encoding]::new($false,$true).GetByteCount($line) } catch { Stop-K32 'malformed_response' }
     if ($bytes -gt 1048576) { Stop-K32 'frame_too_large' }
     $State.MessageCount++; $State.TotalBytes+=$bytes
     if ($State.MessageCount -gt 64 -or $State.TotalBytes -gt 4194304) { Stop-K32 'message_budget_exceeded' }
+    Set-K32Boundary $State 'json_decode' $null
     try { $frame=[K32Readonly.StrictJson]::Parse($line) } catch { Stop-K32 'malformed_response' }
+    Set-K32Boundary $State 'top_level' $frame $true
     if ($frame -isnot [Collections.IDictionary]) { Stop-K32 'malformed_response' }
     return ,$frame
 }
 function Read-K32Result {
-    param($Child,$State,[long]$Id,$Timer,[int]$Budget,[bool]$Quiet=$false)
+    param($Child,$State,[long]$Id,$Timer,[int]$Budget,[bool]$Quiet=$false,[string]$Method='')
     while ($true) {
         $remaining=$Budget-[int]$Timer.ElapsedMilliseconds
         if ($remaining -le 0) { Stop-K32 'timeout' }
@@ -151,6 +199,7 @@ function Read-K32Result {
         $frame=Receive-K32Frame -Child $Child -State $State -TimeoutMs $readWindow -Quiet $Quiet
         if ($null -eq $frame) { return $null }
         if (Has-K32Key $frame 'method') {
+            $State.Diagnostic.boundary='notification_envelope'
             if (Has-K32Key $frame 'id') { Stop-K32 'unexpected_server_request' }
             if (!(Test-K32Keys $frame @('method','params')) -or $frame.method -isnot [string]) { Stop-K32 'malformed_response' }
             if ($frame.method -ceq 'account/updated' -and $State.BaselineSeen) { Stop-K32 'identity_observation_changed' }
@@ -158,14 +207,37 @@ function Read-K32Result {
             $State.NotificationCount++
             continue
         }
+        $State.Diagnostic.boundary='response_id'
         if ($Quiet) { Stop-K32 'unexpected_response_id' }
         if (!(Has-K32Key $frame 'id') -or $frame.id -isnot [long] -or $frame.id -ne $Id) { Stop-K32 'unexpected_response_id' }
         if (Has-K32Key $frame 'error') {
+            $State.Diagnostic.boundary='error_envelope'
             if (!(Test-K32Keys $frame @('id','error'))) { Stop-K32 'malformed_response' }
             Stop-K32 'rpc_error'
         }
-        if (!(Test-K32Keys $frame @('id','result')) -or $frame.result -isnot [Collections.IDictionary]) { Stop-K32 'malformed_response' }
+        $State.Diagnostic.boundary='success_envelope'
+        if (!(Test-K32Keys $frame @('id','result'))) { Stop-K32 'malformed_response' }
+        $State.Diagnostic.boundary='method_result'
+        Assert-K32MethodResult $Method $frame.result
         return ,$frame.result
+    }
+}
+function Assert-K32MethodResult([string]$Method,$Result) {
+    # A valid generic result may be null/scalar; these methods still require an
+    # object. Keep the existing reasonCode while distinguishing this boundary.
+    if ($Result -isnot [Collections.IDictionary]) { Stop-K32 'malformed_response' }
+    switch -CaseSensitive -Exact ($Method) {
+        'initialize' {
+            foreach($key in @('codexHome','platformFamily','platformOs','userAgent')) {
+                if (!(Has-K32Key $Result $key) -or $Result[$key] -isnot [string]) { Stop-K32 'malformed_initialize' }
+            }
+        }
+        'configRequirements/read' {
+            if ((Has-K32Key $Result 'requirements') -and $null -ne $Result.requirements -and $Result.requirements -isnot [Collections.IDictionary]) { Stop-K32 'malformed_requirements' }
+        }
+        'config/read' {
+            if (!(Has-K32Key $Result 'config') -or $Result.config -isnot [Collections.IDictionary] -or !(Has-K32Key $Result 'origins') -or $Result.origins -isnot [Collections.IDictionary]) { Stop-K32 'malformed_config' }
+        }
     }
 }
 function Get-K32Account($Result) {
@@ -183,14 +255,14 @@ function Invoke-K32ReadonlyHandshake {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Child,[Parameter(Mandatory)][string]$ExpectedHome,[Parameter(Mandatory)][string]$Workspace,[int]$TimeoutMs=15000,[switch]$ExpectUnauthenticated)
     $receipt=[ordered]@{
-        status='failed';reasonCode=$null;failedStage='inputs';initializeSucceeded=$false;homeMatched=$false;
+        status='failed';reasonCode=$null;diagnostic=$null;failedStage='inputs';initializeSucceeded=$false;homeMatched=$false;
         requirementsReadSucceeded=$false;requirementStorePresent=$false;requirementStoreFile=$false;
         configReadSucceeded=$false;effectiveStoreFieldPresent=$false;effectiveStoreFile=$false;
         accountReadCount=0;authenticatedObservation=$false;continuityStatus='NOT_RUN';
         strongPrincipalProven=$false;workspaceContinuityProven=$false;sentMethods=@();receivedFrameCount=0;notificationCount=0
     }
     $methods=[Collections.Generic.List[string]]::new()
-    $state=@{MessageCount=0;TotalBytes=0;NotificationCount=0;BaselineSeen=$false}
+    $state=@{MessageCount=0;TotalBytes=0;NotificationCount=0;BaselineSeen=$false;Diagnostic=$null}
     $timer=[Diagnostics.Stopwatch]::StartNew()
     try {
         if ($TimeoutMs -le 0 -or $TimeoutMs -gt 60000) { Stop-K32 'invalid_inputs' }
@@ -199,10 +271,7 @@ function Invoke-K32ReadonlyHandshake {
         $receipt.failedStage='initialize'
         Send-K32Frame -Child $Child -Method 'initialize' -Params @{clientInfo=@{name='codex_timezone';title='K3.2 read-only preflight';version='k3.2'};capabilities=$null} -Id 1 -RemainingMs ($TimeoutMs-[int]$timer.ElapsedMilliseconds) -ExpectedWorkspace $cwd
         $methods.Add('initialize')
-        $init=Read-K32Result $Child $state 1 $timer $TimeoutMs
-        foreach($key in @('codexHome','platformFamily','platformOs','userAgent')) {
-            if (!(Has-K32Key $init $key) -or $init[$key] -isnot [string]) { Stop-K32 'malformed_initialize' }
-        }
+        $init=Read-K32Result $Child $state 1 $timer $TimeoutMs -Method 'initialize'
         $receipt.initializeSucceeded=$true
         try { $actualHome=Get-K32Path $init.codexHome } catch { Stop-K32 'home_mismatch' }
         if (![string]::Equals($canonicalExpectedHome,$actualHome,[StringComparison]::OrdinalIgnoreCase)) { Stop-K32 'home_mismatch' }
@@ -212,12 +281,11 @@ function Invoke-K32ReadonlyHandshake {
         $receipt.failedStage='requirements'
         Send-K32Frame -Child $Child -Method 'configRequirements/read' -Params $null -Id 2 -RemainingMs ($TimeoutMs-[int]$timer.ElapsedMilliseconds) -ExpectedWorkspace $cwd
         $methods.Add('configRequirements/read')
-        $policy=Read-K32Result $Child $state 2 $timer $TimeoutMs
+        $policy=Read-K32Result $Child $state 2 $timer $TimeoutMs -Method 'configRequirements/read'
         $receipt.requirementsReadSucceeded=$true
         if (Has-K32Key $policy 'requirements') {
             $requirements=$policy.requirements
             if ($null -ne $requirements) {
-                if ($requirements -isnot [Collections.IDictionary]) { Stop-K32 'malformed_requirements' }
                 if (Has-K32Key $requirements 'cliAuthCredentialsStore') {
                     $receipt.requirementStorePresent=$true
                     if ($null -ne $requirements.cliAuthCredentialsStore) {
@@ -230,8 +298,7 @@ function Invoke-K32ReadonlyHandshake {
         $receipt.failedStage='config'
         Send-K32Frame -Child $Child -Method 'config/read' -Params @{includeLayers=$false;cwd=$cwd} -Id 3 -RemainingMs ($TimeoutMs-[int]$timer.ElapsedMilliseconds) -ExpectedWorkspace $cwd
         $methods.Add('config/read')
-        $config=Read-K32Result $Child $state 3 $timer $TimeoutMs
-        if (!(Has-K32Key $config 'config') -or $config.config -isnot [Collections.IDictionary] -or !(Has-K32Key $config 'origins') -or $config.origins -isnot [Collections.IDictionary]) { Stop-K32 'malformed_config' }
+        $config=Read-K32Result $Child $state 3 $timer $TimeoutMs -Method 'config/read'
         $receipt.configReadSucceeded=$true
         if (!(Has-K32Key $config.config 'cli_auth_credentials_store')) { Stop-K32 'effective_store_unavailable' }
         $receipt.effectiveStoreFieldPresent=$true
@@ -241,7 +308,7 @@ function Invoke-K32ReadonlyHandshake {
         $receipt.failedStage='account_first'
         Send-K32Frame -Child $Child -Method 'account/read' -Params @{refreshToken=$false} -Id 4 -RemainingMs ($TimeoutMs-[int]$timer.ElapsedMilliseconds) -ExpectedWorkspace $cwd
         $methods.Add('account/read')
-        $firstResult=Read-K32Result $Child $state 4 $timer $TimeoutMs
+        $firstResult=Read-K32Result $Child $state 4 $timer $TimeoutMs -Method 'account/read'
         # Fresh empty-home probes must reject any identity before a second read,
         # including unsupported providers; no implicit shared/default account use.
         if ($ExpectUnauthenticated -and (Has-K32Key $firstResult 'account') -and $null -ne $firstResult.account) {
@@ -254,7 +321,7 @@ function Invoke-K32ReadonlyHandshake {
         $receipt.failedStage='account_second'
         Send-K32Frame -Child $Child -Method 'account/read' -Params @{refreshToken=$false} -Id 5 -RemainingMs ($TimeoutMs-[int]$timer.ElapsedMilliseconds) -ExpectedWorkspace $cwd
         $methods.Add('account/read')
-        $second=Get-K32Account (Read-K32Result $Child $state 5 $timer $TimeoutMs)
+        $second=Get-K32Account (Read-K32Result $Child $state 5 $timer $TimeoutMs -Method 'account/read')
         $receipt.accountReadCount++
         $receipt.failedStage='final_drain'
         # A quiet read catches already queued duplicate/late frames. The owner must
@@ -276,6 +343,7 @@ function Invoke-K32ReadonlyHandshake {
         $code=$_.Exception.Message
         if ($code -cnotin $allowed) { $code='incomplete' }
         $receipt.status='failed';$receipt.reasonCode=$code;$receipt.continuityStatus='NOT_RUN';$receipt.authenticatedObservation=$false
+        $receipt.diagnostic=$state.Diagnostic
     } finally {
         $first=$null;$firstResult=$null;$second=$null;$config=$null;$policy=$null;$init=$null;$requirements=$null
         $receipt.sentMethods=$methods.ToArray();$receipt.receivedFrameCount=$state.MessageCount;$receipt.notificationCount=$state.NotificationCount

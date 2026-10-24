@@ -1,11 +1,14 @@
 param([string]$EvidenceDirectory='')
 $ErrorActionPreference='Stop'
 function Get-K32OfficialStartupCapability {
-  # The pinned Windows build's requirements/registry precedence and pre-auth
-  # diagnostic loading order have not been established. A post-start RPC check
-  # cannot prove startup avoided a shared credential backend. This is a code
-  # capability gate, intentionally without a user override or retry fallback.
+  # The same-version startup/policy path has been audited. The actual effective
+  # backend and identity probe remain incomplete; this offline change preserves
+  # the prior no-start state, without an override or retry fallback.
   [pscustomobject]@{supported=$false;reasonCode='startup_auth_backend_unverified'}
+}
+function Get-K32ReadonlyArguments {
+  # Future launch template only; the public entry still returns before any use.
+  @('--no-daemon','-c','cli_auth_credentials_store="file"','-c','analytics.enabled=false','app-server','--strict-config','--listen','stdio://')
 }
 $startupCapability=Get-K32OfficialStartupCapability
 if(!$startupCapability.supported){
@@ -61,18 +64,17 @@ foreach($pair in @{
   CODEX_HOME=$probeHome; HOME=$profile; USERPROFILE=$profile; APPDATA=(Join-Path $profile 'appdata'); LOCALAPPDATA=(Join-Path $profile 'localappdata');
   TEMP=$temp; TMP=$temp; SystemRoot=$env:SystemRoot; WINDIR=$env:SystemRoot; COMSPEC=(Join-Path $env:SystemRoot 'System32/cmd.exe'); PATH=(Join-Path $env:SystemRoot 'System32')
 }.GetEnumerator()){$envChild.Add([string]$pair.Key,[string]$pair.Value)}
-$baseArgs=@('--no-daemon','-c','cli_auth_credentials_store="file"','-c','analytics.enabled=false','app-server')
+$readonlyArgs=Get-K32ReadonlyArguments
 $lease=[IO.FileStream]::new((Join-Path $run '.home-lease'),[IO.FileMode]::CreateNew,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 $processes=[Collections.Generic.List[object]]::new()
 $observations=[Collections.Generic.List[object]]::new()
-$startup=[ordered]@{status='not_run';requirementsObjectObserved=$false;storeConstraintPresent=$false;storeConstraint=$null;authFreeStartupProven=$false}
 $fatal=$null
 
 function Get-SafeTransportCode($ErrorRecord){
   $ex=$ErrorRecord.Exception
   while($ex){
     if($ex -is [K32Probe.ProbeException]){return $ex.ReasonCode}
-    if($ex.Message -cin @('startup_output_bound','startup_requirement_not_file','unexpected_credential_file','cleanup_unconfirmed','malformed_response','cli_pin_changed')){return $ex.Message}
+    if($ex.Message -cin @('unexpected_credential_file','cleanup_unconfirmed','malformed_response','cli_pin_changed')){return $ex.Message}
     $ex=$ex.InnerException
   }
   return 'probe_incomplete'
@@ -98,43 +100,9 @@ function Invoke-OwnStep([string]$Kind,[string[]]$Arguments,[scriptblock]$Action)
   }
 }
 try{
-  # Local static command: help promises no server start. Only a known
-  # requirements projection is retained; raw stdout/config is never saved.
-  Invoke-OwnStep 'startup_requirements' ($baseArgs+@('--print-startup-config')) {
-    param($child)
-    $lines=[Collections.Generic.List[string]]::new(); $bytes=0; $timer=[Diagnostics.Stopwatch]::StartNew()
-    while($true){
-      try{$line=$child.ReadLine([Math]::Max(1,15000-[int]$timer.ElapsedMilliseconds))}
-      catch{if((Get-SafeTransportCode $_) -ceq 'child_eof'){break};throw}
-      $bytes+=[Text.Encoding]::UTF8.GetByteCount($line)
-      if($bytes -gt 1048576 -or $timer.ElapsedMilliseconds -ge 15000){throw 'startup_output_bound'}
-      $lines.Add($line)
-    }
-    $value=[K32Readonly.StrictJson]::Parse(($lines -join [Environment]::NewLine))
-    $requirements=$null
-    if($value -is [Collections.IDictionary]){
-      if($value.ContainsKey('requirements')){$requirements=$value['requirements']}
-      else{$requirements=$value}
-    }
-    $startup.status='static_output_parsed'
-    $startup.requirementsObjectObserved=($requirements -is [Collections.IDictionary])
-    if($startup.requirementsObjectObserved){
-      foreach($key in @('cli_auth_credentials_store','cliAuthCredentialsStore')){
-        if($requirements.ContainsKey($key)){
-          $startup.storeConstraintPresent=$true
-          $store=$requirements[$key]
-          if($null -eq $store){$startup.storeConstraint=$null}
-          elseif($store -is [string] -and $store -cin @('file','keyring','auto','ephemeral')){$startup.storeConstraint=$store}
-          else{$startup.storeConstraint='unrecognized'}
-        }
-      }
-    }
-    $value=$null;$requirements=$null;$lines=$null;$line=$null
-  }
-  if($startup.storeConstraintPresent -and $null -ne $startup.storeConstraint -and $startup.storeConstraint -cne 'file'){throw 'startup_requirement_not_file'}
   for($round=1;$round -le 2;$round++){
     if(Test-Path -LiteralPath (Join-Path $probeHome 'auth.json')){throw 'unexpected_credential_file'}
-    Invoke-OwnStep ('readonly_session_'+$round) ($baseArgs+@('--listen','stdio://')) {
+    Invoke-OwnStep ('readonly_session_'+$round) $readonlyArgs {
       param($child)
       $projection=Invoke-K32ReadonlyHandshake -Child $child -ExpectedHome $probeHome -Workspace $workspace -TimeoutMs 20000 -ExpectUnauthenticated
       $observations.Add($projection)
@@ -160,7 +128,7 @@ finally{
     helperSha256=(Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant();
     protocolSha256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'ReadOnlyProtocol.psm1') -Algorithm SHA256).Hash.ToLowerInvariant();
     childEnvironmentKeys=@($envChild.Keys|Sort-Object);parentEnvironmentModified=$false;homeInitiallyEmpty=$true;
-    authFilePresentAfter=(Test-Path -LiteralPath (Join-Path $probeHome 'auth.json'));startup=$startup;
+    authFilePresentAfter=(Test-Path -LiteralPath (Join-Path $probeHome 'auth.json'));
     observations=$observations.ToArray();processes=$processes.ToArray();fatalReason=$fatal;
     cleanupUncertain=$uncertain;realModelRequests=$false;loginRequests=$false;realExecutionSupported=$false;authenticatedContinuityVerified=$false
   }

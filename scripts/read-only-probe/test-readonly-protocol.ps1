@@ -72,6 +72,31 @@ Assert ($wire[2].params -eq $null) 'requirements params use pinned null form'
 Assert ($wire[3].params.cwd -ceq $workspace -and !$wire[3].params.includeLayers) 'effective config uses process workspace'
 Assert (!$wire[4].params.refreshToken -and !$wire[5].params.refreshToken) 'account reads explicitly avoid proactive refresh'
 Safe $result 'stable result'
+Assert ($null -eq $result.diagnostic) 'documented nested requirements null has no rejecting diagnostic'
+
+# Removing the boundary projection would merge these distinct failures again.
+# Unknown key names and values deliberately carry the same privacy canary.
+$diagnosticCases=@(
+    @{frame='{';boundary='json_decode';resultKind='unavailable';requirementsKind='unavailable'},
+    @{frame='null';boundary='top_level';resultKind='missing';requirementsKind='missing'},
+    @{frame='{"id":2,"result":null}';boundary='method_result';resultKind='null';requirementsKind='missing'},
+    @{frame='{"id":2,"result":false}';boundary='method_result';resultKind='boolean';requirementsKind='missing'},
+    @{frame='{"id":2,"result":"SECRET_CANARY_PERSONAL_TOKEN_9e81"}';boundary='method_result';resultKind='string';requirementsKind='missing'},
+    @{frame='{"id":2,"result":[],"SECRET_CANARY_PERSONAL_TOKEN_9e81":"SECRET_CANARY_PERSONAL_TOKEN_9e81"}';boundary='success_envelope';resultKind='array';requirementsKind='missing'},
+    @{frame='{"id":2,"result":{"requirements":null},"SECRET_CANARY_PERSONAL_TOKEN_9e81":"SECRET_CANARY_PERSONAL_TOKEN_9e81"}';boundary='success_envelope';resultKind='object';requirementsKind='null'},
+    @{frame='{"id":2,"result":{"requirements":false,"SECRET_CANARY_PERSONAL_TOKEN_9e81":"SECRET_CANARY_PERSONAL_TOKEN_9e81"}}';boundary='method_result';resultKind='object';requirementsKind='boolean'},
+    @{frame='{"id":2,"result":{"requirements":null,"Requirements":"SECRET_CANARY_PERSONAL_TOKEN_9e81"}}';boundary='json_decode';resultKind='unavailable';requirementsKind='unavailable'}
+)
+foreach($case in $diagnosticCases){
+    $frames=Good-Frames; $frames[1]=$case.frame
+    $child=Fake-Child $frames; $result=Probe $child
+    Assert ($result.status -ceq 'failed') 'unsupported diagnostic fixture remains rejected'
+    Assert ($result.diagnostic.boundary -ceq $case.boundary) 'failure reports its actual rejecting boundary'
+    Assert ($result.diagnostic.shape.resultKind -ceq $case.resultKind) 'result kind distinguishes missing/null/scalar/object'
+    Assert ($result.diagnostic.shape.requirementsKind -ceq $case.requirementsKind) 'nested requirements kind is independent from outer result'
+    No-Accounts $child 'diagnostic rejection happens before account reads'
+    Safe $result 'fixed projection diagnostic'
+}
 
 # A supposedly fresh home must never silently adopt a shared/default identity.
 # Removing the switch guard makes this emit a second account request and report stable.
