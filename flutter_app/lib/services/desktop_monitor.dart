@@ -83,7 +83,12 @@ class DesktopMonitor {
         case 'systemResume':
           usage.systemResumed();
         case 'refresh':
-          await usage.query(path(), details: false);
+          final owner = usage.sources;
+          if (owner == null) {
+            await usage.query(path(), details: false);
+          } else {
+            await owner.refresh(owner.pinnedId);
+          }
         case 'pause':
           usage.pause();
         case 'resume':
@@ -107,19 +112,22 @@ class DesktopMonitor {
 
   bool get _keepAlive =>
       usage.monitoring ||
+      usage.sources?.anyBusy == true ||
       metrics?.selected != null ||
       benchmark?.keepAlive == true;
 
   Future<void> _exit() => _exitRequest ??= _gracefulExit();
 
   Future<void> _gracefulExit() async {
+    usage.pause(persist: false);
+    final sourcesShutdown = usage.sources?.shutdown();
     await benchmark?.shutdown();
     await benchmark?.saved;
-    usage.pause(persist: false);
+    await sourcesShutdown;
     await usage.roles.saved;
     await usage.settingsSaved;
     // Query owns its short-lived app-server. Let Rust Drop clean it first.
-    while (usage.busy && !_closed) {
+    while (usage.sources == null && usage.busy && !_closed) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     await usage.settingsSaved;

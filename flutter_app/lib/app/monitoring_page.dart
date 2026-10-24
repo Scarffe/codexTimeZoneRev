@@ -6,6 +6,7 @@ import '../state/launcher_controller.dart';
 import '../state/session_metrics_controller.dart';
 import '../services/monitoring_guide.dart';
 import 'account_usage_panel.dart';
+import 'account_sources_panel.dart';
 import 'session_metrics_panel.dart';
 import 'session_measurement_workspace.dart';
 import 'monitor_presentation.dart';
@@ -100,6 +101,8 @@ class MonitoringPage extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
+              if (usage.sources != null)
+                AccountSourcesPanel(owner: usage.sources!),
               AccountUsagePanel(
                 key: accountPanelKey,
                 controller: usage,

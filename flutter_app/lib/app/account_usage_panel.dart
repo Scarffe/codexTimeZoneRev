@@ -31,6 +31,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
   final _scroll = ScrollController();
   String _view = 'remaining';
   String? _bucketId;
+  Object? _sourceIdentity;
 
   void _syncClock() {
     if (widget.controller.data == null) {
@@ -82,6 +83,17 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
+    final sourceIdentity = (
+      controller.sources?.selectedId,
+      controller.sources?.selected?.generation,
+    );
+    if (_sourceIdentity != sourceIdentity) {
+      _sourceIdentity = sourceIdentity;
+      _bucketId = null;
+    }
+    final offlineBlocked =
+        controller.offlineTrial &&
+        controller.sources?.service.synthetic != true;
     final data = controller.data;
     final bucket = _selectedBucket(data?.buckets ?? const []);
     final windows = bucket?.windows ?? const <UsageWindow>[];
@@ -160,9 +172,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
               semanticsLabel: controller.busy ? '正在查询用量…' : '查询账号用量',
               variant: FButtonVariant.ghost,
               onPress:
-                  controller.busy ||
-                      widget.launcher.preview ||
-                      controller.offlineTrial
+                  controller.busy || widget.launcher.preview || offlineBlocked
                   ? null
                   : () {
                       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -179,7 +189,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                 controller.monitoring ? FLucideIcons.pause : FLucideIcons.play,
                 size: 16,
               ),
-              onPress: widget.launcher.preview || controller.offlineTrial
+              onPress: widget.launcher.preview || offlineBlocked
                   ? null
                   : () {
                       if (controller.monitoring) {
@@ -227,7 +237,13 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         else
           MonitorBarChart(
             key: const ValueKey('account-quota-chart'),
-            inspectionIdentity: (data.identity, bucket?.id, _view),
+            inspectionIdentity: (
+              controller.sources?.selectedId,
+              controller.sources?.selected?.generation,
+              data.identity,
+              bucket?.id,
+              _view,
+            ),
             bars: [
               for (final window in windows)
                 ChartBar(

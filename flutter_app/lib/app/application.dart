@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backend.dart';
 import '../services/account_usage.dart';
+import '../services/account_sources.dart';
+import '../services/account_source_store.dart';
 import '../services/desktop_monitor.dart';
 import '../services/monitor_preferences.dart';
 import '../services/session_selection.dart';
@@ -14,6 +16,7 @@ import '../services/window_material.dart';
 import '../services/window_chrome.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
+import '../state/account_sources_controller.dart';
 import 'launcher_page.dart';
 import 'monitoring_page.dart';
 import 'monitor_settings_dialog.dart';
@@ -41,6 +44,10 @@ class LauncherApplication extends StatefulWidget {
     this.monitorInterval = const Duration(minutes: 2),
     this.offlineTrial = false,
     this.benchmarkController,
+    this.sourceController,
+    this.sourcesService,
+    this.sourcesStore,
+    this.sessionMetricsController,
   });
   final bool preview;
   final LauncherBackend? backend;
@@ -54,6 +61,10 @@ class LauncherApplication extends StatefulWidget {
   final Duration monitorInterval;
   final bool offlineTrial;
   final BenchmarkController? benchmarkController;
+  final AccountSourcesController? sourceController;
+  final AccountSourcesService? sourcesService;
+  final AccountSourceStore? sourcesStore;
+  final SessionMetricsController? sessionMetricsController;
   @override
   State<LauncherApplication> createState() => _LauncherApplicationState();
 }
@@ -72,6 +83,34 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       ? NetworkController(offlineTrial: true)
       : widget.networkFactory?.call() ??
             NetworkController(preview: widget.preview);
+  late final AccountSourcesController? sources = _createSources();
+  AccountSourcesController? _createSources() {
+    final injected = widget.sourceController;
+    if (injected != null) {
+      // An application's offline policy also covers owners constructed elsewhere.
+      return widget.offlineTrial && !injected.service.synthetic
+          ? null
+          : injected;
+    }
+    final production =
+        !widget.preview &&
+        widget.backend == null &&
+        widget.usageService == null;
+    if (widget.sourcesService == null && !production) return null;
+    return AccountSourcesController(
+      widget.sourcesService ??
+          NativeAccountSourcesService(
+            backend,
+            offlineTrial: widget.offlineTrial,
+          ),
+      widget.sourcesStore ??
+          (production
+              ? AccountSourceStore.portable()
+              : AccountSourceStore.memory()),
+      offlineTrial: widget.offlineTrial,
+    );
+  }
+
   late final usage = AccountUsageController(
     widget.usageService ??
         NativeAccountUsageService(
@@ -79,8 +118,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           offlineTrial: widget.offlineTrial,
         ),
     offlineTrial: widget.offlineTrial,
+    sources: sources,
   );
-  late final metrics = SessionMetricsController(launcher.backend);
+  late final metrics =
+      widget.sessionMetricsController ??
+      SessionMetricsController(launcher.backend);
   // Existing injected launcher fixtures opt in explicitly to the new backend.
   late final benchmark =
       widget.benchmarkController ??
@@ -201,6 +243,9 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
         await usage.loadPreferences(MonitorPreferencesStore.portable());
       }
+      if (!mounted) return;
+      await sources?.initialize(() => launcher.effectivePath);
+      if (!mounted) return;
       if (mounted &&
           !widget.preview &&
           !widget.offlineTrial &&
@@ -329,7 +374,9 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     color: DashboardPalette.of(context).soft,
                     padding: const EdgeInsets.all(8),
                     child: Text(
-                      '离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。',
+                      sources?.service.synthetic == true
+                          ? '离线试用 · 仅合成来源可操作；真实账号查询与客户端启动已停用。'
+                          : '离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: DashboardPalette.of(context).foreground,
@@ -386,6 +433,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     launcher.dispose();
     network.dispose();
     usage.dispose();
+    sources?.dispose();
     metrics.dispose();
     benchmark.dispose();
     appearance.dispose();
