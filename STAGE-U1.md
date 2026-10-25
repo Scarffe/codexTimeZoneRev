@@ -1,6 +1,6 @@
 # U1 / rc24：额度观测历史
 
-版本：`0.2.4-rc.24+28`。U1.1–U1.2 已完成离线实现和独立审查；本页记录发布构建前的已验证源码状态。最终 Windows 构建、普通候选文件清单、ZIP SHA-256 和保护核对以 `environment/quota-history-validation-20261025-a/VALIDATION.md` 及同目录不可变回执为准，不以本文预判构建结果。
+版本：`0.2.4-rc.24+28`。状态：OFFLINE_READY + LIVE_PENDING。U1.1–U1.2 已完成离线实现和独立审查；普通 Windows release 已构建并打包，候选源码提交 `cecfd30ef366c5a290c53d169a7749d433591b25`。本页收尾更新仅含文档，候选内保留该源码提交时的构建前说明；最终文件清单、SHA-256 和保护核对以 `environment/quota-history-validation-20261025-a/VALIDATION.md` 及同目录不可变回执为准。
 
 账号额度页提供“当前额度 / 历史与节奏”。历史页在同页显示观测趋势、小时观测最低剩余与变化/查询异常，支持本地范围、窗口及登录段筛选。筛选不会查询额度，历史不增加联网频率，账号来源与会话日志/API 选择继续隔离。保留原分析五图、三主题明暗和减少动画。
 
@@ -12,6 +12,9 @@
 - 全项目 `flutter --no-version-check analyze --no-pub` 无问题，exit 0。
 - 本轮保留旧 32 文件相关集，加全部 6 个历史测试及受影响额度/渲染/生命周期/偏好设置；没有重复运行全 Flutter 测试套件。
 - native 树为 `8b2fd52f3e887996895116d45e050bc689c7a8c9`；复用既有验证 DLL，SHA-256 为 `f31de4b6479d9c274ffbdd19f8a72cd3e0d20cbf1972cbbcf68768f1ae8588e7`，没有 Rust 重建。
+- 普通 Windows release 构建 exit 0（115.5 秒，26 个运行文件），打包 exit 0（37 个文件）；ZIP 为 `environment/artifacts/CodexTimeZone-Quota-History-windows-x64-rc24-cecfd30.zip`，SHA-256 `08e9cf22b06f072dee5df97817decd43d4405b37af10fe2d48d41426353b409e`。包内文件哈希逐项匹配回执，默认刷新关闭、间隔 120 秒，没有 auth/catalog/history。
+
+保护核对：1965 个既有文件全部哈希一致；`protection-prelogin.json` 因 7 个主身份中的 2 个旧 Codex 子进程缺失而返回 exit 1，5 个主身份（含主 ChatGPT）精确保留。两个缺失身份同属 parent 23036 的进程组，另两个同组子进程也已缺失；本轮未启动/停止任何应用，身份清单不能证明该组消失原因。原失败回执与补充身份调查均保留，主任务仍需解释此项，不能声称全部进程保护通过。
 
 本候选尚未启动、官方登录或真实额度查询；本轮模型请求为 0。单来源重启/历史、双来源、隐藏后默认 120 秒自动刷新、物理通知外观/点击、自然低额度提醒、凭据续期、真实断网、Windows 睡眠与双屏混合 DPI 均为 LIVE_PENDING / NOT_RUN；离线夹具不代替这些证据。
 
