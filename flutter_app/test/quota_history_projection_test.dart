@@ -83,6 +83,44 @@ QuotaHistoryProjection project(
 );
 
 void main() {
+  test(
+    'windowless selected segment retains only its failure and no-limits facts',
+    () {
+      for (final outcome in [
+        QueryHistoryOutcome.failure,
+        QueryHistoryOutcome.noLimits,
+      ]) {
+        final p = project([
+          row(1, 10, outcome: outcome),
+          row(2, 20, outcome: QueryHistoryOutcome.failure, segment: 'older'),
+          row(
+            3,
+            30,
+            outcome: QueryHistoryOutcome.failure,
+            source: 'profile-other',
+          ),
+        ], selection: filter(bucket: null, role: null));
+        expect(p.requiresSelection, isTrue);
+        expect(p.events.length, 1);
+        expect(
+          p.events.single.kind,
+          outcome == QueryHistoryOutcome.failure
+              ? QuotaHistoryEventKind.queryFailure
+              : QuotaHistoryEventKind.noLimits,
+        );
+        expect(p.failureCount, outcome == QueryHistoryOutcome.failure ? 1 : 0);
+        expect(p.sampleCount, 0);
+        expect(p.trendSegments, isEmpty);
+        expect(p.hourCells, isEmpty);
+        expect(p.latestPoint, isNull);
+      }
+      final discovery = project([
+        row(1, 10, outcome: QueryHistoryOutcome.failure),
+      ], selection: filter(segment: null, bucket: null, role: null));
+      expect(discovery.events, isEmpty);
+      expect(discovery.failureCount, 0);
+    },
+  );
   test('unrecognized attempt IDs cannot masquerade as a known run', () {
     final p = project([row(1, 0), row(1, 120, attemptId: 'r'), row(2, 240)]);
     expect(p.sampleCount, 3);

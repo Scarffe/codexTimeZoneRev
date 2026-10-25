@@ -20,6 +20,7 @@ import '../services/window_chrome.dart';
 import '../state/launcher_controller.dart';
 import '../state/account_usage_controller.dart';
 import '../state/account_sources_controller.dart';
+import '../state/quota_history_controller.dart';
 import 'launcher_page.dart';
 import 'accounts_workspace_page.dart';
 import 'workspace_overview_page.dart';
@@ -81,6 +82,7 @@ class LauncherApplication extends StatefulWidget {
     this.sourcesService,
     this.sourcesStore,
     this.historyStore,
+    this.historyController,
     this.sessionMetricsController,
     this.attentionController,
     this.attentionStore,
@@ -102,6 +104,7 @@ class LauncherApplication extends StatefulWidget {
   final AccountSourcesService? sourcesService;
   final AccountSourceStore? sourcesStore;
   final QuotaHistoryStore? historyStore;
+  final QuotaHistoryController? historyController;
   final SessionMetricsController? sessionMetricsController;
   final SessionAttentionController? attentionController;
   final SessionAttentionStore? attentionStore;
@@ -126,6 +129,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late final AccountSourcesController? sources = _createSources();
   late final QuotaHistoryStore historyStore =
       widget.historyStore ??
+      widget.historyController?.store ??
       (widget.sourceController?.historySink is QuotaHistoryStore
           ? widget.sourceController!.historySink! as QuotaHistoryStore
           : (!widget.preview &&
@@ -134,6 +138,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     widget.usageService == null
                 ? QuotaHistoryStore.portable()
                 : QuotaHistoryStore.memory()));
+  late final history =
+      widget.historyController ?? QuotaHistoryController(historyStore);
   AccountSourcesController? _createSources() {
     final injected = widget.sourceController;
     if (injected != null) {
@@ -540,6 +546,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     ),
                     accounts: AccountsWorkspacePage(
                       key: const ValueKey('accounts-page'),
+                      history: history,
                       usage: usage,
                       launcher: launcher,
                     ),
@@ -585,6 +592,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     launcher.dispose();
     network.dispose();
     usage.dispose();
+    history.dispose();
     sources?.dispose();
     metrics.dispose();
     benchmark.dispose();

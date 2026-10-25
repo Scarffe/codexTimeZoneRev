@@ -53,8 +53,37 @@ QuotaHistoryProjection projectQuotaHistory(
       filter.bucketId == null ||
       filter.role == null;
   if (requiresSelection) {
+    // A selected login segment can fail before it reports any window. Preserve
+    // those source-level facts without inventing a bucket, role or numeric point.
+    final windowless =
+        filter.segmentId != null &&
+        !series.values.any((s) => s.segmentId == filter.segmentId);
+    final sourceEvents = <QuotaHistoryEvent>[];
+    var sourceFailures = 0;
+    if (windowless) {
+      for (final row in rows.where((r) => r.segmentId == filter.segmentId)) {
+        if (row.outcome == QueryHistoryOutcome.failure ||
+            row.outcome == QueryHistoryOutcome.noLimits) {
+          final failed = row.outcome == QueryHistoryOutcome.failure;
+          if (failed) sourceFailures++;
+          final time = _utc(row.completedAtMs);
+          sourceEvents.add(
+            QuotaHistoryEvent(
+              kind: failed
+                  ? QuotaHistoryEventKind.queryFailure
+                  : QuotaHistoryEventKind.noLimits,
+              fromUtc: time,
+              toUtc: time,
+              errorKind: failed ? row.errorKind : null,
+            ),
+          );
+        }
+      }
+    }
     return QuotaHistoryProjection(
       requiresSelection: true,
+      events: sourceEvents,
+      failureCount: sourceFailures,
       availableSegmentIds: segments.toList(),
       availableSeries: series.values.toList(),
       actualFromUtc: actualMin == null ? null : _utc(actualMin),
