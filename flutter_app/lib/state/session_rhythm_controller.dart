@@ -22,6 +22,7 @@ class SessionRhythmController extends ChangeNotifier {
   late RhythmProjection _projection;
   bool _busy = false, _disposed = false, _readBlocked = false;
   bool _initialized = false;
+  Future<void>? _initialization;
   int _generation = 0, _cancelSerial = 0;
   RhythmRange _range = RhythmRange.days7;
   RhythmHour? _selectedHour;
@@ -66,19 +67,23 @@ class SessionRhythmController extends ChangeNotifier {
       generation == _generation &&
       sources.any((s) => s.key == key);
 
-  Future<void> initialize() async {
-    if (_disposed || _initialized) return;
-    _initialized = true;
-    final generation = _generation;
+  Future<void> initialize() {
+    if (_disposed) return _initialization ?? Future<void>.value();
+    return _initialization ??= _restore();
+  }
+
+  Future<void> _restore() async {
     try {
       final cached = await store.read();
-      if (_disposed || generation != _generation) return;
+      if (_disposed) return;
       _cache = cached;
       _stale.addAll(cached.sources.map((s) => s.key));
     } catch (_) {
-      if (_disposed || generation != _generation) return;
+      if (_disposed) return;
       _readBlocked = true;
       _storageError = '活动缓存读取失败，可重读本地日志重建';
+    } finally {
+      _initialized = true;
     }
     _reproject();
     _notify();
@@ -101,6 +106,11 @@ class SessionRhythmController extends ChangeNotifier {
     if (source.path.isEmpty || source.sessionId.isEmpty) {
       throw ArgumentError('来源路径和会话身份不能为空');
     }
+    // Source mutations must derive from restored selection, including fixture
+    // use before initialize(). Cancellation invalidates deferred user intent,
+    // but must not discard the persisted cache that restoration is loading.
+    if (!_initialized) await initialize();
+    if (_disposed || cancellation != _cancelSerial) return;
     if (!sources.any((s) => s.key == source.key)) {
       // The same normalized path may only carry one expected identity at once.
       final pathKey = source.key.split('\u0000').first;
@@ -151,6 +161,8 @@ class SessionRhythmController extends ChangeNotifier {
   }
 
   Future<void> removeSource(String key) async {
+    if (_disposed) return;
+    if (!_initialized) await initialize();
     if (_disposed) return;
     // Cancel the entire active refresh: its next async boundary cannot revive
     // removed data, and subsequent sources remain explicitly stale.
@@ -264,6 +276,15 @@ class SessionRhythmController extends ChangeNotifier {
 
   Future<void> refresh({String? sourceKey}) {
     if (_disposed) return Future<void>.value();
+    if (!_initialized) {
+      final cancellation = _cancelSerial;
+      return initialize().then<void>((_) {
+        if (_disposed || cancellation != _cancelSerial) {
+          return Future<void>.value();
+        }
+        return refresh(sourceKey: sourceKey);
+      });
+    }
     if (_busy) return _active ?? Future<void>.value();
     final selection = sources
         .where((s) => sourceKey == null || s.key == sourceKey)
@@ -401,6 +422,7 @@ class SessionRhythmController extends ChangeNotifier {
       cancel();
       _disposed = true;
     }
+    await _initialization;
     await _reads;
     await store.flush();
   }

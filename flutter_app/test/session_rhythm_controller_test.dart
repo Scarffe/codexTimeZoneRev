@@ -47,6 +47,194 @@ Map<String, dynamic> page({
 final clock = DateTime.utc(2026, 10, 25, 12);
 final end = clock.millisecondsSinceEpoch - 1000;
 void main() {
+  test(
+    'explicit refresh during restoration waits for restored source A',
+    () async {
+      final store = HeldReadStore();
+      await store.write(RhythmCache(sources: [sourceA]));
+      final gate = store.holdNextRead();
+      final backend = FakeRhythmBackend(
+        (p) => page(records: [fact(2, end: end)]),
+      );
+      final c = SessionRhythmController(
+        backend: backend,
+        store: store,
+        now: () => clock,
+      );
+      final initialized = c.initialize();
+      await store.entered.future;
+      final refreshed = c.refresh();
+      await Future<void>.delayed(Duration.zero);
+      expect(backend.calls, isEmpty);
+      gate.complete();
+      await Future.wait([initialized, refreshed]);
+      expect(backend.calls.map((p) => p['path']), [sourceA.path]);
+      expect(c.turns.single.turnId, 'turn2');
+      await c.shutdown();
+    },
+  );
+  test('held initialization merges an explicit B addition with restored A in UI and disk', () async {
+    final store = HeldReadStore();
+    await store.write(
+      RhythmCache(
+        sources: [sourceA],
+        turns: [row(1, end: end)],
+        lastReadMs: {sourceA.key: end},
+      ),
+    );
+    final gate = store.holdNextRead();
+    final backend = FakeRhythmBackend((p) {
+      expect(p['path'], sourceB.path);
+      return page(
+        id: 'b',
+        records: [fact(2, end: end)],
+      );
+    });
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => clock,
+    );
+    final initialized = c.initialize();
+    await store.entered.future;
+    final added = c.addSource(sourceB);
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.calls, isEmpty);
+    gate.complete();
+    await Future.wait([initialized, added]);
+    expect(c.sources.map((s) => s.key).toSet(), {sourceA.key, sourceB.key});
+    expect(c.turns.map((t) => t.sourceKey).toSet(), {sourceA.key, sourceB.key});
+    expect(c.lastReadMsBySource[sourceA.key], end);
+    expect(backend.calls.map((p) => p['path']), [sourceB.path]);
+    expect(store.reads, 1);
+    expect((await store.read()).sources.map((s) => s.key).toSet(), {
+      sourceA.key,
+      sourceB.key,
+    });
+    await c.shutdown();
+  });
+  test('initialize callers join the same pending cache-only future', () async {
+    final store = HeldReadStore();
+    await store.write(RhythmCache(sources: [sourceA]));
+    final gate = store.holdNextRead();
+    final backend = FakeRhythmBackend((p) => page());
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => clock,
+    );
+    final first = c.initialize();
+    await store.entered.future;
+    final second = c.initialize();
+    var secondDone = false;
+    second.then((_) => secondDone = true);
+    await Future<void>.delayed(Duration.zero);
+    final returnedEarly = secondDone;
+    gate.complete();
+    await Future.wait([first, second]);
+    expect(returnedEarly, false);
+    expect(identical(first, second), true);
+    expect(store.reads, 1);
+    expect(backend.calls, isEmpty);
+    await c.shutdown();
+  });
+  test('cancel during a deferred addition restores A without reviving B read or write', () async {
+    final store = HeldReadStore();
+    await store.write(RhythmCache(sources: [sourceA]));
+    final gate = store.holdNextRead();
+    final backend = FakeRhythmBackend((p) => page(id: 'b'));
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => clock,
+    );
+    final initialized = c.initialize();
+    await store.entered.future;
+    final added = c.addSource(sourceB);
+    await Future<void>.delayed(Duration.zero);
+    c.cancel();
+    gate.complete();
+    await Future.wait([initialized, added]);
+    expect(c.sources.map((s) => s.key), [sourceA.key]);
+    expect((await store.read()).sources.map((s) => s.key), [sourceA.key]);
+    expect(store.writes, 0);
+    expect(backend.calls, isEmpty);
+    await c.shutdown();
+  });
+  test('shutdown during deferred addition waits restoration and leaves saved A intact', () async {
+    final store = HeldReadStore();
+    await store.write(RhythmCache(sources: [sourceA]));
+    final gate = store.holdNextRead();
+    final backend = FakeRhythmBackend((p) => page(id: 'b'));
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => clock,
+    );
+    final initialized = c.initialize();
+    await store.entered.future;
+    final added = c.addSource(sourceB);
+    await Future<void>.delayed(Duration.zero);
+    var stopped = false;
+    final shutdown = c.shutdown().then((_) => stopped = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(stopped, false);
+    gate.complete();
+    await Future.wait([initialized, added, shutdown]);
+    expect((await store.read()).sources.map((s) => s.key), [sourceA.key]);
+    expect(c.sources.any((s) => s.key == sourceB.key), false);
+    expect(store.writes, 0);
+    expect(backend.calls, isEmpty);
+  });
+  test('pre-initialize fixture addition restores selection first without refreshing A', () async {
+    final store = SessionRhythmStore.memory();
+    await store.write(RhythmCache(sources: [sourceA]));
+    final backend = FakeRhythmBackend((p) {
+      expect(p['path'], sourceB.path);
+      return page(
+        id: 'b',
+        records: [fact(2, end: end)],
+      );
+    });
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => clock,
+    );
+    await c.addSource(sourceB);
+    await c.initialize();
+    expect(c.sources.map((s) => s.key).toSet(), {sourceA.key, sourceB.key});
+    expect((await store.read()).sources.map((s) => s.key).toSet(), {
+      sourceA.key,
+      sourceB.key,
+    });
+    expect(backend.calls.map((p) => p['path']), [sourceB.path]);
+    await c.shutdown();
+  });
+  test(
+    'source removal waits pending restoration before changing saved selection',
+    () async {
+      final store = HeldReadStore();
+      await store.write(RhythmCache(sources: [sourceA, sourceB]));
+      final gate = store.holdNextRead();
+      final backend = FakeRhythmBackend((p) => page());
+      final c = SessionRhythmController(
+        backend: backend,
+        store: store,
+        now: () => clock,
+      );
+      final initialized = c.initialize();
+      await store.entered.future;
+      final removed = c.removeSource(sourceA.key);
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      await Future.wait([initialized, removed]);
+      expect(c.sources.map((s) => s.key), [sourceB.key]);
+      expect((await store.read()).sources.map((s) => s.key), [sourceB.key]);
+      expect(backend.calls, isEmpty);
+      await c.shutdown();
+    },
+  );
   test('three explicit additions retain every serial read intent behind held A and B', () async {
     const sourceC = RhythmSource(
       path: r'C:\synthetic\c.jsonl',
@@ -609,6 +797,48 @@ class HeldWriteStore extends SessionRhythmStore {
   @override
   Future<void> flush() async {
     await _writes;
+    await super.flush();
+  }
+}
+
+/// Holds the first read result and queues subsequent writes behind it, exactly
+/// like the production store's read/write ordering, using only synthetic facts.
+class HeldReadStore extends SessionRhythmStore {
+  HeldReadStore() : super.memory();
+  Completer<void>? _next;
+  late Completer<void> entered;
+  Future<RhythmCache>? _heldRead;
+  int reads = 0, writes = 0;
+  Completer<void> holdNextRead() {
+    writes = 0;
+    entered = Completer<void>();
+    return _next = Completer<void>();
+  }
+
+  @override
+  Future<RhythmCache> read() {
+    reads++;
+    final gate = _next;
+    _next = null;
+    final read = super.read();
+    if (gate == null) return read;
+    return _heldRead = read.then((cache) async {
+      entered.complete();
+      await gate.future;
+      return cache;
+    });
+  }
+
+  @override
+  Future<void> write(RhythmCache cache) async {
+    writes++;
+    await _heldRead;
+    await super.write(cache);
+  }
+
+  @override
+  Future<void> flush() async {
+    await _heldRead;
     await super.flush();
   }
 }
