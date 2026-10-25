@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import '../state/session_rhythm_controller.dart';
+import 'session_rhythm_panel.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -23,7 +26,17 @@ class MonitoringPage extends StatefulWidget {
     this.noticeContextKey,
     this.notice,
     this.onDismissNotice,
+    this.rhythm,
+    this.onOpenRhythm,
+    this.historyContext,
+    this.onDismissHistory,
+    this.currentViewRevision = 0,
   });
+  final SessionRhythmController? rhythm;
+  final ValueChanged<RhythmAnalysisContext>? onOpenRhythm;
+  final RhythmAnalysisContext? historyContext;
+  final VoidCallback? onDismissHistory;
+  final int currentViewRevision;
   final LauncherController launcher;
   final AccountUsageController usage;
   final SessionMetricsController metrics;
@@ -36,6 +49,15 @@ class MonitoringPage extends StatefulWidget {
 }
 
 class _MonitoringPageState extends State<MonitoringPage> {
+  bool _rhythmView = false;
+  @override
+  void didUpdateWidget(covariant MonitoringPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentViewRevision != widget.currentViewRevision) {
+      _rhythmView = false;
+    }
+  }
+
   String _view = 'remaining';
   String? _bucket;
   Timer? _clock;
@@ -75,141 +97,211 @@ class _MonitoringPageState extends State<MonitoringPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (notice != null)
-            KeyedSubtree(
-              key: widget.noticeContextKey,
-              child: FCard(
-                key: const ValueKey('notice-analysis-context'),
+          if (widget.rhythm != null) ...[
+            Wrap(
+              spacing: 8,
+              children: [
+                FButton(
+                  mainAxisSize: MainAxisSize.min,
+                  variant: !_rhythmView
+                      ? FButtonVariant.primary
+                      : FButtonVariant.outline,
+                  onPress: () => setState(() => _rhythmView = false),
+                  child: const Text('当前会话'),
+                ),
+                FButton(
+                  mainAxisSize: MainAxisSize.min,
+                  variant: _rhythmView
+                      ? FButtonVariant.primary
+                      : FButtonVariant.outline,
+                  onPress: () => setState(() => _rhythmView = true),
+                  child: const Text('会话节奏'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (_rhythmView && widget.rhythm != null)
+            SessionRhythmPanel(
+              controller: widget.rhythm!,
+              available: widget.metrics.sessions,
+              listing: widget.metrics.listing,
+              listError: widget.metrics.listError,
+              onList: widget.metrics.list,
+              onOpen: widget.onOpenRhythm ?? (_) {},
+            ),
+          if (!_rhythmView) ...[
+            if (widget.historyContext case final history?) ...[
+              FCard(
+                key: widget.noticeContextKey,
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('原提醒：${notice.title}'),
-                      Text('会话 ${notice.sessionId} · 原回合 ${notice.turnId}'),
-                      Text(notice.path),
+                      const Text('历史来源分析 · 缓存回合上下文'),
                       Text(
-                        !matchesNotice
+                        '${history.source.title} · 会话 ${history.source.sessionId} · 原回合 ${history.turn.turnId}',
+                      ),
+                      Text(history.source.path),
+                      Text(
+                        widget.metrics.selected != history.source.path ||
+                                widget.metrics.sourceInfo?['id'] !=
+                                    history.source.sessionId
                             ? '原来源尚未通过身份核验；不会替换为其他会话。'
-                            : widget.metrics.last?['turnId'] == notice.turnId
-                            ? '最近样本与原提醒回合一致。'
-                            : '原提醒回合的完整样本不可用或已更新；下方显示此来源当前可用的观测。',
+                            : widget.metrics.last?['turnId'] ==
+                                  history.turn.turnId
+                            ? '最近样本与历史回合一致。'
+                            : '历史回合五图不可回放；下方显示此来源当前可用的观测。',
                       ),
                       FButton(
                         variant: FButtonVariant.ghost,
-                        mainAxisSize: MainAxisSize.min,
-                        onPress: widget.onDismissNotice,
-                        child: const Text('关闭提醒上下文'),
+                        onPress: widget.onDismissHistory,
+                        child: const Text('关闭历史上下文'),
                       ),
                     ],
                   ),
                 ),
               ),
-            ),
-          if (notice != null) const SizedBox(height: 16),
-          FCard(
-            key: const ValueKey('analysis-quota-card'),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        FLucideIcons.gauge,
-                        size: 18,
-                        color: palette.controlAccent,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '账号额度 · 独立来源',
-                          style: context.theme.typography.display.lg,
+              const SizedBox(height: 16),
+            ],
+            if (notice != null)
+              KeyedSubtree(
+                key: widget.noticeContextKey,
+                child: FCard(
+                  key: const ValueKey('notice-analysis-context'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('原提醒：${notice.title}'),
+                        Text('会话 ${notice.sessionId} · 原回合 ${notice.turnId}'),
+                        Text(notice.path),
+                        Text(
+                          !matchesNotice
+                              ? '原来源尚未通过身份核验；不会替换为其他会话。'
+                              : widget.metrics.last?['turnId'] == notice.turnId
+                              ? '最近样本与原提醒回合一致。'
+                              : '原提醒回合的完整样本不可用或已更新；下方显示此来源当前可用的观测。',
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text('各窗口分别计量 · 不从会话日志推断账号', style: secondary),
-                  const SizedBox(height: 20),
-                  if (owner != null && owner.selected != null) ...[
-                    MonitorChoice(
-                      key: const ValueKey('analysis-account-source'),
-                      label: '额度来源',
-                      value: owner.selectedId,
-                      items: {
-                        for (final state in owner.states.where(
-                          (s) => !s.pendingRemoval,
-                        ))
-                          '${state.alias} · ${state.id}': state.id,
-                      },
-                      onChanged: owner.select,
+                        FButton(
+                          variant: FButtonVariant.ghost,
+                          mainAxisSize: MainAxisSize.min,
+                          onPress: widget.onDismissNotice,
+                          child: const Text('关闭提醒上下文'),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (owner != null && owner.selected == null)
-                    const Text('请在账号额度页添加账号'),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      if (bucket != null)
-                        MonitorChoice(
-                          key: const ValueKey('analysis-quota-bucket'),
-                          label: '额度类型',
-                          value: bucket.id,
-                          items: {for (final b in buckets) b.label: b.id},
-                          onChanged: (value) => setState(() => _bucket = value),
+                  ),
+                ),
+              ),
+            if (notice != null) const SizedBox(height: 16),
+            FCard(
+              key: const ValueKey('analysis-quota-card'),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          FLucideIcons.gauge,
+                          size: 18,
+                          color: palette.controlAccent,
                         ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '账号额度 · 独立来源',
+                            style: context.theme.typography.display.lg,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('各窗口分别计量 · 不从会话日志推断账号', style: secondary),
+                    const SizedBox(height: 20),
+                    if (owner != null && owner.selected != null) ...[
                       MonitorChoice(
-                        key: const ValueKey('analysis-quota-view'),
-                        label: '额度视图',
-                        value: _view,
-                        items: const {
-                          '剩余': 'remaining',
-                          '已用': 'used',
-                          '距重置': 'reset',
+                        key: const ValueKey('analysis-account-source'),
+                        label: '额度来源',
+                        value: owner.selectedId,
+                        items: {
+                          for (final state in owner.states.where(
+                            (s) => !s.pendingRemoval,
+                          ))
+                            '${state.alias} · ${state.id}': state.id,
                         },
-                        onChanged: (value) => setState(() => _view = value),
+                        onChanged: owner.select,
                       ),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (usage.error != null) Text('额度来源：${usage.error}'),
-                  if (usage.data != null)
-                    Text(
-                      '最近额度观测：${usage.data!.fetchedAt.toLocal()}',
-                      style: secondary,
+                    if (owner != null && owner.selected == null)
+                      const Text('请在账号额度页添加账号'),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        if (bucket != null)
+                          MonitorChoice(
+                            key: const ValueKey('analysis-quota-bucket'),
+                            label: '额度类型',
+                            value: bucket.id,
+                            items: {for (final b in buckets) b.label: b.id},
+                            onChanged: (value) =>
+                                setState(() => _bucket = value),
+                          ),
+                        MonitorChoice(
+                          key: const ValueKey('analysis-quota-view'),
+                          label: '额度视图',
+                          value: _view,
+                          items: const {
+                            '剩余': 'remaining',
+                            '已用': 'used',
+                            '距重置': 'reset',
+                          },
+                          onChanged: (value) => setState(() => _view = value),
+                        ),
+                      ],
                     ),
-                  if (bucket == null)
-                    const Text('额度信息暂不可用 · 可在账号额度工作区查询')
-                  else
-                    AccountQuotaPresentation(
-                      key: const ValueKey('account-quota-chart'),
-                      bucket: bucket,
-                      settings: widget.launcher.settings,
-                      useLocalTime: usage.useLocalTime,
-                      now: DateTime.now(),
-                      view: _view,
-                      inspectionIdentity: (
-                        owner?.selectedId,
-                        owner?.selected?.generation,
-                        usage.data?.identity,
+                    const SizedBox(height: 16),
+                    if (usage.error != null) Text('额度来源：${usage.error}'),
+                    if (usage.data != null)
+                      Text(
+                        '最近额度观测：${usage.data!.fetchedAt.toLocal()}',
+                        style: secondary,
                       ),
-                    ),
-                ],
+                    if (bucket == null)
+                      const Text('额度信息暂不可用 · 可在账号额度工作区查询')
+                    else
+                      AccountQuotaPresentation(
+                        key: const ValueKey('account-quota-chart'),
+                        bucket: bucket,
+                        settings: widget.launcher.settings,
+                        useLocalTime: usage.useLocalTime,
+                        now: DateTime.now(),
+                        view: _view,
+                        inspectionIdentity: (
+                          owner?.selectedId,
+                          owner?.selected?.generation,
+                          usage.data?.identity,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 24),
-          Text('本地会话日志 · 独立于账号额度与 API 测速', style: secondary),
-          const SizedBox(height: 8),
-          SessionMetricsPanel(
-            key: widget.sessionPanelKey,
-            controller: widget.metrics,
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 24),
+            Text('本地会话日志 · 独立于账号额度与 API 测速', style: secondary),
+            const SizedBox(height: 8),
+            SessionMetricsPanel(
+              key: widget.sessionPanelKey,
+              controller: widget.metrics,
+            ),
+            const SizedBox(height: 16),
+          ],
         ],
       ),
     );

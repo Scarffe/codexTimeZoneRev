@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import '../services/session_rhythm_store.dart';
+import '../state/session_rhythm_controller.dart';
+import 'session_rhythm_panel.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
@@ -86,7 +90,11 @@ class LauncherApplication extends StatefulWidget {
     this.sessionMetricsController,
     this.attentionController,
     this.attentionStore,
+    this.rhythmController,
+    this.rhythmStore,
   });
+  final SessionRhythmController? rhythmController;
+  final SessionRhythmStore? rhythmStore;
   final bool preview;
   final LauncherBackend? backend;
   final String initialAppearance;
@@ -192,6 +200,18 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           _allowedSessionBackend(widget.sessionMetricsController!.backend)
       ? widget.sessionMetricsController!
       : SessionMetricsController(launcher.backend);
+  late final rhythm =
+      widget.rhythmController != null &&
+          _allowedSessionBackend(widget.rhythmController!.backend)
+      ? widget.rhythmController!
+      : SessionRhythmController(
+          backend: backend,
+          store:
+              widget.rhythmStore ??
+              (!widget.preview && !widget.offlineTrial && widget.backend == null
+                  ? SessionRhythmStore.portable()
+                  : SessionRhythmStore.memory()),
+        );
   late final attention =
       widget.attentionController != null &&
           _allowedSessionBackend(widget.attentionController!.backend)
@@ -223,6 +243,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   DesktopMonitor? monitor;
   WorkspaceDestination selected = WorkspaceDestination.launcher;
   SessionAttentionNotice? openedNotice;
+  RhythmAnalysisContext? openedHistory;
+  int currentViewRevision = 0;
   String recentNotice = '';
 
   void _sourceChanged() {
@@ -314,6 +336,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     if (mounted) {
       setState(() {
         openedNotice = null;
+        openedHistory = null;
+        currentViewRevision++;
         selected = WorkspaceDestination.analysis;
       });
       _revealAnalysis(_sessionPanel);
@@ -325,6 +349,20 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     metrics.select(notice.path, expectedId: notice.sessionId);
     setState(() {
       openedNotice = notice;
+      openedHistory = null;
+      currentViewRevision++;
+      selected = WorkspaceDestination.analysis;
+    });
+    _revealAnalysis(_noticeContext);
+  }
+
+  void _openRhythmSource(RhythmAnalysisContext history) {
+    if (!mounted) return;
+    metrics.select(history.source.path, expectedId: history.source.sessionId);
+    setState(() {
+      openedNotice = null;
+      openedHistory = history;
+      currentViewRevision++;
       selected = WorkspaceDestination.analysis;
     });
     _revealAnalysis(_noticeContext);
@@ -369,12 +407,14 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           onSessionDetails: _showSessionDetails,
           onAttentionDetails: _showAttentionDetails,
           attention: attention,
+          rhythm: rhythm,
           metrics: metrics,
           benchmark: benchmark,
         )..start();
       }
     });
     unawaited(attention.initialize(attentionStore));
+    unawaited(rhythm.initialize());
     network.initialize();
     benchmark.initialize();
     if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
@@ -490,6 +530,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           themeStyle,
           benchmark,
           attention,
+          rhythm,
         ]),
         builder: (context, _) => TickerMode(
           enabled: usage.mainWindowVisible,
@@ -560,6 +601,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       launcher: launcher,
                       usage: usage,
                       metrics: metrics,
+                      rhythm: rhythm,
+                      onOpenRhythm: _openRhythmSource,
+                      historyContext: openedHistory,
+                      currentViewRevision: currentViewRevision,
+                      onDismissHistory: () =>
+                          setState(() => openedHistory = null),
                       sessionPanelKey: _sessionPanel,
                       noticeContextKey: _noticeContext,
                       notice: openedNotice,
@@ -599,6 +646,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     appearance.dispose();
     themeStyle.dispose();
     attention.dispose();
+    unawaited(rhythm.shutdown());
+    rhythm.dispose();
     super.dispose();
   }
 }

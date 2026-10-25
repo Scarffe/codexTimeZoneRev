@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../state/session_rhythm_controller.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 
@@ -17,6 +19,7 @@ class DesktopMonitor {
     this.onSessionDetails,
     this.onAttentionDetails,
     this.attention,
+    this.rhythm,
     this.onMonitor,
     this.backgroundStart = false,
     this.workspace,
@@ -25,6 +28,7 @@ class DesktopMonitor {
     this.benchmark,
     this.interval = const Duration(minutes: 2),
   });
+  final SessionRhythmController? rhythm;
   final AccountUsageController usage;
   final SessionAttentionController? attention;
   final VoidCallback? onAttentionDetails;
@@ -52,6 +56,7 @@ class DesktopMonitor {
     metrics?.addListener(_publish);
     attention?.addListener(_publish);
     benchmark?.addListener(_publish);
+    rhythm?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'attentionDetails':
@@ -123,6 +128,7 @@ class DesktopMonitor {
 
   bool get _keepAlive =>
       usage.monitoring ||
+      rhythm?.busy == true ||
       usage.sources?.anyBusy == true ||
       metrics?.selected != null ||
       attention?.watches.any((watch) => watch.enabled) == true ||
@@ -140,6 +146,7 @@ class DesktopMonitor {
       if (usage.sources != null) usage.sources!.shutdown(),
       if (benchmark != null) benchmark!.shutdown(),
       if (attention != null) attention!.shutdown(),
+      if (rhythm != null) rhythm!.shutdown(),
     ]);
     await benchmark?.saved;
     await usage.roles.saved;
@@ -237,6 +244,7 @@ class DesktopMonitor {
     metrics?.removeListener(_publish);
     attention?.removeListener(_publish);
     benchmark?.removeListener(_publish);
+    rhythm?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }
 }
