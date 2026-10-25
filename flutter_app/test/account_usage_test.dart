@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/backend.dart';
@@ -104,9 +105,27 @@ void main() {
     expect(tokenCount(0), '0');
   });
 
-  test('clamps percentages and never claims reset has recovered the quota', () {
-    expect(UsageWindow.fromJson({'usedPercent': 200}).usedPercent, 100);
-    expect(UsageWindow.fromJson({'usedPercent': -1}).usedPercent, 0);
+  test('invalid percentages remain unknown rather than becoming endpoints', () {
+    for (final value in [
+      200,
+      -1,
+      double.nan,
+      double.infinity,
+      -double.infinity,
+      null,
+    ]) {
+      expect(
+        UsageWindow.fromJson({'usedPercent': value}).usedPercent,
+        isNull,
+        reason: '$value is not an observed percentage',
+      );
+    }
+    expect(UsageWindow.fromJson({'usedPercent': 0}).usedPercent, 0);
+    expect(UsageWindow.fromJson({'usedPercent': 100}).usedPercent, 100);
+    expect(UsageWindow.fromJson({'usedPercent': 12.5}).usedPercent, 12.5);
+  });
+
+  test('never claims reset has recovered the quota', () {
     final now = DateTime.utc(2026, 10, 14);
     expect(
       resetCountdown(now.subtract(const Duration(minutes: 1)), now),
@@ -114,6 +133,99 @@ void main() {
     );
     expect(resetCountdown(now.add(const Duration(seconds: 1)), now), '1 分钟后重置');
     expect(resetCountdown(null, now), '重置时间暂不可用');
+  });
+
+  test(
+    'native windows keep roles when secondary is alone or keys are reordered',
+    () {
+      for (final windows in <Map<String, dynamic>>[
+        {
+          'secondary': {'usedPercent': 5},
+        },
+        {
+          'secondary': {'usedPercent': 5},
+          'primary': {'usedPercent': 8},
+        },
+      ]) {
+        final parsed = AccountUsage.fromJson({
+          'account': <String, dynamic>{},
+          'limits': {'rateLimits': windows},
+        });
+        final cached =
+            ((parsed.toCacheJson()['buckets'] as List).single as Map)['windows']
+                as List;
+        expect(
+          cached.map((w) => (w as Map)['role']),
+          windows.length == 1 ? ['secondary'] : ['primary', 'secondary'],
+        );
+        expect(
+          cached.map((w) => (w as Map)['usedPercent']),
+          windows.length == 1 ? [5.0] : [8.0, 5.0],
+        );
+      }
+    },
+  );
+
+  test('old cache never guesses roles or promotes receipt time quality', () {
+    final cached = AccountUsage.fromJson(usageResponse()).toCacheJson();
+    cached.remove('timeQuality');
+    final windows =
+        ((cached['buckets'] as List).first as Map)['windows'] as List;
+    for (final window in windows) {
+      (window as Map).remove('role');
+    }
+    final restored = AccountUsage.fromCacheJson(cached);
+    final restoredWindows =
+        ((restored.toCacheJson()['buckets'] as List).first as Map)['windows']
+            as List;
+    expect(restoredWindows.map((w) => (w as Map)['role']), [
+      'unknown',
+      'unknown',
+    ]);
+    expect(restored.toCacheJson()['timeQuality'], 'localReceiptFallback');
+    expect(restored.fetchedAt.millisecondsSinceEpoch, cached['fetchedAt']);
+  });
+
+  test(
+    'new cache round trip preserves explicit roles and completion quality',
+    () {
+      final cached = jsonDecode(
+        jsonEncode(AccountUsage.fromJson(usageResponse()).toCacheJson()),
+      ) as Map<String, dynamic>;
+      cached['timeQuality'] = 'nativeCompletion';
+      cached['fetchedAt'] = 1792886400123;
+      final windows =
+          ((cached['buckets'] as List).first as Map)['windows'] as List;
+      (windows[0] as Map)['role'] = 'secondary';
+      (windows[1] as Map)['role'] = 'primary';
+      final restored = AccountUsage.fromCacheJson(cached).toCacheJson();
+      final restoredWindows =
+          ((restored['buckets'] as List).first as Map)['windows'] as List;
+      expect(restoredWindows.map((w) => (w as Map)['role']), [
+        'secondary',
+        'primary',
+      ]);
+      expect(restored['fetchedAt'], 1792886400123);
+      expect(restored['timeQuality'], 'nativeCompletion');
+    },
+  );
+
+  test('cached invalid percentages remain unknown', () {
+    for (final invalid in [-1, 101, double.nan, double.infinity]) {
+      final cached = AccountUsage.fromJson(usageResponse()).toCacheJson();
+      final windows =
+          ((cached['buckets'] as List).first as Map)['windows'] as List;
+      (windows.first as Map)['usedPercent'] = invalid;
+      expect(
+        AccountUsage.fromCacheJson(cached)
+            .buckets
+            .first
+            .windows
+            .first
+            .usedPercent,
+        isNull,
+      );
+    }
   });
 
   test('only an explicit query calls native backend', () async {

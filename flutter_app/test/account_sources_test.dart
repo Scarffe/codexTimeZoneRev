@@ -129,6 +129,68 @@ class LateFailCatalog extends AccountSourceStore {
 }
 
 void main() {
+  test(
+    'native completion time survives source parsing and detail retention',
+    () async {
+      final backend = RecordingBackend();
+      backend.result = {
+        'ok': true,
+        'sourceId': 'profile-fixture',
+        'queriedAtMs': 1792886400123,
+        'usage': {'account': <String, dynamic>{}, 'detailsIncluded': false},
+      };
+      final parsed = await NativeAccountSourcesService(backend)
+          .query('profile-fixture');
+      expect(parsed.fetchedAt, DateTime.utc(2026, 10, 25, 0, 0, 0, 123));
+      expect(parsed.fetchedAt.isUtc, isTrue);
+      expect(parsed.toCacheJson()['timeQuality'], 'nativeCompletion');
+      final retained = retainUsageDetails(
+        parsed,
+        AccountUsage(
+          email: null,
+          plan: null,
+          buckets: const [],
+          fetchedAt: DateTime.utc(2026, 10, 24),
+          lifetimeTokens: 123,
+        ),
+      );
+      expect(retained.lifetimeTokens, 123);
+      expect(retained.fetchedAt, parsed.fetchedAt);
+      expect(retained.toCacheJson()['timeQuality'], 'nativeCompletion');
+    },
+  );
+
+  test(
+    'invalid native completion times use a marked local receipt fallback',
+    () async {
+      for (final invalid in [
+        null,
+        0,
+        -1,
+        '1792886400123',
+        1.5,
+        double.nan,
+        double.infinity,
+        8640000000000001,
+      ]) {
+        final backend = RecordingBackend();
+        backend.result = {
+          'ok': true,
+          'sourceId': 'profile-fixture',
+          'queriedAtMs': invalid,
+          'usage': {'account': <String, dynamic>{}},
+        };
+        final before = DateTime.now();
+        final parsed = await NativeAccountSourcesService(backend)
+            .query('profile-fixture');
+        final after = DateTime.now();
+        expect(parsed.fetchedAt.isBefore(before), isFalse, reason: '$invalid');
+        expect(parsed.fetchedAt.isAfter(after), isFalse, reason: '$invalid');
+        expect(parsed.toCacheJson()['timeQuality'], 'localReceiptFallback');
+      }
+    },
+  );
+
   late DateTime now;
   late SyntheticSources service;
   late AccountSourceStore store;

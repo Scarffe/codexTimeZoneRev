@@ -447,6 +447,7 @@ class AccountSourcesController extends ChangeNotifier {
       identityKey: '${source.id}:${source.generation}',
       buckets: value.buckets,
       fetchedAt: value.fetchedAt,
+      timeQuality: value.timeQuality,
     );
   }
 

@@ -108,16 +108,16 @@ void main() {
             find.byKey(const ValueKey('toggle-source-overview')),
           );
           await tester.pumpAndSettle();
-          final current = tester.getRect(
-            find.byKey(const ValueKey('source-overview-current')),
+          final primary = tester.getRect(
+            find.byKey(const ValueKey('source-overview-profile-primary')),
           );
           final stale = tester.getRect(
             find.byKey(const ValueKey('source-overview-profile-stale')),
           );
           if (width == 1280) {
-            expect(current.top, closeTo(stale.top, .1));
+            expect(primary.top, closeTo(stale.top, .1));
           } else {
-            expect(current.top, greaterThan(stale.bottom));
+            expect(primary.top, greaterThan(stale.bottom));
           }
           expect(find.textContaining('网络暂不可用'), findsOneWidget);
           expect(tester.takeException(), isNull);

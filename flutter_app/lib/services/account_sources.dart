@@ -146,7 +146,19 @@ class NativeAccountSourcesService extends AccountSourcesService {
       if (id == currentAccountSource) 'desktopPath': desktopPath,
       'details': id == currentAccountSource && details,
     });
-    return AccountUsage.fromJson(value['usage'] as Map<String, dynamic>);
+    // Native queriedAtMs is this machine's query completion time, not a
+    // server sampling timestamp. Invalid/missing values retain receipt quality.
+    final completedAtMs = value['queriedAtMs'];
+    final queriedAt =
+        completedAtMs is int &&
+            completedAtMs > 0 &&
+            completedAtMs <= 8640000000000000
+        ? DateTime.fromMillisecondsSinceEpoch(completedAtMs, isUtc: true)
+        : null;
+    return AccountUsage.fromJson(
+      value['usage'] as Map<String, dynamic>,
+      queriedAt: queriedAt,
+    );
   }
 
   @override

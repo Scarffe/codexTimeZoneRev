@@ -25,19 +25,35 @@ String? _usageErrorKind(Object? value) {
       : 'unavailable';
 }
 
+enum UsageWindowRole { primary, secondary, unknown }
+
+enum UsageObservationTimeQuality { nativeCompletion, localReceiptFallback }
+
+double? _observedPercent(Object? value) =>
+    value is num && value.isFinite && value >= 0 && value <= 100
+    ? value.toDouble()
+    : null;
+
 class UsageWindow {
-  const UsageWindow({this.usedPercent, this.durationMinutes, this.resetsAt});
+  const UsageWindow({
+    this.usedPercent,
+    this.durationMinutes,
+    this.resetsAt,
+    this.role = UsageWindowRole.unknown,
+  });
   final double? usedPercent;
   final int? durationMinutes;
   final DateTime? resetsAt;
+  final UsageWindowRole role;
 
-  factory UsageWindow.fromJson(Map<String, dynamic> json) {
-    final percent = json['usedPercent'];
+  factory UsageWindow.fromJson(
+    Map<String, dynamic> json, {
+    UsageWindowRole role = UsageWindowRole.unknown,
+  }) {
     final reset = json['resetsAt'];
     return UsageWindow(
-      usedPercent: percent is num && percent.isFinite
-          ? percent.toDouble().clamp(0, 100)
-          : null,
+      usedPercent: _observedPercent(json['usedPercent']),
+      role: role,
       durationMinutes: json['windowDurationMins'] as int?,
       resetsAt: reset is int && reset > 0 && reset < 8640000000000
           ? DateTime.fromMillisecondsSinceEpoch(reset * 1000, isUtc: true)
@@ -72,7 +88,12 @@ class UsageBucket {
       windows: [
         for (final key in ['primary', 'secondary'])
           if (json[key] is Map<String, dynamic>)
-            UsageWindow.fromJson(json[key] as Map<String, dynamic>),
+            UsageWindow.fromJson(
+              json[key] as Map<String, dynamic>,
+              role: key == 'primary'
+                  ? UsageWindowRole.primary
+                  : UsageWindowRole.secondary,
+            ),
       ],
     );
   }
@@ -94,11 +115,13 @@ class AccountUsage {
     this.identityKey,
     this.detailsIncluded = true,
     this.tokensFetchedAt,
+    this.timeQuality = UsageObservationTimeQuality.localReceiptFallback,
   });
   final String? email;
   final String? plan;
   final List<UsageBucket> buckets;
   final DateTime fetchedAt;
+  final UsageObservationTimeQuality timeQuality;
   final String? identityKey;
   final bool detailsIncluded;
   final DateTime? tokensFetchedAt;
@@ -111,6 +134,7 @@ class AccountUsage {
   Map<String, Object?> toCacheJson() => {
     'email': email, 'plan': plan, 'identityKey': identityKey,
     'fetchedAt': fetchedAt.millisecondsSinceEpoch,
+    'timeQuality': timeQuality.name,
     'tokensFetchedAt': tokensFetchedAt?.millisecondsSinceEpoch,
     'detailsIncluded': detailsIncluded, 'lifetimeTokens': lifetimeTokens,
     'latestDailyTokens': latestDailyTokens, 'latestDate': latestDate,
@@ -128,6 +152,7 @@ class AccountUsage {
             for (final window in bucket.windows)
               {
                 'usedPercent': window.usedPercent,
+                'role': window.role.name,
                 'durationMinutes': window.durationMinutes,
                 'resetsAt': window.resetsAt?.millisecondsSinceEpoch,
               },
@@ -145,6 +170,9 @@ class AccountUsage {
       plan: json['plan'] as String?,
       identityKey: json['identityKey'] as String?,
       fetchedAt: date(json['fetchedAt'])!,
+      timeQuality: json['timeQuality'] == 'nativeCompletion'
+          ? UsageObservationTimeQuality.nativeCompletion
+          : UsageObservationTimeQuality.localReceiptFallback,
       tokensFetchedAt: date(json['tokensFetchedAt']),
       detailsIncluded: json['detailsIncluded'] == true,
       lifetimeTokens: json['lifetimeTokens'] as int?,
@@ -162,7 +190,12 @@ class AccountUsage {
             windows: [
               for (final window in value['windows'] as List)
                 UsageWindow(
-                  usedPercent: (window['usedPercent'] as num?)?.toDouble(),
+                  usedPercent: _observedPercent(window['usedPercent']),
+                  role: switch (window['role']) {
+                    'primary' => UsageWindowRole.primary,
+                    'secondary' => UsageWindowRole.secondary,
+                    _ => UsageWindowRole.unknown,
+                  },
                   durationMinutes: window['durationMinutes'] as int?,
                   resetsAt: date(window['resetsAt']),
                 ),
@@ -172,7 +205,15 @@ class AccountUsage {
     );
   }
 
-  factory AccountUsage.fromJson(Map<String, dynamic> json) {
+  factory AccountUsage.fromJson(
+    Map<String, dynamic> json, {
+    DateTime? queriedAt,
+  }) {
+    final hasCompletionTime =
+        queriedAt != null && queriedAt.millisecondsSinceEpoch > 0;
+    final observationTime = hasCompletionTime
+        ? queriedAt.toUtc()
+        : DateTime.now().toUtc();
     final account = json['account'] as Map<String, dynamic>;
     final limits = json['limits'] as Map<String, dynamic>?;
     final byId = limits?['rateLimitsByLimitId'] as Map<String, dynamic>?;
@@ -195,7 +236,9 @@ class AccountUsage {
       email: account['email'] as String?,
       identityKey: json['identityKey'] as String?,
       detailsIncluded: json['detailsIncluded'] != false,
-      tokensFetchedAt: json['detailsIncluded'] == false ? null : DateTime.now(),
+      tokensFetchedAt: json['detailsIncluded'] == false
+          ? null
+          : observationTime,
       plan: account['planType'] as String?,
       buckets: [
         if (byId != null && byId.isNotEmpty) ...[
@@ -215,7 +258,10 @@ class AccountUsage {
       tokensError: json['tokensError'] as String?,
       limitsErrorKind: _usageErrorKind(json['limitsErrorKind']),
       tokensErrorKind: _usageErrorKind(json['tokensErrorKind']),
-      fetchedAt: DateTime.now(),
+      fetchedAt: observationTime,
+      timeQuality: hasCompletionTime
+          ? UsageObservationTimeQuality.nativeCompletion
+          : UsageObservationTimeQuality.localReceiptFallback,
     );
   }
 }
@@ -231,6 +277,7 @@ AccountUsage retainUsageDetails(AccountUsage current, AccountUsage? previous) {
     plan: current.plan,
     buckets: current.buckets,
     fetchedAt: current.fetchedAt,
+    timeQuality: current.timeQuality,
     identityKey: current.identityKey,
     detailsIncluded: false,
     lifetimeTokens: previous.lifetimeTokens,
