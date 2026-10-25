@@ -371,7 +371,7 @@ pub(super) fn rate(output: Option<u64>, duration: Option<u64>) -> Option<f64> {
 }
 // Strict RFC3339 UTC/offset timestamps for request scope, without adding a
 // date/time dependency. Invalid calendar dates and arithmetic overflow reject.
-fn timestamp(value: &Value) -> Option<u64> {
+pub(super) fn timestamp(value: &Value) -> Option<u64> {
     let s = value.as_str()?;
     let b = s.as_bytes();
     if b.len() < 20

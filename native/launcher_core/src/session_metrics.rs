@@ -1,3 +1,5 @@
+#[path = "session_metrics/session_history.rs"]
+mod session_history;
 #[path = "session_identity.rs"]
 mod session_identity;
 #[path = "session_quality.rs"]
@@ -18,8 +20,12 @@ use std::{
 
 // This collector only opens session files for reading. No runtime RPC or prompt content leaves it.
 const MAX_LINE: u64 = 8 * 1024 * 1024;
+// Eight watched sessions, one selected analysis and eight explicit rhythm sources.
+const READER_CAPACITY: usize = 8 + 1 + 8;
 #[derive(Default)]
 struct Turn {
+    history_order: u64,
+    lifecycle: session_history::Lifecycle,
     evidence: session_quality::Evidence,
     timing: session_timing::Timing,
     state: String,
@@ -54,6 +60,18 @@ struct ReaderPool {
     readers: Vec<Reader>,
 }
 impl ReaderPool {
+    fn history(&mut self, path: PathBuf, request: &Value) -> Result<Value, String> {
+        let request = session_history::Request::parse(request)?;
+        let metrics = self.poll(path)?;
+        // poll retains this exact Reader at the end of the LRU, including its
+        // file identity, bounded catch-up state and all previously read turns.
+        let reader = self.readers.last().ok_or("会话采集状态不可用")?;
+        Ok(session_history::project(
+            reader,
+            &request,
+            metrics["catchingUp"] == true,
+        ))
+    }
     fn poll(&mut self, path: PathBuf) -> Result<Value, String> {
         let mut reader = self
             .readers
@@ -63,7 +81,7 @@ impl ReaderPool {
             .unwrap_or_default();
         let result = reader.poll(path);
         self.readers.push(reader);
-        if self.readers.len() > 16 {
+        if self.readers.len() > READER_CAPACITY {
             self.readers.remove(0);
         }
         result
@@ -185,6 +203,7 @@ impl Reader {
             self.offset += bytes.len() as u64;
             read += bytes.len();
             let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
+                self.serial += 1;
                 self.incomplete = true;
                 continue;
             };
@@ -220,6 +239,8 @@ impl Reader {
                 continue;
             }
             let legacy = matches!(kind, "token_count" | "compacted");
+            // Quality-changing rows need a revision even if no turn owns them.
+            self.serial += 1;
             self.unsupported |= legacy;
             let Some(id) = p["turn_id"].as_str().filter(|s| !s.trim().is_empty()) else {
                 // Identity evidence cannot disappear before ownership checking.
@@ -247,7 +268,6 @@ impl Reader {
                 }
                 continue;
             };
-            self.serial += 1;
             let response_owner = if kind == "token_usage_record" {
                 session_quality::text(&p["response_id"])
                     .and_then(|r| self.response_owners.insert(r, id.to_owned()))
@@ -260,6 +280,10 @@ impl Reader {
                 }
             }
             let t = self.turns.entry(id.to_owned()).or_default();
+            if t.history_order == 0 {
+                t.history_order = self.serial;
+            }
+            t.lifecycle.accept(kind, p, &v);
             if response_owner.is_some_and(|other| other != id) {
                 t.evidence.conflict("conflicting_usage");
             }
@@ -438,7 +462,11 @@ pub fn execute(payload: Value) -> Result<Value, String> {
         return Err("仅允许读取本机会话目录中的主会话日志".into());
     }
     let mut guard = READERS.lock().map_err(|_| "会话采集锁不可用")?;
-    guard.poll(path)
+    if payload["action"] == "history" {
+        guard.history(path, &payload)
+    } else {
+        guard.poll(path)
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -467,13 +495,13 @@ mod tests {
         }
     }
     #[test]
-    fn pool_lru_is_bounded_and_path_reset_does_not_reset_other_readers() {
-        let mut files: Vec<_> = (0..17)
+    fn pool_lru_keeps_seventeen_paths_and_evicts_only_on_eighteenth() {
+        let mut files: Vec<_> = (0..18)
             .map(|_| tempfile::NamedTempFile::new().unwrap())
             .collect();
         let mut pool = ReaderPool::default();
         let mut epochs = Vec::new();
-        for f in files.iter_mut().take(16) {
+        for f in files.iter_mut().take(17) {
             writeln!(
                 f,
                 "{}",
@@ -482,9 +510,15 @@ mod tests {
             .unwrap();
             epochs.push(pool.poll(f.path().to_path_buf()).unwrap()["logEpoch"].clone());
         }
+        for (i, f) in files.iter().take(17).enumerate() {
+            assert_eq!(
+                pool.poll(f.path().to_path_buf()).unwrap()["logEpoch"],
+                epochs[i]
+            );
+        }
         pool.poll(files[0].path().to_path_buf()).unwrap();
-        pool.poll(files[16].path().to_path_buf()).unwrap();
-        assert_eq!(pool.readers.len(), 16);
+        pool.poll(files[17].path().to_path_buf()).unwrap();
+        assert_eq!(pool.readers.len(), 17);
         assert_eq!(
             pool.poll(files[0].path().to_path_buf()).unwrap()["logEpoch"],
             epochs[0]

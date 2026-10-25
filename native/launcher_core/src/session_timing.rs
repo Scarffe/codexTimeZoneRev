@@ -24,24 +24,33 @@ struct Item {
     start: Option<u64>,
     end: Option<u64>,
 }
-fn union(intervals: &mut [(u64, u64)]) -> u64 {
+fn merged_intervals(intervals: &mut [(u64, u64)]) -> Vec<(u64, u64)> {
     intervals.sort_unstable();
     let mut span = None;
-    let mut total = 0;
+    let mut merged = Vec::new();
     for &(a, b) in intervals.iter() {
         match span {
             Some((s, e)) if a <= e => span = Some((s, e.max(b))),
             Some((s, e)) => {
-                total += e - s;
+                merged.push((s, e));
                 span = Some((a, b));
             }
             None => span = Some((a, b)),
         }
     }
     if let Some((s, e)) = span {
-        total += e - s;
+        merged.push((s, e));
     }
-    total
+    merged
+}
+fn union(intervals: &mut [(u64, u64)]) -> u64 {
+    merged_intervals(intervals).iter().map(|(s, e)| e - s).sum()
+}
+struct Intervals {
+    groups: [Vec<(u64, u64)>; 4],
+    invalid: usize,
+    zero: usize,
+    outside: usize,
 }
 impl Timing {
     pub fn accept(&mut self, kind: &str, p: &Value, serial: u64) {
@@ -121,8 +130,7 @@ impl Timing {
     pub fn bounds_valid(&self, duration: Option<u64>) -> bool {
         self.bounds(duration).is_some()
     }
-    pub fn report(&self, duration: Option<u64>, output: Option<u64>) -> Value {
-        let bounds = self.bounds(duration);
+    fn intervals(&self, bounds: Option<(u64, u64)>) -> Intervals {
         let mut groups: [Vec<(u64, u64)>; 4] = Default::default();
         let mut invalid = 0;
         let mut zero = 0;
@@ -147,6 +155,70 @@ impl Timing {
             let category = session_timeline::category_index(&item.kind);
             groups[category].push((a, b));
         }
+        Intervals {
+            groups,
+            invalid,
+            zero,
+            outside,
+        }
+    }
+    // Full retained item facts, independent of the 200-row display projection.
+    // The caller supplies lifecycle bounds using their recorded precision.
+    pub fn history_activity(
+        &self,
+        bounds: Option<(u64, u64)>,
+        duration: Option<u64>,
+    ) -> (Vec<(u64, u64)>, Vec<&'static str>) {
+        let Intervals {
+            groups,
+            invalid,
+            zero,
+            outside,
+        } = self.intervals(bounds);
+        let mut all: Vec<_> = groups.into_iter().flatten().collect();
+        let merged = merged_intervals(&mut all);
+        let mut reasons = Vec::new();
+        if bounds.is_none() {
+            reasons.push("invalid_bounds");
+        }
+        if invalid > 0 {
+            reasons.push("invalid_items");
+        }
+        if zero > 0 {
+            reasons.push("zero_duration_items");
+        }
+        if outside > 0 {
+            reasons.push("outside_bounds");
+        }
+        if merged.is_empty() {
+            reasons.push("missing_activity");
+        }
+        if self.missing_ids > 0 {
+            reasons.push("missing_identity");
+        }
+        if self.conflicting_item {
+            reasons.push("conflicting_item");
+        }
+        if self.conflicting_usage {
+            reasons.push("conflicting_usage");
+        }
+        if self.truncated {
+            reasons.push("truncated");
+        }
+        let observed: u64 = merged.iter().map(|(s, e)| e - s).sum();
+        if duration.is_some_and(|d| observed > d) {
+            reasons.push("activity_exceeds_duration");
+        }
+        (merged, reasons)
+    }
+    pub fn report(&self, duration: Option<u64>, output: Option<u64>) -> Value {
+        let bounds = self.bounds(duration);
+        let Intervals {
+            mut groups,
+            invalid,
+            zero,
+            outside,
+        } = self.intervals(bounds);
         let mut all: Vec<_> = groups.iter().flatten().copied().collect();
         let valid_count = all.len();
         let observed = union(&mut all);
