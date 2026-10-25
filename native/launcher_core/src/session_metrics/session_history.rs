@@ -398,6 +398,66 @@ mod tests {
         assert!(history.get("last").is_none());
     }
     #[test]
+    fn session_history_partial_append_invalidates_the_next_page_version() {
+        let mut f = file(&[
+            complete("a"),
+            item("a", "i-a", "AgentMessage", 100000, 101000),
+            complete("b"),
+            item("b", "i-b", "AgentMessage", 100000, 101000),
+        ]);
+        let mut pool = ReaderPool::default();
+        let first = read(&mut pool, &f, json!({"limit":1}));
+        assert_eq!(first["catchingUp"], false);
+        assert_eq!(first["records"][0]["activityAvailable"], true);
+        write!(f, "{{\"type\":\"response_item\",\"payload\":").unwrap();
+        let next = read(
+            &mut pool,
+            &f,
+            json!({"afterOrder":first["nextOrder"],"expectedEpoch":first["logEpoch"],"expectedRevision":first["revision"]}),
+        );
+        assert_eq!(next["changed"], true);
+        assert_eq!(next["records"], json!([]));
+        assert!(next["nextOrder"].is_null());
+        assert_eq!(next["catchingUp"], true);
+        assert_ne!(next["revision"], first["revision"]);
+        let fresh = read(&mut pool, &f, json!({}));
+        assert_eq!(fresh["revision"], next["revision"]);
+        assert_eq!(fresh["records"][0]["order"], 1);
+        assert_eq!(fresh["records"][1]["order"], 3);
+        assert_eq!(fresh["records"][0]["activityAvailable"], false);
+    }
+    #[test]
+    fn session_history_ignored_tail_completion_invalidates_the_next_page_version() {
+        let mut f = file(&[
+            complete("a"),
+            item("a", "i-a", "AgentMessage", 100000, 101000),
+            complete("b"),
+            item("b", "i-b", "AgentMessage", 100000, 101000),
+        ]);
+        write!(f, "{{\"type\":\"response_item\",\"payload\":").unwrap();
+        let mut pool = ReaderPool::default();
+        let first = read(&mut pool, &f, json!({"limit":1}));
+        assert_eq!(first["catchingUp"], true);
+        assert_eq!(first["records"][0]["activityAvailable"], false);
+        writeln!(f, "\"ignored\"}}").unwrap();
+        let next = read(
+            &mut pool,
+            &f,
+            json!({"afterOrder":first["nextOrder"],"expectedEpoch":first["logEpoch"],"expectedRevision":first["revision"]}),
+        );
+        assert_eq!(next["changed"], true);
+        assert_eq!(next["records"], json!([]));
+        assert!(next["nextOrder"].is_null());
+        assert_eq!(next["catchingUp"], false);
+        assert_ne!(next["revision"], first["revision"]);
+        let fresh = read(&mut pool, &f, json!({}));
+        assert_eq!(fresh["revision"], next["revision"]);
+        assert_eq!(fresh["records"][0]["order"], 1);
+        assert_eq!(fresh["records"][1]["order"], 3);
+        assert_eq!(fresh["records"][0]["activityAvailable"], true);
+        assert_eq!(fresh["records"][1]["activityAvailable"], true);
+    }
+    #[test]
     fn session_history_missing_identity_or_corrupt_append_also_changes_revision() {
         for corrupt in [false, true] {
             let mut f = file(&[complete("a"), complete("b")]);

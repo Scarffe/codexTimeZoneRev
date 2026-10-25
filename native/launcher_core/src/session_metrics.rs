@@ -48,6 +48,7 @@ struct Reader {
     stamp: Option<std::time::SystemTime>,
     identity: Option<session_identity::Identity>,
     source_info: Option<Value>,
+    catching_up: bool,
     incomplete: bool,
     missing_identity: bool,
     unsupported: bool,
@@ -351,6 +352,13 @@ impl Reader {
             .map(|(id, t)| json!({"turnId":id,"status":t.state,"durationMs":t.duration}))
             .collect();
         let catching_up = self.offset < meta.len();
+        // Partial bytes are not consumed, and their eventual completion can be
+        // an ignored record. Both completeness transitions still change every
+        // history fact's quality, so they must invalidate paginated snapshots.
+        if self.catching_up != catching_up {
+            self.serial += 1;
+            self.catching_up = catching_up;
+        }
         let quality_of = |t: &Turn| {
             let mut quality = t.evidence.quality(
                 t.duration,
