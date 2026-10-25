@@ -182,6 +182,8 @@ class AccountSourceState {
   final String id;
   String alias;
   int generation;
+  String? historySegmentId;
+  bool historyNeedsNewSegment = true;
   AccountUsage? usage;
   String? errorKind, jobId;
   String loginState = 'idle';

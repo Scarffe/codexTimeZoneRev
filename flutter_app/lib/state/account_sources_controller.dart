@@ -7,6 +7,7 @@ import '../services/account_source_store.dart';
 import '../services/account_sources.dart';
 import '../services/account_usage.dart';
 import '../services/pet_alerts.dart';
+import '../services/quota_history.dart';
 
 /// Sole query arbiter, schedule and login owner for managed sources.
 class AccountSourcesController extends ChangeNotifier {
@@ -32,10 +33,17 @@ class AccountSourcesController extends ChangeNotifier {
     this.store, {
     DateTime Function()? now,
     this.offlineTrial = false,
+    this.historySink,
   }) : _now = now ?? DateTime.now;
   final AccountSourcesService service;
   final AccountSourceStore store;
   final bool offlineTrial;
+
+  /// Application may bind its shared store before initialization/queries.
+  QuotaHistorySink? historySink;
+  String? historyError;
+  static final String _historyRunId = _randomHistoryId();
+  static int _historySequence = 0;
   final DateTime Function() _now;
   final _states = <String, AccountSourceState>{};
   final _refreshes = <String, Future<void>>{};
@@ -104,6 +112,8 @@ class AccountSourcesController extends ChangeNotifier {
 
   Future<void> _restore() async {
     final epoch = _epoch;
+    final sink = historySink;
+    if (sink != null) _historyOperation(sink.flush);
     try {
       final value = await store.read();
       if (_disposed || _stopped || epoch != _epoch) return;
@@ -138,6 +148,12 @@ class AccountSourcesController extends ChangeNotifier {
         }
         state.pendingRemoval = pendingRemoval;
         _restoreStatus(state, item);
+        final segment = item['historySegmentId'];
+        if (segment is String &&
+            RegExp(r'^segment-[a-f0-9]{32}$').hasMatch(segment)) {
+          state.historySegmentId = segment;
+          state.historyNeedsNewSegment = state.usage == null;
+        }
         if (pendingRemoval) {
           state.usage = null;
           state.loginState = 'removing';
@@ -223,6 +239,7 @@ class AccountSourcesController extends ChangeNotifier {
             'id': state.id,
             'alias': state.alias,
             'generation': state.generation,
+            'historySegmentId': state.historySegmentId,
             'pendingRemoval': state.pendingRemoval,
             'errorKind':
                 state.errorKind ?? (state.failures > 0 ? 'unavailable' : null),
@@ -320,6 +337,7 @@ class AccountSourcesController extends ChangeNotifier {
         throw const SourceFailure('invalid_source');
       }
       _states[id] = AccountSourceState(id: id, alias: _alias(alias));
+      _newHistorySegment(_states[id]!);
       _normalizeSelections();
       _save();
       _publish();
@@ -351,6 +369,95 @@ class AccountSourcesController extends ChangeNotifier {
       ? error.kind
       : 'unavailable';
 
+  static String _randomHistoryId() {
+    final random = math.Random.secure();
+    return List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
+  void _newHistorySegment(AccountSourceState state) {
+    state.historySegmentId = 'segment-${_randomHistoryId()}';
+    state.historyNeedsNewSegment = false;
+  }
+
+  void _historyOperation(
+    Future<void> Function() operation, {
+    bool removing = false,
+  }) {
+    // Future.sync also contains a synchronous sink exception, outside query
+    // failure/backoff and alert handling. The queue remains owned by the sink.
+    unawaited(
+      Future<void>.sync(operation).catchError((Object _, StackTrace _) {
+        historyError = removing ? '历史本地清理失败。' : '历史保存失败。';
+        _publish();
+      }),
+    );
+  }
+
+  void _recordHistory(
+    AccountSourceState state,
+    String attemptId,
+    DateTime started,
+    int expectedIntervalSec, {
+    AccountUsage? usage,
+    String? errorKind,
+  }) {
+    final sink = historySink;
+    if (sink == null) return;
+    final windows = <QuotaHistoryWindow>[
+      if (usage != null && errorKind == null)
+        for (final bucket in usage.buckets)
+          for (final window in bucket.windows)
+            QuotaHistoryWindow(
+              bucketId: bucket.id,
+              role: window.role,
+              durationMinutes:
+                  window.durationMinutes != null && window.durationMinutes! > 0
+                  ? window.durationMinutes
+                  : null,
+              usedPercent:
+                  window.usedPercent != null &&
+                      window.usedPercent!.isFinite &&
+                      window.usedPercent! >= 0 &&
+                      window.usedPercent! <= 100
+                  ? window.usedPercent
+                  : null,
+              resetsAtMs: window.resetsAt?.millisecondsSinceEpoch,
+              quality:
+                  window.usedPercent != null &&
+                      window.usedPercent!.isFinite &&
+                      window.usedPercent! >= 0 &&
+                      window.usedPercent! <= 100 &&
+                      window.role != UsageWindowRole.unknown
+                  ? QuotaHistoryWindowQuality.valid
+                  : QuotaHistoryWindowQuality.unknown,
+            ),
+    ];
+    final record = QueryHistoryRecord(
+      attemptId: attemptId,
+      sourceId: state.id,
+      segmentId: state.historySegmentId!,
+      startedAtMs: started.toUtc().millisecondsSinceEpoch,
+      completedAtMs: (usage?.fetchedAt ?? _now())
+          .toUtc()
+          .millisecondsSinceEpoch,
+      timeQuality:
+          usage?.timeQuality ??
+          UsageObservationTimeQuality.localReceiptFallback,
+      expectedIntervalSec: expectedIntervalSec,
+      outcome: errorKind != null
+          ? QueryHistoryOutcome.failure
+          : windows.any((w) => w.quality == QuotaHistoryWindowQuality.valid)
+          ? QueryHistoryOutcome.success
+          : QueryHistoryOutcome.noLimits,
+      errorKind: errorKind,
+      windows: windows,
+    );
+    _historyOperation(() => sink.append(record));
+  }
+
   /// Same-source callers receive the identical future; global reads run FIFO.
   Future<void> refresh(String id, {bool details = false}) {
     final existing = _refreshes[id];
@@ -375,14 +482,33 @@ class AccountSourcesController extends ChangeNotifier {
           state.busy = true;
           state.attempts++;
           state.lastAttempt = _now();
+          final started = state.lastAttempt!;
+          final expectedIntervalSec = interval.inSeconds;
+          final attemptId = '$_historyRunId:${++_historySequence}';
+          if (state.historyNeedsNewSegment || state.historySegmentId == null) {
+            _newHistorySegment(state);
+          }
           _publish();
+          AccountUsage? completedObservation;
           try {
             final result = await service.query(id);
             if (!_valid(state, generation)) return;
+            completedObservation = result;
             if (result.limitsErrorKind != null ||
                 (result.limitsError != null && result.buckets.isEmpty)) {
               throw SourceFailure(result.limitsErrorKind ?? 'unavailable');
             }
+            if (state.usage != null &&
+                state.usage!.identity != result.identity) {
+              _newHistorySegment(state);
+            }
+            _recordHistory(
+              state,
+              attemptId,
+              started,
+              expectedIntervalSec,
+              usage: result,
+            );
             state.usage = retainUsageDetails(result, state.usage);
             state.errorKind = null;
             state.failures = 0;
@@ -403,6 +529,14 @@ class AccountSourcesController extends ChangeNotifier {
           } catch (error) {
             if (_valid(state, generation)) {
               state.errorKind = _kind(error);
+              _recordHistory(
+                state,
+                attemptId,
+                started,
+                expectedIntervalSec,
+                usage: completedObservation,
+                errorKind: state.errorKind,
+              );
               state.failures = math.min(64, state.failures + 1);
               if ([
                 'auth_required',
@@ -410,6 +544,7 @@ class AccountSourcesController extends ChangeNotifier {
                 'identity_changed',
               ].contains(state.errorKind)) {
                 state.usage = null;
+                state.historyNeedsNewSegment = true;
               }
             }
           } finally {
@@ -571,6 +706,7 @@ class AccountSourcesController extends ChangeNotifier {
       return;
     }
     final generation = ++state.generation;
+    _newHistorySegment(state);
     state.usage = null;
     state.errorKind = null;
     state.loginState = 'starting';
@@ -809,6 +945,10 @@ class AccountSourcesController extends ChangeNotifier {
     if (acknowledged && identical(_states[id], state)) {
       operationError = null;
       _states.remove(id);
+      final sink = historySink;
+      if (sink != null) {
+        _historyOperation(() => sink.removeSource(id), removing: true);
+      }
       if (_loginSource == id) _loginSource = null;
       _normalizeSelections();
     }
@@ -846,6 +986,12 @@ class AccountSourcesController extends ChangeNotifier {
           await Future.wait(_operations.toList());
         }
         await saved;
+        try {
+          await historySink?.flush();
+        } catch (_) {
+          historyError = '历史保存失败。';
+          _publish();
+        }
       }
       shutdownState = 'succeeded';
     } catch (error) {

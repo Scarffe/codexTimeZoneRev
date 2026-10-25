@@ -9,6 +9,7 @@ import '../services/backend.dart';
 import '../services/account_usage.dart';
 import '../services/account_sources.dart';
 import '../services/account_source_store.dart';
+import '../services/quota_history_store.dart';
 import '../services/desktop_monitor.dart';
 import '../services/monitor_preferences.dart';
 import '../services/session_selection.dart';
@@ -79,6 +80,7 @@ class LauncherApplication extends StatefulWidget {
     this.sourceController,
     this.sourcesService,
     this.sourcesStore,
+    this.historyStore,
     this.sessionMetricsController,
     this.attentionController,
     this.attentionStore,
@@ -99,6 +101,7 @@ class LauncherApplication extends StatefulWidget {
   final AccountSourcesController? sourceController;
   final AccountSourcesService? sourcesService;
   final AccountSourceStore? sourcesStore;
+  final QuotaHistoryStore? historyStore;
   final SessionMetricsController? sessionMetricsController;
   final SessionAttentionController? attentionController;
   final SessionAttentionStore? attentionStore;
@@ -121,13 +124,29 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       : widget.networkFactory?.call() ??
             NetworkController(preview: widget.preview);
   late final AccountSourcesController? sources = _createSources();
+  late final QuotaHistoryStore historyStore =
+      widget.historyStore ??
+      (widget.sourceController?.historySink is QuotaHistoryStore
+          ? widget.sourceController!.historySink! as QuotaHistoryStore
+          : (!widget.preview &&
+                    !widget.offlineTrial &&
+                    widget.backend == null &&
+                    widget.usageService == null
+                ? QuotaHistoryStore.portable()
+                : QuotaHistoryStore.memory()));
   AccountSourcesController? _createSources() {
     final injected = widget.sourceController;
     if (injected != null) {
       // An application's offline policy also covers owners constructed elsewhere.
-      return widget.offlineTrial && !injected.service.synthetic
-          ? null
-          : injected;
+      if (widget.offlineTrial && !injected.service.synthetic) return null;
+      // One application store is shared by capture and the history reader.
+      // Explicit injection wins; existing non-store fixture sinks stay intact.
+      if (widget.historyStore != null ||
+          injected.historySink == null ||
+          injected.historySink is QuotaHistoryStore) {
+        injected.historySink = historyStore;
+      }
+      return injected;
     }
     final production =
         !widget.preview &&
@@ -145,6 +164,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
               ? AccountSourceStore.portable()
               : AccountSourceStore.memory()),
       offlineTrial: widget.offlineTrial,
+      historySink: historyStore,
     );
   }
 
