@@ -178,3 +178,162 @@ abstract interface class QuotaHistorySink {
   Future<void> removeSource(String sourceId);
   Future<void> flush();
 }
+
+enum QuotaHistoryGapReason {
+  unobserved,
+  failure,
+  noLimits,
+  missingWindow,
+  segmentChanged,
+  clockReversal,
+  runChanged,
+  storage,
+}
+
+enum QuotaHistoryEventKind {
+  usedIncrease,
+  usedDecrease,
+  reportedResetChanged,
+  crossedReportedReset,
+  queryFailure,
+  noLimits,
+  missingWindow,
+  clockReversal,
+}
+
+/// Exact selector discovery, including the explicit unknown duration.
+class QuotaHistorySeries {
+  const QuotaHistorySeries(
+    this.segmentId,
+    this.bucketId,
+    this.role,
+    this.durationMinutes,
+  );
+  final String segmentId, bucketId;
+  final UsageWindowRole role;
+  final int? durationMinutes;
+}
+
+class QuotaHistoryPoint {
+  const QuotaHistoryPoint({
+    required this.attemptId,
+    required this.completedAtUtc,
+    required this.usedPercent,
+    required this.spanId,
+    required this.timeQuality,
+    required this.expectedIntervalSec,
+    this.resetsAtUtc,
+  });
+  final String attemptId;
+  final DateTime completedAtUtc;
+  final double usedPercent;
+  double get remainingPercent => 100 - usedPercent;
+  final int spanId, expectedIntervalSec;
+  final UsageObservationTimeQuality timeQuality;
+  final DateTime? resetsAtUtc;
+}
+
+/// One screen column, at most four actual observations (first/min/max/last).
+/// If hasInternalGaps is true, render isolated observations plus a gap marker;
+/// do not join these points. spanCount summarizes arbitrarily many raw spans.
+class QuotaHistoryTrendSegment {
+  QuotaHistoryTrendSegment({
+    required this.column,
+    required List<QuotaHistoryPoint> points,
+    required this.spanCount,
+    required this.hasInternalGaps,
+    required this.connectToPrevious,
+  }) : points = List.unmodifiable(points);
+  final int column, spanCount;
+  final List<QuotaHistoryPoint> points;
+  final bool hasInternalGaps, connectToPrevious;
+}
+
+class QuotaHistoryGap {
+  const QuotaHistoryGap(this.fromUtc, this.toUtc, this.reason);
+
+  /// Always nonnegative interval. A zero-duration barrier is still a fact.
+  final DateTime fromUtc, toUtc;
+  final QuotaHistoryGapReason reason;
+}
+
+class QuotaHistoryEvent {
+  const QuotaHistoryEvent({
+    required this.kind,
+    required this.fromUtc,
+    required this.toUtc,
+    this.deltaPercentagePoints,
+    this.previousReportedResetUtc,
+    this.reportedResetUtc,
+    this.errorKind,
+  });
+  final QuotaHistoryEventKind kind;
+  final DateTime fromUtc, toUtc;
+  final double? deltaPercentagePoints;
+  final DateTime? previousReportedResetUtc, reportedResetUtc;
+  final String? errorKind;
+}
+
+class QuotaHistoryHourCell {
+  const QuotaHistoryHourCell({
+    required this.localDate,
+    required this.localHour,
+    required this.utcOffsetMinutes,
+    required this.fromUtc,
+    required this.toUtc,
+    required this.sampleCount,
+    required this.failureCount,
+    required this.hasGap,
+    this.observedRemaining,
+    this.firstObservedUtc,
+    this.lastObservedUtc,
+  });
+  final String localDate;
+  final int localHour, utcOffsetMinutes, sampleCount, failureCount;
+  final DateTime fromUtc, toUtc;
+  final bool hasGap;
+
+  /// Null means no valid observation, including hours containing only failures.
+  final double? observedRemaining;
+  final DateTime? firstObservedUtc, lastObservedUtc;
+}
+
+class QuotaHistoryProjection {
+  QuotaHistoryProjection({
+    required this.requiresSelection,
+    List<String> availableSegmentIds = const [],
+    List<QuotaHistorySeries> availableSeries = const [],
+    List<QuotaHistoryTrendSegment> trendSegments = const [],
+    List<QuotaHistoryHourCell> hourCells = const [],
+    List<QuotaHistoryEvent> events = const [],
+    List<QuotaHistoryGap> gaps = const [],
+    this.sampleCount = 0,
+    this.failureCount = 0,
+    this.actualFromUtc,
+    this.actualToUtc,
+    this.firstObservedUtc,
+    this.lastObservedUtc,
+    this.minimumRemaining,
+    this.maximumRemaining,
+    this.latestPoint,
+  }) : availableSegmentIds = List.unmodifiable(availableSegmentIds),
+       availableSeries = List.unmodifiable(availableSeries),
+       trendSegments = List.unmodifiable(trendSegments),
+       hourCells = List.unmodifiable(hourCells),
+       events = List.unmodifiable(events),
+       gaps = List.unmodifiable(gaps);
+  final bool requiresSelection;
+  final List<String> availableSegmentIds;
+  final List<QuotaHistorySeries> availableSeries;
+  final List<QuotaHistoryTrendSegment> trendSegments;
+  final List<QuotaHistoryHourCell> hourCells;
+  final List<QuotaHistoryEvent> events;
+  final List<QuotaHistoryGap> gaps;
+  final int sampleCount, failureCount;
+
+  /// Actual source completion range returned by the local reader.
+  final DateTime? actualFromUtc, actualToUtc;
+  final DateTime? firstObservedUtc, lastObservedUtc;
+  final double? minimumRemaining, maximumRemaining;
+  final QuotaHistoryPoint? latestPoint;
+}
