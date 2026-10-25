@@ -386,6 +386,55 @@ class _Scale {
   }
 }
 
+/// Shared by the hover card and the decision to expose its full-text fallback.
+/// These are the hover's existing viewport limits, not a second text threshold.
+({
+  double width,
+  double height,
+  double left,
+  double right,
+  double top,
+  double bottom,
+  bool truncated,
+})
+_hoverRecordLayout(BuildContext context, String record, {Size? screen}) {
+  final size = screen ?? MediaQuery.sizeOf(context);
+  final padding = MediaQuery.paddingOf(context);
+  final insets = MediaQuery.viewInsetsOf(context);
+  final left = math.max(12.0, padding.left);
+  final right = math.max(12.0, padding.right);
+  final top = math.max(12.0, padding.top);
+  final bottom = math.max(12.0, padding.bottom + insets.bottom);
+  final width = math.min(330.0, math.max(0.0, size.width - left - right));
+  final availableHeight = math.max(0.0, size.height - top - bottom);
+  final text = TextPainter(
+    text: TextSpan(text: record, style: _labelStyle(context)),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+  )..layout(maxWidth: math.max(1.0, width - 20));
+  final contentHeight = text.height + 20;
+  text.dispose();
+  return (
+    width: width,
+    height: math.min(availableHeight, contentHeight),
+    left: left,
+    right: right,
+    top: top,
+    bottom: bottom,
+    truncated: contentHeight > availableHeight,
+  );
+}
+
+bool _needsInspection(
+  BuildContext context,
+  bool? policy,
+  List<String> records, {
+  bool hiddenRecords = false,
+}) =>
+    policy ??
+    (hiddenRecords ||
+        records.any((record) => _hoverRecordLayout(context, record).truncated));
+
 /// Pointer inspection is attached to actual marks, never an estimated chart bin.
 /// It adds no focus nodes; the chart's numeric inspector remains the touch and
 /// keyboard path. Portal ownership keeps disposal independent of other routes.
@@ -401,6 +450,7 @@ class _HoverMark extends StatefulWidget {
     this.color,
     this.maxPointScale = 1.18,
     this.showDetails = true,
+    this.inspectionAvailable = true,
   });
   final String record;
   final Object identity;
@@ -410,6 +460,7 @@ class _HoverMark extends StatefulWidget {
   final Color? color;
   final double maxPointScale;
   final bool showDetails;
+  final bool inspectionAvailable;
   @override
   State<_HoverMark> createState() => _HoverMarkState();
 }
@@ -521,45 +572,24 @@ class _HoverMarkState extends State<_HoverMark>
           Overlay.of(this.context).context.findRenderObject()! as RenderBox;
       final position = box.localToGlobal(Offset.zero, ancestor: overlayBox);
       final screen = overlayBox.size;
-      final padding = MediaQuery.paddingOf(context);
-      final insets = MediaQuery.viewInsetsOf(context);
-      final leftInset = math.max(12.0, padding.left);
-      final rightInset = math.max(12.0, padding.right);
-      final topInset = math.max(12.0, padding.top);
-      final bottomInset = math.max(12.0, padding.bottom + insets.bottom);
-      final width = math.min(
-        330.0,
-        math.max(0.0, screen.width - leftInset - rightInset),
-      );
-      final availableHeight = math.max(
-        0.0,
-        screen.height - topInset - bottomInset,
-      );
+      final layout = _hoverRecordLayout(context, widget.record, screen: screen);
       final style = _labelStyle(context)
           .copyWith(color: DashboardPalette.of(context).foreground);
-      final text = TextPainter(
-        text: TextSpan(text: widget.record, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-      )..layout(maxWidth: math.max(1.0, width - 20));
-      final truncated = text.height + 20 > availableHeight;
-      final cardHeight = math.min(availableHeight, text.height + 20);
-      text.dispose();
       final below = position.dy + box.size.height + 6;
-      final top = below + cardHeight <= screen.height - bottomInset
+      final top = below + layout.height <= screen.height - layout.bottom
           ? below
-          : position.dy - cardHeight - 6;
+          : position.dy - layout.height - 6;
       return Positioned(
         left: position.dx.clamp(
-          leftInset,
-          math.max(leftInset, screen.width - width - rightInset),
+          layout.left,
+          math.max(layout.left, screen.width - layout.width - layout.right),
         ),
         top: top.clamp(
-          topInset,
-          math.max(topInset, screen.height - bottomInset - cardHeight),
+          layout.top,
+          math.max(layout.top, screen.height - layout.bottom - layout.height),
         ),
-        width: width,
-        height: cardHeight,
+        width: layout.width,
+        height: layout.height,
         child: IgnorePointer(
           child: DecoratedBox(
             key: const ValueKey('monitor-chart-hover'),
@@ -583,7 +613,9 @@ class _HoverMarkState extends State<_HoverMark>
                       ),
                     ),
                   ),
-                  if (truncated && cardHeight >= 60)
+                  if (layout.truncated &&
+                      layout.height >= 60 &&
+                      widget.inspectionAvailable)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text('完整内容请查看数值', style: style),
@@ -726,10 +758,15 @@ class MonitorRingChart extends StatelessWidget {
     required this.bars,
     this.inspectionIdentity,
     this.hoverDetails = true,
+    this.showInspection,
   });
   final List<ChartBar> bars;
   final Object? inspectionIdentity;
   final bool hoverDetails;
+
+  /// Null removes a redundant inspector; false explicitly suppresses it.
+  /// Ring labels, values and details already appear in full beside each ring.
+  final bool? showInspection;
 
   double? _percent(ChartBar bar) {
     final value = _known(bar.value);
@@ -779,6 +816,7 @@ class MonitorRingChart extends StatelessWidget {
                                 ),
                                 record: records[i],
                                 showDetails: hoverDetails,
+                                inspectionAvailable: showInspection == true,
                                 motion: (_percent(bars[i]) ?? 0) > 0
                                     ? _MarkMotion.point
                                     : null,
@@ -846,7 +884,8 @@ class MonitorRingChart extends StatelessWidget {
               );
             },
           ),
-          _InspectValues(records: records, identity: inspectionIdentity),
+          if (showInspection == true)
+            _InspectValues(records: records, identity: inspectionIdentity),
         ],
       ),
     );
@@ -908,12 +947,16 @@ class MonitorCategoryDotChart extends StatelessWidget {
     this.integers = false,
     this.inspectionIdentity,
     this.hoverDetails = true,
+    this.showInspection,
   });
   final List<ChartBar> bars;
   final String unit;
   final bool integers;
   final Object? inspectionIdentity;
   final bool hoverDetails;
+
+  /// Null exposes only details that cannot be read completely from a mark.
+  final bool? showInspection;
 
   @override
   Widget build(BuildContext context) {
@@ -926,6 +969,14 @@ class MonitorCategoryDotChart extends StatelessWidget {
     final records = [
       for (final bar in bars) _compositionRecord(bar, value(bar), unit),
     ];
+    final inspect = _needsInspection(
+      context,
+      showInspection,
+      records,
+      hiddenRecords: bars.any(
+        (bar) => (!hoverDetails || value(bar) == null) && bar.detail != null,
+      ),
+    );
     final palette = DashboardPalette.of(context);
     return Semantics(
       container: true,
@@ -988,6 +1039,7 @@ class MonitorCategoryDotChart extends StatelessWidget {
                                       ),
                                       record: records[i],
                                       showDetails: hoverDetails,
+                                      inspectionAvailable: inspect,
                                       motion: _MarkMotion.point,
                                       color: palette.dataBlue,
                                       viewport: const Rect.fromLTWH(
@@ -1021,7 +1073,8 @@ class MonitorCategoryDotChart extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: _HorizontalTicks(scale: scale),
           ),
-          _InspectValues(records: records, identity: inspectionIdentity),
+          if (inspect)
+            _InspectValues(records: records, identity: inspectionIdentity),
         ],
       ),
     );
@@ -1045,6 +1098,7 @@ class MonitorBarChart extends StatelessWidget {
     this.compactMeters = false,
     this.inspectionIdentity,
     this.hoverDetails = true,
+    this.showInspection,
   });
   final List<ChartBar> bars;
   final String unit, xLabel, primaryLabel, secondaryLabel;
@@ -1061,6 +1115,10 @@ class MonitorBarChart extends StatelessWidget {
   /// Disable redundant pointer details without changing motion, semantics or
   /// the explicit numeric inspector.
   final bool hoverDetails;
+
+  /// Null keeps the inspector only for details not fully reachable by hover.
+  /// False is suitable when the containing view already displays every fact.
+  final bool? showInspection;
 
   Object _baseIdentity(int index) =>
       bars[index].identity ?? (bars[index].label, bars[index].detail);
@@ -1114,6 +1172,22 @@ class MonitorBarChart extends StatelessWidget {
   String _inspectionValue(double? value) =>
       _known(value) == null ? '未知' : '${inspectionNumber(value!)} $unit';
 
+  bool _hiddenRecord(ChartBar bar) {
+    if (compactMeters && horizontal) return false;
+    final primary = _known(bar.value);
+    final secondary = stacked ? _known(bar.secondaryValue) : null;
+    final hoverable =
+        hoverDetails &&
+        (bar.cancelled ||
+            primary == null ||
+            (!horizontal && line) ||
+            primary > 0 ||
+            (secondary ?? 0) > 0);
+    // Small numeric charts show their labels and values without hovering.
+    // IDs/details and dense numeric samples still need a reachable fallback.
+    return !hoverable && (bar.detail != null || bars.length > 4 || stacked);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (bars.isEmpty) return const Text('暂无可绘制数据');
@@ -1128,6 +1202,13 @@ class MonitorBarChart extends StatelessWidget {
       ),
     );
     final scale = _Scale(actual, requested: maxValue, integers: integers);
+    final records = bars.map(_record).toList();
+    final inspect = _needsInspection(
+      context,
+      showInspection,
+      records,
+      hiddenRecords: bars.any(_hiddenRecord),
+    );
     final knownCount = bars
         .where((b) => !b.cancelled && _known(b.value) != null)
         .length;
@@ -1166,8 +1247,9 @@ class MonitorBarChart extends StatelessWidget {
           if (compactMeters && horizontal)
             LayoutBuilder(
               builder: (context, constraints) {
-                final inspect = _InspectValues(
-                  records: bars.map(_record).toList(),
+                if (!inspect) return _meters(context, scale);
+                final action = _InspectValues(
+                  records: records,
                   identity: inspectionIdentity,
                 );
                 return constraints.maxWidth > 600
@@ -1176,12 +1258,12 @@ class MonitorBarChart extends StatelessWidget {
                         children: [
                           Expanded(child: _meters(context, scale)),
                           const SizedBox(width: 10),
-                          inspect,
+                          action,
                         ],
                       )
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [_meters(context, scale), inspect],
+                        children: [_meters(context, scale), action],
                       );
               },
             )
@@ -1252,12 +1334,9 @@ class MonitorBarChart extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             ),
-          if (!compactMeters) ...[
+          if (!compactMeters && inspect) ...[
             const SizedBox(height: 8),
-            _InspectValues(
-              records: bars.map(_record).toList(),
-              identity: inspectionIdentity,
-            ),
+            _InspectValues(records: records, identity: inspectionIdentity),
           ],
         ],
       ),
@@ -1280,6 +1359,7 @@ class MonitorBarChart extends StatelessWidget {
           child: _HoverMark(
             identity: _markIdentity(index, 'cancelled'),
             showDetails: hoverDetails,
+            inspectionAvailable: showInspection != false,
             record: _record(bar),
             child: Text('×', key: ValueKey('monitor-bar-$index-cancelled')),
           ),
@@ -1298,6 +1378,7 @@ class MonitorBarChart extends StatelessWidget {
           child: _HoverMark(
             identity: _markIdentity(index, 'primary'),
             showDetails: hoverDetails,
+            inspectionAvailable: showInspection != false,
             viewport: Rect.fromLTWH(0, -top, width, plotHeight),
             record: _record(bar),
             motion: primary > 0 ? _MarkMotion.horizontal : null,
@@ -1314,6 +1395,7 @@ class MonitorBarChart extends StatelessWidget {
           child: _HoverMark(
             identity: _markIdentity(index, 'unknown'),
             showDetails: hoverDetails,
+            inspectionAvailable: showInspection != false,
             record: _record(bar),
             child: Text('—', key: ValueKey('monitor-bar-$index-unknown')),
           ),
@@ -1328,6 +1410,7 @@ class MonitorBarChart extends StatelessWidget {
           child: _HoverMark(
             identity: _markIdentity(index, 'secondary'),
             showDetails: hoverDetails,
+            inspectionAvailable: showInspection != false,
             viewport: Rect.fromLTWH(
               -width * (primary ?? 0) / max,
               -top,
@@ -1534,6 +1617,8 @@ class MonitorBarChart extends StatelessWidget {
                                   child: Center(
                                     child: _HoverMark(
                                       showDetails: hoverDetails,
+                                      inspectionAvailable:
+                                          showInspection != false,
                                       identity: _markIdentity(
                                         i,
                                         bars[i].cancelled
@@ -1579,6 +1664,8 @@ class MonitorBarChart extends StatelessWidget {
                                   child: _HoverMark(
                                     identity: _markIdentity(i, 'primary'),
                                     showDetails: hoverDetails,
+                                    inspectionAvailable:
+                                        showInspection != false,
                                     viewport: viewport(i),
                                     record: _record(bars[i]),
                                     motion: _known(bars[i].value) == 0
@@ -1622,6 +1709,7 @@ class MonitorBarChart extends StatelessWidget {
                                 child: _HoverMark(
                                   identity: _markIdentity(i, 'secondary'),
                                   showDetails: hoverDetails,
+                                  inspectionAvailable: showInspection != false,
                                   viewport: viewport(i, secondary: true),
                                   record: _record(bars[i]),
                                   motion: _known(bars[i].secondaryValue) == 0
@@ -1812,6 +1900,7 @@ class MonitorCoverageChart extends StatelessWidget {
           primary: _ChartPalette.of(context).teal,
           secondary: _ChartPalette.of(context).amber,
           child: MonitorBarChart(
+            showInspection: false,
             inspectionIdentity: inspectionIdentity,
             bars: [
               ChartBar(
@@ -1840,9 +1929,11 @@ class MonitorIntervalChart extends StatelessWidget {
     super.key,
     required this.data,
     this.inspectionIdentity,
+    this.showInspection,
   });
   final SessionActivityTimelineData data;
   final Object? inspectionIdentity;
+  final bool? showInspection;
   Object _rowIdentity(SessionActivityTimelineRow row) =>
       (row.category, row.startedAtMs, row.ordinal);
   Object _identity(SessionActivityTimelineRow row) =>
@@ -1860,6 +1951,13 @@ class MonitorIntervalChart extends StatelessWidget {
     final scale = span == null
         ? null
         : _Scale(span / 1000, requested: span / 1000);
+    final records = data.rows.map(_record).toList();
+    final inspect = _needsInspection(
+      context,
+      showInspection,
+      records,
+      hiddenRecords: data.rows.any((row) => !row.drawable),
+    );
     return Semantics(
       container: true,
       explicitChildNodes: true,
@@ -1958,6 +2056,7 @@ class MonitorIntervalChart extends StatelessWidget {
                                         48,
                                       ),
                                       record: _record(row),
+                                      inspectionAvailable: inspect,
                                       motion: _MarkMotion.horizontal,
                                       color: _ChartPalette.of(context)
                                           .category(row.category),
@@ -1988,10 +2087,8 @@ class MonitorIntervalChart extends StatelessWidget {
           const Text('日志活动可重叠；空白不代表等待。', style: TextStyle(fontSize: 12)),
           if (data.sourcePartial) const Text('来源不完整'),
           if (data.omittedItems > 0) Text('省略 ${data.omittedItems} 项'),
-          _InspectValues(
-            records: data.rows.map(_record).toList(),
-            identity: inspectionIdentity,
-          ),
+          if (inspect)
+            _InspectValues(records: records, identity: inspectionIdentity),
         ],
       ),
     );

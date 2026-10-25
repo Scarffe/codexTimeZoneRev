@@ -154,10 +154,11 @@ void main() {
         now: () => now,
       );
       await scheduled.initialize(() => 'fixture-cli');
+      final healthy = (await scheduled.create('Healthy'))!;
       final id = (await scheduled.create('Work'))!;
       scheduled.start(() => 'fixture-cli');
       await tester.pump(const Duration(milliseconds: 1));
-      fixture.pending['current']!.complete(sample(now, 30));
+      fixture.pending[healthy]!.complete(sample(now, 30));
       await tester.pump();
       fixture.loginPending = Completer<String>();
       final login = scheduled.login(id);
@@ -166,8 +167,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
       now = now.add(const Duration(seconds: 120));
       await tester.pump(const Duration(seconds: 120));
-      expect(fixture.calls.where((c) => c == 'current:false').length, 2);
-      fixture.pending['current']!.complete(sample(now, 35));
+      expect(fixture.calls.where((c) => c == '$healthy:false').length, 2);
+      fixture.pending[healthy]!.complete(sample(now, 35));
       await tester.pump();
       await scheduled.cancelLogin(id);
       fixture.loginPending!.complete('late-job');
@@ -185,20 +186,21 @@ void main() {
     final a = (await owner.create('Work'))!,
         b = (await owner.create('Personal'))!;
     await owner.login(a);
-    final job = owner.states[1].jobId;
+    final state = owner.states.firstWhere((s) => s.id == a);
+    final job = state.jobId;
     service.cancelError = 'network';
     await owner.cancelLogin(a);
-    expect(owner.states[1].jobId, job);
-    expect(owner.states[1].loginState, 'cancel_failed');
-    expect(owner.states[1].errorKind, 'network');
+    expect(state.jobId, job);
+    expect(state.loginState, 'cancel_failed');
+    expect(state.errorKind, 'network');
     expect(owner.anyBusy, isTrue);
     await owner.login(b);
     expect(service.calls, isNot(contains('login:$b')));
     service.cancelError = null;
     await owner.cancelLogin(a);
     expect(owner.operationError, isNull);
-    expect(owner.states[1].jobId, isNull);
-    expect(owner.states[1].loginState, 'cancelled');
+    expect(state.jobId, isNull);
+    expect(state.loginState, 'cancelled');
     await owner.login(b);
     expect(service.calls, contains('login:$b'));
     await owner.cancelLogin(b);
@@ -219,11 +221,12 @@ void main() {
       service.cancelError = 'timeout';
       service.loginPending!.complete('late-job');
       await login;
-      expect(owner.states[1].jobId, 'late-job');
-      expect(owner.states[1].loginState, 'cancel_failed');
+      final state = owner.states.firstWhere((s) => s.id == a);
+      expect(state.jobId, 'late-job');
+      expect(state.loginState, 'cancel_failed');
       service.cancelError = null;
       await owner.cancelLogin(a);
-      expect(owner.states[1].jobId, isNull);
+      expect(state.jobId, isNull);
     },
   );
 
@@ -239,8 +242,8 @@ void main() {
     await owner.remove(id);
     await owner.saved;
     expect(owner.states.map((s) => s.id), contains(id));
-    expect(owner.selectedId, 'current');
-    expect(owner.pinnedId, 'current');
+    expect(owner.selectedId, '');
+    expect(owner.pinnedId, '');
     expect(owner.states.last.usage, isNull);
     final item = ((await store.read())['sources'] as List).last as Map;
     expect(item['pendingRemoval'], isTrue);
@@ -254,7 +257,7 @@ void main() {
     expect(restored.states.last.usage, isNull);
     await restored.remove(id);
     await restored.saved;
-    expect(restored.states.map((s) => s.id), ['current']);
+    expect(restored.states, isEmpty);
     expect(jsonEncode(await store.read()), isNot(contains(id)));
     restored.dispose();
   });
@@ -286,29 +289,39 @@ void main() {
     };
     for (final kind in ['auth_required', 'network', 'rate_limited']) {
       final backend = RecordingBackend();
-      backend.result = {'ok': true, 'sourceId': 'current', 'usage': payload()};
+      backend.result = {
+        'ok': true,
+        'sourceId': 'profile-fixture',
+        'usage': payload(),
+      };
       final native = NativeAccountSourcesService(backend);
+      final catalog = AccountSourceStore.memory();
+      await catalog.write({
+        'sources': [
+          {'id': 'profile-fixture', 'alias': 'Fixture'},
+        ],
+      });
       final monitored = AccountSourcesController(
         native,
-        AccountSourceStore.memory(),
+        catalog,
         now: () => now,
       );
       await monitored.initialize(() => 'fixture-cli');
-      await monitored.refresh('current');
+      await monitored.refresh('profile-fixture');
       final original = monitored.selected!.usage!.fetchedAt;
       backend.result = {
         'ok': true,
-        'sourceId': 'current',
+        'sourceId': 'profile-fixture',
         'usage': payload(limitsKind: kind),
       };
-      await monitored.refresh('current');
+      await monitored.refresh('profile-fixture');
       expect(monitored.selected!.errorKind, kind);
       if (kind == 'auth_required') {
         expect(monitored.selected!.usage, isNull);
       } else {
         expect(monitored.selected!.usage!.fetchedAt, original);
       }
-      final parsed = await native.query('current');
+      final parsed = await native.query('profile-fixture');
       expect(
         AccountUsage.fromCacheJson(parsed.toCacheJson())
             .toCacheJson()['limitsErrorKind'],
@@ -319,27 +332,29 @@ void main() {
     final backend = RecordingBackend();
     backend.result = {
       'ok': true,
-      'sourceId': 'current',
+      'sourceId': 'profile-fixture',
       'usage': payload(tokensKind: 'network'),
     };
     final native = NativeAccountSourcesService(backend);
-    final monitored = AccountSourcesController(
-      native,
-      AccountSourceStore.memory(),
-      now: () => now,
-    );
+    final catalog = AccountSourceStore.memory();
+    await catalog.write({
+      'sources': [
+        {'id': 'profile-fixture', 'alias': 'Fixture'},
+      ],
+    });
+    final monitored = AccountSourcesController(native, catalog, now: () => now);
     await monitored.initialize(() => 'fixture-cli');
-    await monitored.refresh('current', details: true);
+    await monitored.refresh('profile-fixture', details: true);
     expect(monitored.selected!.errorKind, isNull);
     expect(monitored.selected!.usage!.buckets, isNotEmpty);
     final previous = monitored.selected!.usage!;
     backend.result = {
       'ok': true,
-      'sourceId': 'current',
+      'sourceId': 'profile-fixture',
       'usage': payload(details: false),
     };
     final retained = retainUsageDetails(
-      await native.query('current'),
+      await native.query('profile-fixture'),
       previous,
     );
     expect(
@@ -364,7 +379,7 @@ void main() {
     expect(service.calls, ['$a:false', '$b:false']);
     service.pending[b]!.complete(sample(now, 60));
     await second;
-    expect(owner.states.map((s) => s.id), containsAll(['current', a, b]));
+    expect(owner.states.map((s) => s.id), [a, b]);
     expect(
       owner.states
           .firstWhere((s) => s.id == a)
@@ -380,6 +395,7 @@ void main() {
 
   test('backoff isolates failure and selection pinning never query', () async {
     final a = (await owner.create('Work'))!;
+    final b = (await owner.create('Healthy'))!;
     final attempt = owner.refresh(a);
     await Future<void>.delayed(Duration.zero);
     service.pending[a]!.completeError(const SourceFailure('network'));
@@ -389,19 +405,20 @@ void main() {
     owner.select(a);
     owner.pin(a);
     expect(service.calls.length, previous);
-    final healthy = owner.refresh('current');
+    final healthy = owner.refresh(b);
     await Future<void>.delayed(Duration.zero);
-    service.pending['current']!.complete(sample(now, 30));
+    service.pending[b]!.complete(sample(now, 30));
     await healthy;
     expect(owner.selected!.errorKind, 'network');
     expect(owner.selected!.usage, isNull);
-    expect(owner.states.firstWhere((s) => s.id == 'current').usage, isNotNull);
+    expect(owner.states.firstWhere((s) => s.id == b).usage, isNotNull);
   });
 
   test('restart restores failed status and cooldown without blocking healthy due source', () async {
+    final healthy = (await owner.create('Healthy'))!;
     final id = (await owner.create('Work'))!;
     final original = now;
-    for (final source in [id, 'current']) {
+    for (final source in [id, healthy]) {
       final query = owner.refresh(source);
       await Future<void>.delayed(Duration.zero);
       service.pending[source]!.complete(sample(now, 40));
@@ -430,12 +447,12 @@ void main() {
     restored.start(() => 'fixture-cli');
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
-    expect(fixture.calls, ['current:false']);
+    expect(fixture.calls, ['$healthy:false']);
     restored.systemSuspending();
     restored.systemResumed();
     await restored.refresh(id);
-    expect(fixture.calls, ['current:false']);
-    fixture.pending['current']!.complete(sample(now, 35));
+    expect(fixture.calls, ['$healthy:false']);
+    fixture.pending[healthy]!.complete(sample(now, 35));
     await Future<void>.delayed(Duration.zero);
     restored.pause();
     now = cooldown!.add(const Duration(milliseconds: 1));
@@ -493,7 +510,7 @@ void main() {
       await catalog.write({
         'sources': [
           {
-            'id': 'current',
+            'id': 'profile-backoff',
             'alias': 'Default',
             'generation': 0,
             'errorKind': 'network',
@@ -514,10 +531,12 @@ void main() {
         now: () => now,
       );
       await running.initialize(() => 'fixture-cli');
-      final query = running.refresh('current');
+      final query = running.refresh('profile-backoff');
       await Future<void>.delayed(Duration.zero);
       now = now.add(const Duration(seconds: 2));
-      fixture.pending['current']!.completeError(const SourceFailure('network'));
+      fixture.pending['profile-backoff']!.completeError(
+        const SourceFailure('network'),
+      );
       await query;
       await running.saved;
       final restored = AccountSourcesController(
@@ -578,7 +597,7 @@ void main() {
         await catalog.write({
           'sources': [
             {
-              'id': 'current',
+              'id': 'profile-backoff',
               'alias': 'Default',
               'generation': 0,
               'errorKind': 'network',
@@ -614,7 +633,7 @@ void main() {
     await active;
     await queued;
     await owner.saved;
-    expect(owner.states.map((s) => s.id), ['current']);
+    expect(owner.states, isEmpty);
     expect(jsonEncode(await store.read()), isNot(contains(a)));
     expect(service.calls, isNot(contains('$b:false')));
   });
@@ -745,7 +764,7 @@ void main() {
     expect(await creation, isNull);
     await shutdown;
     expect(service.calls, contains('remove:profile-late'));
-    expect(owner.states.map((s) => s.id), ['current']);
+    expect(owner.states, isEmpty);
   });
 
   test('remove during login status discards terminal success', () async {
@@ -770,11 +789,12 @@ void main() {
         now: () => now,
       );
       await scheduled.initialize(() => 'fixture-cli');
+      final failed = (await scheduled.create('Backoff'))!;
       final id = (await scheduled.create('Work'))!;
       scheduled.start(() => 'fixture-cli');
       await tester.pump(const Duration(milliseconds: 1));
-      expect(fixture.calls, ['current:false']);
-      fixture.pending['current']!.completeError(const SourceFailure('network'));
+      expect(fixture.calls, ['$failed:false']);
+      fixture.pending[failed]!.completeError(const SourceFailure('network'));
       await tester.pump();
       now = now.add(const Duration(milliseconds: 250));
       await tester.pump(const Duration(milliseconds: 250));
@@ -808,12 +828,16 @@ void main() {
     guarded.dispose();
   });
 
-  test('current source cannot be removed or authenticated', () async {
-    await owner.remove('current');
-    await owner.login('current');
-    expect(owner.states.map((s) => s.id), ['current']);
-    expect(service.calls, isEmpty);
-  });
+  test(
+    'absent current source cannot be queried removed or authenticated',
+    () async {
+      await owner.remove('current');
+      await owner.login('current');
+      await owner.refresh('current');
+      expect(owner.states, isEmpty);
+      expect(service.calls, isEmpty);
+    },
+  );
 
   test('native service binds source, forces managed limits, and rejects mismatched response', () async {
     final backend = RecordingBackend();
@@ -917,20 +941,21 @@ void main() {
         sources: owner,
         now: () => now,
       );
+      final pinned = (await owner.create('Work'))!;
       final id = (await owner.create('Personal'))!;
-      var q = owner.refresh('current');
+      var q = owner.refresh(pinned);
       await Future<void>.delayed(Duration.zero);
-      service.pending['current']!.complete(sample(now, 25));
+      service.pending[pinned]!.complete(sample(now, 25));
       await q;
       q = owner.refresh(id);
       await Future<void>.delayed(Duration.zero);
       service.pending[id]!.complete(sample(now, 75));
       await q;
       owner.select(id);
-      owner.pin('current');
+      owner.pin(pinned);
       expect(facade.data!.buckets.first.windows.first.usedPercent, 75);
       expect(facade.desktopSnapshot['remaining'], 75);
-      expect(facade.desktopSnapshot['text'], contains('默认来源'));
+      expect(facade.desktopSnapshot['text'], contains('Work'));
       facade.sourceChanged('another-cli');
       expect(facade.data!.buckets.first.windows.first.usedPercent, 75);
       final query = facade.query('another-cli');

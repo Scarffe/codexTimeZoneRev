@@ -130,7 +130,7 @@ void main() {
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('locked corrupt catalog still accepts consecutive current queries after path change', () async {
+  test('locked corrupt catalog never queries the removed default after path change', () async {
     final temp = await Directory.systemTemp.createTemp(
       'source-final-locked-path-',
     );
@@ -147,55 +147,80 @@ void main() {
     });
     await owner.initialize(() => path);
     expect(owner.catalogError, isNotNull);
-    expect(owner.selected!.usage, isNull);
-    final generation = owner.selected!.generation;
+    expect(owner.states, isEmpty);
+    expect(owner.selected, isNull);
+    expect(owner.pinned, isNull);
     path = 'new-synthetic-cli';
     owner.sourceChanged(path);
     await owner.refresh('current');
-    expect(
-      owner.selected!.usage?.buckets.single.windows.single.usedPercent,
-      10,
-    );
     await owner.refresh('current');
-    expect(
-      owner.selected!.usage?.buckets.single.windows.single.usedPercent,
-      20,
-    );
-    expect(owner.selected!.generation, generation + 1);
-    expect(service.paths, ['new-synthetic-cli', 'new-synthetic-cli']);
+    expect(service.paths, isEmpty);
+    expect(owner.states, isEmpty);
+    expect(owner.selectedId, isEmpty);
+    expect(owner.pinnedId, isEmpty);
     expect(owner.canMutateCatalog, isFalse);
     await owner.saved;
     expect(await file.readAsBytes(), original);
     await expectLater(store.write({'sources': []}), throwsStateError);
   });
 
-  test('fresh owner refuses catalog mutations until restoration and retains bootstrap path', () async {
-    final service = SyntheticMultiSources();
-    final store = AccountSourceStore.memory();
-    await store.write({
-      'sources': [
-        {'id': 'current', 'alias': 'Original'},
-      ],
-    });
-    final owner = AccountSourcesController(service, store);
-    owner.sourceChanged('bootstrap-cli');
-    owner.rename('current', 'Lost');
-    owner.start(() => 'bootstrap-cli');
-    expect(await owner.create('Too soon'), isNull);
+  test('managed observations survive launcher path changes and refresh without its path', () async {
+    final service = _PathUsage();
+    final owner = AccountSourcesController(
+      service,
+      AccountSourceStore.memory(),
+    );
+    var path = 'old-synthetic-cli';
+    addTearDown(owner.dispose);
+    await owner.initialize(() => path);
+    final id = (await owner.create('Managed'))!;
+    await owner.refresh(id);
+    final source = owner.selected!;
+    final observed = source.usage;
+    final generation = source.generation;
+    expect(observed?.buckets.single.windows.single.usedPercent, 10);
+    path = 'new-synthetic-cli';
+    owner.sourceChanged(path);
+    expect(source.usage, same(observed));
+    expect(source.generation, generation);
+    await owner.refresh(id);
+    expect(source.usage?.buckets.single.windows.single.usedPercent, 20);
+    expect(source.generation, generation);
+    expect(service.paths, ['', '']);
     await owner.refresh('current');
-    expect(service.queries, isEmpty);
-    expect(owner.monitoring, isFalse);
-    await owner.initialize(() => 'bootstrap-cli');
-    expect(owner.selected!.alias, 'Original');
-    final generation = owner.selected!.generation;
-    owner.sourceChanged('bootstrap-cli');
-    expect(owner.selected!.generation, generation);
-    owner.dispose();
+    expect(service.paths, ['', '']);
   });
+
+  test(
+    'fresh owner refuses catalog mutations until managed source restoration',
+    () async {
+      final service = SyntheticMultiSources();
+      final store = AccountSourceStore.memory();
+      await store.write({
+        'sources': [
+          {'id': 'profile-original', 'alias': 'Original'},
+        ],
+      });
+      final owner = AccountSourcesController(service, store);
+      owner.sourceChanged('bootstrap-cli');
+      owner.rename('profile-original', 'Lost');
+      owner.start(() => 'bootstrap-cli');
+      expect(await owner.create('Too soon'), isNull);
+      await owner.refresh('profile-original');
+      expect(service.queries, isEmpty);
+      expect(owner.monitoring, isFalse);
+      await owner.initialize(() => 'bootstrap-cli');
+      expect(owner.selected!.alias, 'Original');
+      final generation = owner.selected!.generation;
+      owner.sourceChanged('changed-bootstrap-cli');
+      expect(owner.selected!.generation, generation);
+      owner.dispose();
+    },
+  );
 
   for (final corrupt in [false, true]) {
     testWidgets(
-      'cold app bootstrap preserves original disk catalog corrupt=$corrupt',
+      'cold app bootstrap restores managed sources and protects corrupt disk catalog corrupt=$corrupt',
       (tester) async {
         final now = DateTime.now();
         final cycles = {
@@ -256,33 +281,34 @@ void main() {
         expect(store.preReadWrites, 0);
         if (corrupt) {
           expect(owner.catalogError, isNotNull);
+          expect(owner.states, isEmpty);
           await tester.runAsync(() async {
-            owner.rename('current', 'must not write');
+            owner.rename('profile-one', 'must not write');
             owner.sourceChanged('another-cli.exe');
             await owner.saved;
           });
           expect(await tester.runAsync(file.readAsBytes), bytes);
         } else {
-          expect(owner.states.map((s) => s.id), [
-            'current',
-            'profile-one',
-            'profile-two',
-          ]);
+          expect(owner.states.map((s) => s.id), ['profile-one', 'profile-two']);
           expect(owner.selectedId, 'profile-one');
           expect(owner.pinnedId, 'profile-two');
-          for (final s in owner.states.where((s) => !s.isCurrent)) {
+          for (final s in owner.states) {
             expect(
               s.usage!.fetchedAt.millisecondsSinceEpoch,
               now.millisecondsSinceEpoch,
             );
           }
           await tester.runAsync(() async {
-            owner.rename('current', 'renamed');
+            owner.rename('profile-one', 'renamed');
             await owner.saved;
           });
           final saved = jsonDecode((await tester.runAsync(file.readAsString))!);
           expect(saved['cycles'], cycles);
-          expect(saved['sources'], hasLength(3));
+          expect(saved['sources'], hasLength(2));
+          expect((saved['sources'] as List).map((source) => source['id']), [
+            'profile-one',
+            'profile-two',
+          ]);
           expect(saved['selectedId'], 'profile-one');
           expect(saved['pinnedId'], 'profile-two');
         }
@@ -308,6 +334,8 @@ void main() {
       final store = _SaveGate();
       final owner = AccountSourcesController(service, store);
       await owner.initialize(() => '');
+      final id = (await owner.create('Before save'))!;
+      await owner.saved;
       final usage = AccountUsageController(ForbiddenLegacy(), sources: owner);
       final bridge = DesktopMonitor(usage, () => '', onNotice: notices.add)
         ..start();
@@ -318,7 +346,7 @@ void main() {
         messenger.setMockMethodCallHandler(DesktopMonitor.channel, null);
       });
       store.gate = Completer<void>();
-      owner.rename('current', 'Durable');
+      owner.rename(id, 'Durable');
       final first = nativeAction('exit');
       await tester.pump();
       expect(calls.where((c) => c == 'exit'), isEmpty);
@@ -412,7 +440,9 @@ void main() {
     backend.cancelGate!.complete(backend.envelope('succeeded'));
     await cancel;
     await owner.saved;
-    expect(owner.states.map((s) => s.id), ['current']);
+    expect(owner.states, isEmpty);
+    expect(owner.selectedId, isEmpty);
+    expect(owner.pinnedId, isEmpty);
     expect(jsonEncode(await store.read()), isNot(contains(id)));
     expect(backend.commands, isNot(contains('account_source_usage')));
     owner.dispose();
@@ -432,7 +462,7 @@ void main() {
     'literal suffixed aliases retain every selectable source exactly once',
     (tester) async {
       final f = await syntheticMultiFixture();
-      f.owner.rename('current', 'A');
+      f.owner.rename('profile-primary', 'A');
       f.owner.rename('profile-stale', 'A');
       f.owner.rename('profile-unknown', 'A · 1');
       await tester.pumpWidget(sourcesHost(AccountSourcesPanel(owner: f.owner)));
@@ -441,7 +471,7 @@ void main() {
         find.byKey(const ValueKey('account-source-selector')),
       );
       expect(choice.items.values.toList()..sort(), [
-        'current',
+        'profile-primary',
         'profile-stale',
         'profile-unknown',
       ]);
@@ -464,7 +494,7 @@ void main() {
       await store.write({
         'sources': [
           {
-            'id': 'current',
+            'id': 'profile-clock',
             'alias': 'Clock',
             'usage': sample(
               now
@@ -479,12 +509,12 @@ void main() {
       await owner.initialize(() => '');
       // Preserve a recent observation while the known reset crosses in 30 seconds.
       final usage = owner.selected!.usage!;
-      owner.selected!.usage = service.sample('current', observed: now);
+      owner.selected!.usage = service.sample('profile-clock', observed: now);
       final cache = owner.selected!.usage!.toCacheJson();
       cache['buckets'] = usage.toCacheJson()['buckets'];
       await store.write({
         'sources': [
-          {'id': 'current', 'alias': 'Clock', 'usage': cache},
+          {'id': 'profile-clock', 'alias': 'Clock', 'usage': cache},
         ],
       });
       owner.dispose();

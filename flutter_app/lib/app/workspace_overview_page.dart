@@ -31,9 +31,12 @@ class WorkspaceOverviewPage extends StatelessWidget {
     final cards = [
       _OverviewCard(
         destination: WorkspaceDestination.accounts,
-        headline: '${usage.sources?.states.length ?? 1}',
+        headline:
+            '${usage.sources?.states.length ?? (usage.data == null ? 0 : 1)}',
         unit: '个独立来源',
-        caption: '已选 · ${usage.sources?.selected?.alias ?? '默认来源'}',
+        caption: usage.sources?.selected == null
+            ? '尚未选择账号'
+            : '已选 · ${usage.sources!.selected!.alias}',
         onOpen: onSelect,
         details: [
           if (usage.data == null)

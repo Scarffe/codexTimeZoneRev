@@ -5,10 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'monitor_charts_test.dart' show chartApp;
 
 const _firstChart = MonitorBarChart(
+  showInspection: true,
   bars: [ChartBar(label: '精确样本', value: 1.23456789)],
   unit: 's',
 );
 const _nextChart = MonitorBarChart(
+  showInspection: true,
   bars: [ChartBar(label: '新样本', value: 9.87654321)],
   unit: 's',
 );
@@ -55,6 +57,7 @@ void main() {
 
     // A poll rebuilds the chart and its records even when all facts are equal.
     chart.value = MonitorBarChart(
+      showInspection: true,
       bars: [ChartBar(label: '精确样本', value: 1.23456789)],
       unit: 's',
     );

@@ -50,13 +50,15 @@ void main() {
         AccountSourceStore.memory(),
       );
       await owner.initialize(() => '');
+      final pinnedId = (await owner.create('Pinned'))!;
       final id = (await owner.create('Other'))!;
       owner.select(id);
       final usage = AccountUsageController(_Usage(), sources: owner);
       final bridge = DesktopMonitor(usage, () => '')..start();
       await tester.pump();
       await nativeAction('refresh');
-      expect(service.queries, ['current']);
+      expect(service.queries, [pinnedId]);
+      expect(owner.pinnedId, pinnedId);
       expect(owner.selectedId, id);
       bridge.dispose();
       usage.dispose();

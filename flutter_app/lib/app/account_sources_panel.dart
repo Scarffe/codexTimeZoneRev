@@ -111,7 +111,6 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
           children: [
             Text(source.alias),
             const Text('来源选择仅改变额度监控；本地会话仍独立采集。'),
-            if (source.isCurrent) const Text('默认来源受保护：不支持登录、退出登录或移除。'),
             Text('登录状态：${_loginLabel(source.loginState)}'),
             if (source.usage != null) ...[
               Text('账号：${source.usage!.email ?? '未知'}'),
@@ -173,6 +172,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
     builder: (context, _) {
       final selected = owner.selected;
       final canEdit = owner.canMutateCatalog;
+      final choices = _sourceChoices();
       final states = owner.states.toList()
         ..sort((a, b) {
           final av = _sortValue(a), bv = _sortValue(b);
@@ -189,29 +189,33 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              SizedBox(
-                width: 192,
-                child: MonitorChoice(
-                  key: const ValueKey('account-source-selector'),
-                  label: '额度来源',
-                  showLabel: false,
-                  value: owner.selectedId,
-                  items: _sourceChoices(),
-                  onChanged: owner.select,
+              if (choices.isNotEmpty)
+                SizedBox(
+                  width: 192,
+                  child: MonitorChoice(
+                    key: const ValueKey('account-source-selector'),
+                    label: '额度来源',
+                    showLabel: false,
+                    value: owner.selectedId,
+                    items: choices,
+                    onChanged: owner.select,
+                  ),
                 ),
-              ),
-              FButton(
-                key: const ValueKey('toggle-source-overview'),
-                mainAxisSize: MainAxisSize.min,
-                variant: FButtonVariant.ghost,
-                selected: expanded,
-                prefix: Icon(
-                  expanded ? FLucideIcons.chevronDown : FLucideIcons.layoutGrid,
-                  size: 16,
+              if (owner.states.isNotEmpty)
+                FButton(
+                  key: const ValueKey('toggle-source-overview'),
+                  mainAxisSize: MainAxisSize.min,
+                  variant: FButtonVariant.ghost,
+                  selected: expanded,
+                  prefix: Icon(
+                    expanded
+                        ? FLucideIcons.chevronDown
+                        : FLucideIcons.layoutGrid,
+                    size: 16,
+                  ),
+                  onPress: _toggleOverview,
+                  child: Text('总览 (${owner.states.length})'),
                 ),
-                onPress: _toggleOverview,
-                child: Text('总览 (${owner.states.length})'),
-              ),
               FButton(
                 key: const ValueKey('add-account-source'),
                 mainAxisSize: MainAxisSize.min,
@@ -220,23 +224,22 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 onPress: canEdit ? () => _login() : null,
                 child: const Text('添加'),
               ),
-              MonitorIconAction(
-                key: const ValueKey('pin-selected-source'),
-                label: selected?.id == owner.pinnedId
-                    ? '此来源已固定到托盘'
-                    : '将此来源固定到托盘',
-                icon: FLucideIcons.pin,
-                onPress:
-                    owner.canOperate &&
-                        selected != null &&
-                        !selected.pendingRemoval
-                    ? () => owner.pin(selected.id)
-                    : null,
-              ),
-              Text(
-                '托盘：${owner.pinned?.alias ?? '未知来源'}',
-                style: context.theme.typography.body.sm,
-              ),
+              if (selected != null)
+                MonitorIconAction(
+                  key: const ValueKey('pin-selected-source'),
+                  label: selected.id == owner.pinnedId
+                      ? '此来源已固定到托盘'
+                      : '将此来源固定到托盘',
+                  icon: FLucideIcons.pin,
+                  onPress: owner.canOperate && !selected.pendingRemoval
+                      ? () => owner.pin(selected.id)
+                      : null,
+                ),
+              if (owner.pinned != null)
+                Text(
+                  '托盘：${owner.pinned!.alias}',
+                  style: context.theme.typography.body.sm,
+                ),
               if (selected != null)
                 FPopoverMenu(
                   menuAnchor: Alignment.topRight,
@@ -298,6 +301,11 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 ),
             ],
           ),
+          if (choices.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text('暂无可用账号'),
+            ),
           if (owner.states.any((s) => s.loggingIn)) ...[
             const SizedBox(height: 4),
             for (final source in owner.states.where((s) => s.loggingIn))
@@ -328,7 +336,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
           if (owner.shutdownState == 'pending') const Text('正在等待退出清理确认…'),
           if (owner.shutdownState == 'failed')
             const Text('退出清理未完成，监控已停止；请再次选择退出以重试。'),
-          if (expanded) ...[
+          if (expanded && owner.states.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
               spacing: 12,
@@ -488,6 +496,7 @@ class _SourceCard extends StatelessWidget {
                     ),
               ],
               hoverDetails: false,
+              showInspection: false,
             ),
             const SizedBox(height: 8),
             const Text('距重置 · 小时'),
@@ -514,6 +523,7 @@ class _SourceCard extends StatelessWidget {
               horizontal: true,
               compactMeters: true,
               hoverDetails: false,
+              showInspection: false,
               unit: '小时',
             ),
           ],

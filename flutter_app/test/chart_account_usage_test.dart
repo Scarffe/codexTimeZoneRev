@@ -2,14 +2,18 @@ import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/theme.dart';
 import 'package:codex_timezone/services/account_usage.dart';
+import 'package:codex_timezone/services/account_source_store.dart';
 import 'package:codex_timezone/services/backend.dart';
 import 'package:codex_timezone/services/clocks.dart';
 import 'package:codex_timezone/state/account_usage_controller.dart';
+import 'package:codex_timezone/state/account_sources_controller.dart';
 import 'package:codex_timezone/state/launcher_controller.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:timezone/data/latest.dart' as timezone;
+
+import 'account_sources_test.dart' show SyntheticSources;
 
 class _Usage implements AccountUsageService {
   int calls = 0;
@@ -142,6 +146,35 @@ void main() {
   });
 
   testWidgets(
+    'managed account controls are disabled without a selected account',
+    (tester) async {
+      final owner = AccountSourcesController(
+        SyntheticSources(),
+        AccountSourceStore.memory(),
+      )..selectedId = '';
+      final managed = AccountUsageController(service, sources: owner);
+      addTearDown(managed.dispose);
+      addTearDown(owner.dispose);
+      await tester.pumpWidget(_app(managed, launcher));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FButton>(find.byKey(const ValueKey('query-account-usage')))
+            .onPress,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<FButton>(find.byKey(const ValueKey('toggle-usage-monitor')))
+            .onPress,
+        isNull,
+      );
+      expect(service.calls, 0);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'quota percentage windows use independent rings and unknown gaps',
     (tester) async {
       await controller.query('desktop');
@@ -154,11 +187,14 @@ void main() {
       );
       expect(find.byKey(const ValueKey('monitor-ring-1')), findsNothing);
       expect(find.text('75 %'), findsOneWidget);
+      expect(find.text('查看数值'), findsNothing);
       await _choose(tester, 'account-quota-view', 'used');
       expect(find.text('25 %'), findsOneWidget);
+      expect(find.text('查看数值'), findsNothing);
       await _choose(tester, 'account-quota-view', 'reset');
       expect(find.byKey(const ValueKey('monitor-ring-0')), findsNothing);
       expect(find.byType(MonitorBarChart), findsOneWidget);
+      expect(find.text('查看数值'), findsNothing);
       expect(service.calls, 1);
       await tester.pumpWidget(const SizedBox());
     },
@@ -348,14 +384,8 @@ void main() {
     await controller.query('desktop');
     await tester.pumpWidget(_app(controller, launcher));
     await tester.pumpAndSettle();
-    final inspect = find.descendant(
-      of: find.byKey(const ValueKey('account-quota-chart')),
-      matching: find.text('查看数值'),
-    );
-    await tester.ensureVisible(inspect);
-    await tester.tap(inspect);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('5 小时额度：75.00 %'), findsOneWidget);
+    expect(find.text('75 %'), findsOneWidget);
+    expect(find.text('查看数值'), findsNothing);
     service.failure = '未检测到已登录账号';
     await controller.query('desktop');
     await tester.pumpAndSettle();
@@ -363,7 +393,7 @@ void main() {
     expect(find.text('1,234,567'), findsNothing);
     expect(find.textContaining('查询失败'), findsWidgets);
     expect(find.text('图表数值'), findsNothing);
-    expect(find.textContaining('5 小时额度：75.00 %'), findsNothing);
+    expect(find.text('75 %'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -56,6 +56,7 @@ void main() {
               ChartBar(label: '取消', value: 9, cancelled: true),
               ChartBar(label: '五', value: 5),
             ],
+            showInspection: true,
             unit: 's',
             line: true,
           ),

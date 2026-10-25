@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/services/account_sources.dart';
+import 'package:codex_timezone/services/account_source_store.dart';
+import 'package:codex_timezone/state/account_sources_controller.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/monitor_presentation.dart';
 import 'package:codex_timezone/app/accounts_workspace_page.dart';
@@ -15,6 +17,7 @@ import 'package:forui/forui.dart';
 import 'package:timezone/data/latest.dart' as timezone;
 
 import 'support/multi_account_fixture.dart';
+import 'support/compact_dashboard_fixture.dart';
 
 class _ForbiddenUsage implements AccountUsageService {
   @override
@@ -43,6 +46,82 @@ Widget sourcesHost(Widget child, {bool dark = false}) => WidgetsApp(
 
 void main() {
   setUpAll(timezone.initializeTimeZones);
+
+  testWidgets(
+    'no managed accounts shows add action without phantom quota controls',
+    (tester) async {
+      final owner = AccountSourcesController(
+        SyntheticMultiSources(),
+        AccountSourceStore.memory(),
+        offlineTrial: true,
+      );
+      await owner.initialize(() => '');
+      final usage = AccountUsageController(_ForbiddenUsage(), sources: owner);
+      final launcher = LauncherController(CompactDashboardBackend());
+      addTearDown(() {
+        usage.dispose();
+        owner.dispose();
+        launcher.dispose();
+      });
+      await tester.pumpWidget(
+        sourcesHost(AccountsWorkspacePage(launcher: launcher, usage: usage)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('暂无可用账号'), findsOneWidget);
+      expect(find.textContaining('默认来源'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('account-source-selector')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('query-account-usage')), findsNothing);
+      expect(find.byKey(const ValueKey('toggle-usage-monitor')), findsNothing);
+      expect(
+        tester
+            .widget<FButton>(find.byKey(const ValueKey('add-account-source')))
+            .onPress,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('removing last expanded account clears overview sort controls', (
+    tester,
+  ) async {
+    final owner = AccountSourcesController(
+      SyntheticMultiSources(),
+      AccountSourceStore.memory(),
+      offlineTrial: true,
+    );
+    await owner.initialize(() => '');
+    final id = (await owner.create('唯一账号'))!;
+    final usage = AccountUsageController(_ForbiddenUsage(), sources: owner);
+    final launcher = LauncherController(CompactDashboardBackend());
+    addTearDown(() {
+      usage.dispose();
+      owner.dispose();
+      launcher.dispose();
+    });
+    await tester.pumpWidget(
+      sourcesHost(
+        ListenableBuilder(
+          listenable: usage,
+          builder: (_, _) =>
+              AccountsWorkspacePage(launcher: launcher, usage: usage),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('toggle-source-overview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('source-overview-sort')), findsOneWidget);
+    await owner.remove(id);
+    await tester.pumpAndSettle();
+    expect(find.text('暂无可用账号'), findsOneWidget);
+    expect(find.byKey(const ValueKey('source-overview-sort')), findsNothing);
+    expect(find.byKey(const ValueKey('toggle-source-overview')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'source controls start collapsed and leave local session unchanged',
@@ -76,7 +155,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey('source-overview-current')),
+        find.byKey(const ValueKey('source-overview-profile-primary')),
         findsNothing,
       );
       expect(find.textContaining('@example.test'), findsNothing);
@@ -170,7 +249,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('query-account-usage')));
       await tester.pumpAndSettle();
       expect(f.service.queries.length, before + 1);
-      expect(f.service.queries.last, 'current');
+      expect(f.service.queries.last, 'profile-primary');
       f.metrics.select(null);
       await tester.pumpWidget(const SizedBox());
     },
@@ -212,7 +291,7 @@ void main() {
       );
       expect(tester.widgetList(cards).map((w) => w.key), [
         const ValueKey('source-overview-profile-stale'),
-        const ValueKey('source-overview-current'),
+        const ValueKey('source-overview-profile-primary'),
         const ValueKey('source-overview-profile-unknown'),
       ]);
       expect(find.textContaining('网络暂不可用'), findsOneWidget);
@@ -222,7 +301,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('source-pin-profile-stale')));
       await tester.pumpAndSettle();
       expect(f.owner.pinnedId, 'profile-stale');
-      expect(f.owner.selectedId, 'current');
+      expect(f.owner.selectedId, 'profile-primary');
       expect(f.service.queries.length, before);
       tester
           .widget<MonitorChoice>(
@@ -388,72 +467,74 @@ void main() {
     },
   );
 
-  testWidgets(
-    'source management protects default and limits identity to details',
-    (tester) async {
-      final f = await syntheticMultiFixture();
-      final usage = AccountUsageController(_ForbiddenUsage(), sources: f.owner);
-      final launcher = LauncherController(f.backend);
-      addTearDown(() {
-        usage.dispose();
-        f.owner.dispose();
-        f.metrics.dispose();
-        launcher.dispose();
-      });
-      await tester.pumpWidget(
-        sourcesHost(
-          ListenableBuilder(
-            listenable: usage,
-            builder: (_, _) =>
-                AccountsWorkspacePage(launcher: launcher, usage: usage),
-          ),
+  testWidgets('managed sources support removal and limit identity to details', (
+    tester,
+  ) async {
+    final f = await syntheticMultiFixture();
+    final usage = AccountUsageController(_ForbiddenUsage(), sources: f.owner);
+    final launcher = LauncherController(f.backend);
+    addTearDown(() {
+      usage.dispose();
+      f.owner.dispose();
+      f.metrics.dispose();
+      launcher.dispose();
+    });
+    await tester.pumpWidget(
+      sourcesHost(
+        ListenableBuilder(
+          listenable: usage,
+          builder: (_, _) =>
+              AccountsWorkspacePage(launcher: launcher, usage: usage),
         ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('source-management')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('source-remove')), findsNothing);
-      expect(find.byKey(const ValueKey('source-login')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('source-details')));
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('same-synthetic-identity@example.test'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('默认来源受保护'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('monitor-information-close')));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('@example.test'), findsNothing);
-      f.owner.select('profile-unknown');
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('source-management')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('source-rename')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const ValueKey('source-rename-input')),
-          matching: find.byType(EditableText),
-        ),
-        '实验项目',
-      );
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('source-rename-save')));
-      await tester.pumpAndSettle();
-      expect(f.owner.selected!.alias, '实验项目');
-      await tester.tap(find.byKey(const ValueKey('source-management')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('source-remove')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('source-remove-confirm')));
-      await tester.pumpAndSettle();
-      expect(f.owner.states.map((s) => s.id), ['current', 'profile-stale']);
-      expect(f.owner.selectedId, 'current');
-      expect(tester.takeException(), isNull);
-      f.metrics.select(null);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('source-management')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('source-remove')), findsOneWidget);
+    expect(find.byKey(const ValueKey('source-login')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('source-details')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('same-synthetic-identity@example.test'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('默认来源受保护'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('monitor-information-close')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('@example.test'), findsNothing);
+    f.owner.select('profile-unknown');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('source-management')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('source-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey('source-rename-input')),
+        matching: find.byType(EditableText),
+      ),
+      '实验项目',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('source-rename-save')));
+    await tester.pumpAndSettle();
+    expect(f.owner.selected!.alias, '实验项目');
+    await tester.tap(find.byKey(const ValueKey('source-management')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('source-remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('source-remove-confirm')));
+    await tester.pumpAndSettle();
+    expect(f.owner.states.map((s) => s.id), [
+      'profile-primary',
+      'profile-stale',
+    ]);
+    expect(f.owner.selectedId, 'profile-primary');
+    expect(tester.takeException(), isNull);
+    f.metrics.select(null);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'cancelled login ignores late successful status without querying',
@@ -617,7 +698,10 @@ void main() {
         find.byKey(const ValueKey('retry-remove-profile-unknown')),
       );
       await tester.pumpAndSettle();
-      expect(f.owner.states.map((s) => s.id), ['current', 'profile-stale']);
+      expect(f.owner.states.map((s) => s.id), [
+        'profile-primary',
+        'profile-stale',
+      ]);
       expect(
         find.byKey(const ValueKey('retry-remove-profile-unknown')),
         findsNothing,

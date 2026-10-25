@@ -94,6 +94,8 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
     final offlineBlocked =
         controller.offlineTrial &&
         controller.sources?.service.synthetic != true;
+    final noManagedAccount =
+        controller.sources != null && controller.sources!.selected == null;
     final data = controller.data;
     final bucket = _selectedBucket(data?.buckets ?? const []);
     final windows = bucket?.windows ?? const <UsageWindow>[];
@@ -172,7 +174,10 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
               semanticsLabel: controller.busy ? '正在查询用量…' : '查询账号用量',
               variant: FButtonVariant.ghost,
               onPress:
-                  controller.busy || widget.launcher.preview || offlineBlocked
+                  controller.busy ||
+                      widget.launcher.preview ||
+                      offlineBlocked ||
+                      noManagedAccount
                   ? null
                   : () {
                       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -189,7 +194,8 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                 controller.monitoring ? FLucideIcons.pause : FLucideIcons.play,
                 size: 16,
               ),
-              onPress: widget.launcher.preview || offlineBlocked
+              onPress:
+                  widget.launcher.preview || offlineBlocked || noManagedAccount
                   ? null
                   : () {
                       if (controller.monitoring) {
@@ -250,7 +256,11 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
           ),
         if (data == null && !controller.busy)
           Text(
-            controller.monitoring ? '正在自动监控当前账号额度。' : '点击按钮查询，或开启自动监控。',
+            noManagedAccount
+                ? '添加并登录账号后查看额度。'
+                : controller.monitoring
+                ? '正在自动监控当前账号额度。'
+                : '点击按钮查询，或开启自动监控。',
             style: muted,
           ),
       ],
@@ -337,6 +347,7 @@ class AccountQuotaPresentation extends StatelessWidget {
     ];
     return view == 'reset'
         ? MonitorBarChart(
+            showInspection: false,
             inspectionIdentity: identity,
             bars: bars,
             horizontal: true,
@@ -345,6 +356,7 @@ class AccountQuotaPresentation extends StatelessWidget {
             unit: '小时',
           )
         : MonitorRingChart(
+            showInspection: false,
             inspectionIdentity: identity,
             bars: bars,
             hoverDetails: false,

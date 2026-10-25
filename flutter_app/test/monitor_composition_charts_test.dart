@@ -28,11 +28,13 @@ Widget _chart(
   bool hover = true,
 }) => ring
     ? MonitorRingChart(
+        showInspection: true,
         bars: bars,
         inspectionIdentity: identity,
         hoverDetails: hover,
       )
     : MonitorCategoryDotChart(
+        showInspection: true,
         bars: bars,
         unit: 'tokens/s',
         inspectionIdentity: identity,

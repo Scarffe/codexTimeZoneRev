@@ -8,7 +8,7 @@ import '../services/account_sources.dart';
 import '../services/account_usage.dart';
 import '../services/pet_alerts.dart';
 
-/// Sole query arbiter, schedule and login owner for current and managed sources.
+/// Sole query arbiter, schedule and login owner for managed sources.
 class AccountSourcesController extends ChangeNotifier {
   static const _publicErrorKinds = {
     'invalid_source',
@@ -32,12 +32,7 @@ class AccountSourcesController extends ChangeNotifier {
     this.store, {
     DateTime Function()? now,
     this.offlineTrial = false,
-  }) : _now = now ?? DateTime.now {
-    _states[currentAccountSource] = AccountSourceState(
-      id: currentAccountSource,
-      alias: '默认来源',
-    );
-  }
+  }) : _now = now ?? DateTime.now;
   final AccountSourcesService service;
   final AccountSourceStore store;
   final bool offlineTrial;
@@ -54,10 +49,7 @@ class AccountSourcesController extends ChangeNotifier {
   Future<void>? _shutdown;
   Future<void>? _initialization;
   bool _ready = false;
-  String? _bootstrapPath;
   String shutdownState = 'idle';
-  String Function() _path = () => '';
-  String _currentPath = '';
   bool _disposed = false, _stopped = false, _suspended = false;
   Timer? _timer, _loginTimer;
   int _epoch = 0;
@@ -68,7 +60,7 @@ class AccountSourcesController extends ChangeNotifier {
   int alertThreshold = 20, alertSerial = 0;
   String alert = '';
   Duration interval = const Duration(seconds: 120);
-  String selectedId = currentAccountSource, pinnedId = currentAccountSource;
+  String selectedId = '', pinnedId = '';
   List<AccountSourceState> get states => List.unmodifiable(_states.values);
   AccountSourceState? get selected => _states[selectedId];
   AccountSourceState? get pinned => _states[pinnedId];
@@ -96,8 +88,18 @@ class AccountSourcesController extends ChangeNotifier {
           _now().difference(state.usage!.fetchedAt) > interval * 2);
 
   Future<void> initialize(String Function() path) {
-    _path = path;
     return _initialization ??= _restore();
+  }
+
+  void _normalizeSelections() {
+    final fallback =
+        _states.values
+            .where((source) => !source.pendingRemoval)
+            .firstOrNull
+            ?.id ??
+        '';
+    if (_states[selectedId]?.pendingRemoval != false) selectedId = fallback;
+    if (_states[pinnedId]?.pendingRemoval != false) pinnedId = fallback;
   }
 
   Future<void> _restore() async {
@@ -111,8 +113,10 @@ class AccountSourcesController extends ChangeNotifier {
           throw const FormatException('Invalid source');
         }
         final id = item['id'] as String;
-        if (id != currentAccountSource &&
-            !RegExp(r'^profile-[a-zA-Z0-9-]+$').hasMatch(id)) {
+        // Legacy catalogs may still describe the active Codex account. It is
+        // outside the independent monitor catalog and never becomes queryable.
+        if (id == currentAccountSource) continue;
+        if (!RegExp(r'^profile-[a-zA-Z0-9-]+$').hasMatch(id)) {
           throw const FormatException('Invalid source id');
         }
         if (restored.containsKey(id)) {
@@ -143,22 +147,17 @@ class AccountSourcesController extends ChangeNotifier {
       _states.addAll(restored);
       selectedId = _states.containsKey(value['selectedId'])
           ? value['selectedId'] as String
-          : currentAccountSource;
+          : '';
       pinnedId = _states.containsKey(value['pinnedId'])
           ? value['pinnedId'] as String
-          : currentAccountSource;
-      if (_states[selectedId]!.pendingRemoval) {
-        selectedId = currentAccountSource;
-      }
-      if (_states[pinnedId]!.pendingRemoval) pinnedId = currentAccountSource;
+          : '';
+      _normalizeSelections();
       _alerts.restore(value['cycles'], _now());
     } catch (_) {
       store.protectCorruptCatalog();
       catalogError = '来源目录读取失败，原文件保持不变。';
     }
     if (_disposed || _stopped || epoch != _epoch) return;
-    _currentPath = _bootstrapPath ?? _path();
-    _bootstrapPath = null;
     _ready = true;
     _publish();
   }
@@ -321,6 +320,7 @@ class AccountSourcesController extends ChangeNotifier {
         throw const SourceFailure('invalid_source');
       }
       _states[id] = AccountSourceState(id: id, alias: _alias(alias));
+      _normalizeSelections();
       _save();
       _publish();
       _arm();
@@ -377,16 +377,8 @@ class AccountSourcesController extends ChangeNotifier {
           state.lastAttempt = _now();
           _publish();
           try {
-            final result = await service.query(
-              id,
-              desktopPath: id == currentAccountSource ? _path() : '',
-              details: id == currentAccountSource && details,
-            );
+            final result = await service.query(id);
             if (!_valid(state, generation)) return;
-            if (id == currentAccountSource && _path() != _currentPath) {
-              sourceChanged(_path());
-              return;
-            }
             if (result.limitsErrorKind != null ||
                 (result.limitsError != null && result.buckets.isEmpty)) {
               throw SourceFailure(result.limitsErrorKind ?? 'unavailable');
@@ -480,8 +472,6 @@ class AccountSourcesController extends ChangeNotifier {
 
   void start(String Function() path, {Duration? every}) {
     if (!canOperate) return;
-    _path = path;
-    sourceChanged(path());
     if (every != null) {
       interval = every < const Duration(seconds: 1)
           ? const Duration(seconds: 1)
@@ -566,25 +556,8 @@ class AccountSourcesController extends ChangeNotifier {
     _arm();
   }
 
-  void sourceChanged(String path) {
-    if (!_ready) {
-      _bootstrapPath = path;
-      return;
-    }
-    // A locked catalog still permits queries and safe in-memory invalidation.
-    // _save keeps the original file protected until catalog recovery.
-    if (!canOperate) return;
-    if (_currentPath == path) return;
-    _currentPath = path;
-    final state = _states[currentAccountSource]!;
-    state.generation++;
-    state.usage = null;
-    state.errorKind = null;
-    state.failures = 0;
-    state.nextRefreshAt = null;
-    _save();
-    _publish();
-  }
+  /// Launcher changes do not change independently logged-in monitor accounts.
+  void sourceChanged(String path) {}
 
   Future<void> login(String id) => _track(() => _login(id));
   Future<void> _login(String id) async {
@@ -813,8 +786,7 @@ class AccountSourcesController extends ChangeNotifier {
     state.errorKind = null;
     state.failures = 0;
     state.nextRefreshAt = null;
-    if (selectedId == id) selectedId = currentAccountSource;
-    if (pinnedId == id) pinnedId = currentAccountSource;
+    _normalizeSelections();
     if (_loginSource == id) _loginTimer?.cancel();
     _save();
     _publish();
@@ -837,8 +809,7 @@ class AccountSourcesController extends ChangeNotifier {
       operationError = null;
       _states.remove(id);
       if (_loginSource == id) _loginSource = null;
-      if (selectedId == id) selectedId = currentAccountSource;
-      if (pinnedId == id) pinnedId = currentAccountSource;
+      _normalizeSelections();
     }
     _save();
     _publish();

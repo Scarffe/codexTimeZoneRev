@@ -133,19 +133,23 @@ class _MonitoringPageState extends State<MonitoringPage> {
                   const SizedBox(height: 4),
                   Text('各窗口分别计量 · 不从会话日志推断账号', style: secondary),
                   const SizedBox(height: 20),
-                  if (owner != null) ...[
+                  if (owner != null && owner.selected != null) ...[
                     MonitorChoice(
                       key: const ValueKey('analysis-account-source'),
                       label: '额度来源',
                       value: owner.selectedId,
                       items: {
-                        for (final state in owner.states)
+                        for (final state in owner.states.where(
+                          (s) => !s.pendingRemoval,
+                        ))
                           '${state.alias} · ${state.id}': state.id,
                       },
                       onChanged: owner.select,
                     ),
                     const SizedBox(height: 12),
                   ],
+                  if (owner != null && owner.selected == null)
+                    const Text('请在账号额度页添加账号'),
                   Wrap(
                     spacing: 12,
                     runSpacing: 12,

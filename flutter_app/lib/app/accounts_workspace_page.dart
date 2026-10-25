@@ -22,7 +22,8 @@ class AccountsWorkspacePage extends StatelessWidget {
         const Text('账号额度来源 · 与本机会话日志、独立 API 测速分别记录。'),
         const SizedBox(height: 12),
         if (usage.sources != null) AccountSourcesPanel(owner: usage.sources!),
-        AccountUsagePanel(controller: usage, launcher: launcher),
+        if (usage.sources == null || usage.sources!.selected != null)
+          AccountUsagePanel(controller: usage, launcher: launcher),
         const SizedBox(height: 16),
       ],
     ),

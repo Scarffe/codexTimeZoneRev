@@ -138,11 +138,11 @@ syntheticMultiFixture() async {
   final service = SyntheticMultiSources();
   final store = AccountSourceStore.memory();
   await store.write({
-    'selectedId': 'current',
-    'pinnedId': 'current',
+    'selectedId': 'profile-primary',
+    'pinnedId': 'profile-primary',
     'sources': [
       for (final (id, alias) in [
-        ('current', '默认来源'),
+        ('profile-primary', '主账号'),
         ('profile-stale', '研究来源'),
         ('profile-unknown', '备用来源'),
       ])

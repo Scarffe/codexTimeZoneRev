@@ -87,7 +87,9 @@ void main() {
         backend.calls.where((command) => command.startsWith('account_source_')),
         isEmpty,
       );
-      expect(owner.states.single.attempts, 0);
+      expect(owner.states, isEmpty);
+      expect(owner.selected, isNull);
+      expect(owner.pinned, isNull);
       await tester.pumpWidget(const SizedBox());
       owner.dispose();
     },

@@ -257,10 +257,14 @@ void main() {
   setUpAll(timezone.initializeTimeZones);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('session read failure dismisses open chart values', (
+  testWidgets('session read failure dismisses open long chart details', (
     tester,
   ) async {
     final backend = OverviewBackend();
+    backend.value['terminals'][0]['turnId'] = List.filled(
+      80,
+      'terminal-0',
+    ).join('\n');
     await tester.pumpWidget(overviewApplication(backend, PageUsage()));
     await tester.pumpAndSettle();
     await populateOverview(tester);

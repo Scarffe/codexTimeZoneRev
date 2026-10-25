@@ -222,6 +222,7 @@ void main() {
               ChartBar(label: '部分', value: 3),
             ],
             unit: 'tokens',
+            showInspection: true,
             stacked: true,
             horizontal: true,
           ),
@@ -255,6 +256,7 @@ void main() {
         chartApp(
           const MonitorBarChart(
             bars: [ChartBar(label: '响应一', value: 3, secondaryValue: 6)],
+            showInspection: true,
             unit: 'tokens',
             stacked: true,
             primaryLabel: '非推理输出',
@@ -282,6 +284,7 @@ void main() {
       chartApp(
         const MonitorBarChart(
           bars: [ChartBar(label: '明细', value: 1.2345, detail: '本地记录')],
+          showInspection: true,
           unit: 's',
         ),
       ),
