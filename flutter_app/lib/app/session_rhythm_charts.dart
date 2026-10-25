@@ -9,6 +9,13 @@ import '../services/session_rhythm_projection.dart';
 import 'dashboard_style.dart';
 import 'monitor_charts.dart';
 
+String rhythmStatusLabel(RhythmStatus status) => switch (status) {
+  RhythmStatus.completed => '完成',
+  RhythmStatus.cancelled => '取消',
+  RhythmStatus.running => '未终结',
+  RhythmStatus.unknown => '未知',
+};
+
 String rhythmSeconds(num? value) =>
     value == null ? '未知' : '${(value / 1000).toStringAsFixed(2)} s';
 
@@ -242,7 +249,7 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
               onChanged: (v) => setState(() => metric = v),
             ),
           ],
-          footnotes: const ['浅色：无记录 / 未知；底线：部分事实。重复本地小时按 UTC 偏移分开。'],
+          footnotes: const ['浅色：无记录 / 未知 · 底线：部分'],
           child: RhythmInspection(
             key: ValueKey(
               'rhythm-hours-${ordered.firstOrNull?.key}-${ordered.lastOrNull?.key}-${rows.length}',
@@ -346,7 +353,7 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
               }
             }),
             readout: (i) {
-              if (i == null) return const Text('悬停 / 方向键检查小时 · 点击 / 回车筛选');
+              if (i == null) return const Text('悬停 / 方向键查看 · 点击 / 回车筛选');
               final h = ordered[i];
               final active =
                   widget.selectedHour == null ||
@@ -364,7 +371,6 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
           key: const ValueKey('rhythm-lanes'),
           title: '会话活动泳道',
           icon: FLucideIcons.rows3,
-          footnotes: const ['仅有效 item 区间；不把整回合绘成持续活动。各来源重叠保留。'],
           child: RhythmInspection(
             key: ValueKey(
               'rhythm-turns-${p.fromUtc}-${widget.selectedHour?.key}-${flat.length}',
@@ -385,6 +391,40 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
                   start +
                   ((offset.dx - 100) / math.max(1, size.width - 100)) *
                       (end - start);
+              // Match the same effective item intervals that produce the lane.
+              // Real overlaps use stable native order, then turn ID, not cache order.
+              int? owner;
+              for (var i = 0; i < lane.turns.length; i++) {
+                final turn = lane.turns[i];
+                if (!turn.activityAvailable ||
+                    !turn.activityIntervals.any((interval) {
+                      final from = math.max(
+                        interval.startMs,
+                        math.max(start, p.fromUtc.millisecondsSinceEpoch),
+                      );
+                      final to = math.min(
+                        interval.endMs,
+                        math.min(end, p.toUtc.millisecondsSinceEpoch),
+                      );
+                      return from <= time && time < to;
+                    })) {
+                  continue;
+                }
+                if (owner == null ||
+                    turn.order < lane.turns[owner].order ||
+                    (turn.order == lane.turns[owner].order &&
+                        turn.turnId.compareTo(lane.turns[owner].turnId) < 0)) {
+                  owner = i;
+                }
+              }
+              if (owner != null) {
+                return p.lanes
+                        .take(row)
+                        .fold<int>(0, (n, lane) => n + lane.turns.length) +
+                    owner;
+              }
+              // Empty space still inspects the nearest dated fact. Undated facts
+              // remain in the inspection sequence and are reachable by keyboard.
               var best = 0;
               double distance(int i) =>
                   ((lane.turns[i].completedAtMs ??
@@ -461,8 +501,8 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
             }),
             readout: (i) => Text(
               i == null
-                  ? '悬停 / 方向键检查回合 · 点击 / 回车固定摘要'
-                  : '${flat[i].$1.title} · ${flat[i].$2.turnId} · ${flat[i].$2.status.name} · ${rhythmSeconds(flat[i].$2.durationMs)}',
+                  ? '悬停 / 方向键查看 · 点击 / 回车选中'
+                  : '${flat[i].$1.title} · ${flat[i].$2.turnId} · ${rhythmStatusLabel(flat[i].$2.status)} · ${rhythmSeconds(flat[i].$2.durationMs)}',
             ),
             onSelect: (i) => widget.onTurn(flat[i].$1, flat[i].$2),
           ),
@@ -472,10 +512,7 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
           key: const ValueKey('rhythm-distribution'),
           title: '完整回合耗时 · 箱线与样本',
           icon: FLucideIcons.chartNoAxesColumn,
-          footnotes: [
-            d.showBox ? 'R7 四分位；箱体 Q1–Q3，须线最小–最大。' : '少于 5 个有效样本，仅显示样本点。',
-            '取消不计入；这是完整回合耗时，并非纯推理或网络时间。',
-          ],
+          footnotes: d.showBox ? const [] : const ['样本不足 5 个 · 仅显示点'],
           child: RhythmInspection(
             key: ValueKey(
               'rhythm-samples-${p.fromUtc}-${widget.selectedHour?.key}-${d.count}',

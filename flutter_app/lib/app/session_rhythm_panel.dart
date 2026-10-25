@@ -128,7 +128,7 @@ class _SessionRhythmPanelState extends State<SessionRhythmPanel> {
           ),
           const SizedBox(height: 8),
           Text(
-            '完成 ${p.completedCount} · 取消 ${p.cancelledCount} · 样本 ${p.distribution.count} · 活动并集 ${rhythmSeconds(p.activityMs)}',
+            '完成 ${p.completedCount} · 取消 ${p.cancelledCount} · 样本 ${p.distribution.count} · 已记录活动 ${rhythmSeconds(p.activityMs)}',
           ),
           Text(
             '${c.cacheStale ? '缓存待重读 · ' : ''}时间未知 ${p.unknownTimeCount} · 部分 ${p.partialCount}${p.truncated ? ' · 已截断' : ''}',
@@ -228,7 +228,7 @@ class _SessionRhythmPanelState extends State<SessionRhythmPanel> {
                         '来源 ${summary.source.sessionId} · ${summary.source.path}',
                       ),
                       Text(
-                        '状态 ${summary.turn.status.name} · 完整回合 ${rhythmSeconds(summary.turn.durationMs)} · 首 token ${rhythmSeconds(summary.turn.firstTokenMs)}',
+                        '状态 ${rhythmStatusLabel(summary.turn.status)} · 完整回合 ${rhythmSeconds(summary.turn.durationMs)} · 首模型 token ${rhythmSeconds(summary.turn.firstTokenMs)}',
                       ),
                       Text(
                         '活动${summary.turn.activityAvailable ? '已记录' : '未知'}${summary.turn.partial ? ' · 部分' : ''} · 时间精度 ${rhythmSeconds(summary.turn.timeResolutionMs)}',
@@ -247,8 +247,6 @@ class _SessionRhythmPanelState extends State<SessionRhythmPanel> {
                 ),
               ),
           ],
-          const SizedBox(height: 12),
-          const Text('仅本地日志事实 · 与账号额度、API 测速和提醒独立。启动恢复缓存，不自动重读。'),
         ],
       );
     },

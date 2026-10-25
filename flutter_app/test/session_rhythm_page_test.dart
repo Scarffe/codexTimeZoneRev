@@ -28,6 +28,139 @@ class UnreadableRhythmStore extends SessionRhythmStore {
 
 void main() {
   setUpAll(timezone.initializeTimeZones);
+  for (final overlapping in [false, true]) {
+    testWidgets(
+      'lane click selects activity owner and opens its turn, overlap=$overlapping',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final backend = RhythmAppBackend(), store = SessionRhythmStore.memory();
+        final source = rhythmFixtureSources.first;
+        int time(int hour, int minute) =>
+            DateTime.utc(2026, 10, 25, hour, minute).millisecondsSinceEpoch;
+        RhythmTurn turn(
+          String id,
+          int order,
+          int fromHour,
+          int fromMinute,
+          int toHour,
+          int toMinute,
+        ) => RhythmTurn(
+          sourceKey: source.key,
+          order: order,
+          turnId: id,
+          status: RhythmStatus.completed,
+          startedAtMs: time(fromHour, fromMinute),
+          completedAtMs: time(toHour, toMinute),
+          durationMs: time(toHour, toMinute) - time(fromHour, fromMinute),
+          activityAvailable: true,
+          activityIntervals: [
+            RhythmInterval(time(fromHour, fromMinute), time(toHour, toMinute)),
+          ],
+        );
+        final a = turn('turn-A', 1, 9, 58, 9, 59),
+            b = turn('turn-B', 2, 10, 0, 10, 20);
+        final unknown = RhythmTurn(
+          sourceKey: source.key,
+          order: 4,
+          turnId: 'turn-undated',
+          status: RhythmStatus.unknown,
+          partial: true,
+        );
+        // Reversed cache order ensures overlap choice is independent of list ordering.
+        await store.write(
+          RhythmCache(
+            sources: [source],
+            turns: [
+              if (overlapping) turn('turn-C', 3, 10, 1, 10, 5),
+              a,
+              b,
+              unknown,
+            ],
+          ),
+        );
+        final rhythm = SessionRhythmController(
+          backend: backend,
+          store: store,
+          now: () => DateTime.utc(2026, 10, 25, 11),
+        );
+        final metrics = SessionMetricsController(backend);
+        await tester.pumpWidget(
+          LauncherApplication(
+            preview: true,
+            backend: backend,
+            rhythmController: rhythm,
+            sessionMetricsController: metrics,
+          ),
+        );
+        await tester.pumpAndSettle();
+        rhythm.setRange(RhythmRange.hours24);
+        await tester.tap(find.byKey(const ValueKey('workspace-analysis')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('会话节奏'));
+        await tester.pumpAndSettle();
+        final lane = find.descendant(
+          of: find.byKey(const ValueKey('rhythm-lanes')),
+          matching: find.byType(RhythmInspection),
+        );
+        final plot = find
+            .descendant(of: lane, matching: find.byType(CustomPaint))
+            .first;
+        await tester.ensureVisible(plot);
+        await tester.pumpAndSettle();
+        final size = tester.getSize(plot);
+        final p = rhythm.projection;
+        final x =
+            100 +
+            (time(10, 2) - p.fromUtc.millisecondsSinceEpoch) /
+                (p.toUtc.millisecondsSinceEpoch -
+                    p.fromUtc.millisecondsSinceEpoch) *
+                (size.width - 100);
+        final point = tester.getTopLeft(plot) + Offset(x, 36);
+        await tester.tapAt(point);
+        await tester.pumpAndSettle();
+        final summary = find.byKey(const ValueKey('rhythm-turn-summary'));
+        expect(summary, findsOneWidget);
+        expect(
+          tester
+              .widgetList<Text>(
+                find.descendant(of: summary, matching: find.byType(Text)),
+              )
+              .first
+              .data,
+          '${source.title} · turn-B',
+          reason: '10:02 belongs to B activity, not the closer A completion; overlap uses lowest stable order',
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: summary,
+            matching: find.text('${source.title} · turn-undated'),
+          ),
+          findsOneWidget,
+          reason: 'interval-less facts remain accessible by keyboard',
+        );
+        await tester.tapAt(point);
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('rhythm-open-source')),
+        );
+        await tester.tap(find.byKey(const ValueKey('rhythm-open-source')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('原回合 turn-B'), findsOneWidget);
+        expect(metrics.selected, source.path);
+        expect(
+          find.byKey(const ValueKey('notice-analysis-context')),
+          findsNothing,
+        );
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
   testWidgets(
     'explicit sources cap at eight, charts stay isolated and source opens historical context',
     (tester) async {
