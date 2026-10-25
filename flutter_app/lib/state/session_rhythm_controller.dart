@@ -111,16 +111,25 @@ class SessionRhythmController extends ChangeNotifier {
       if (sources.length - displaced.length >= 8) {
         throw StateError('最多选择8个会话来源');
       }
-      for (final key in displaced) {
-        await removeSource(key);
+      // Identity replacement and capacity enforcement are one synchronous
+      // mutation. Persist only after publishing the complete replacement:
+      // another selection may enter while disk I/O is pending.
+      if (displaced.isNotEmpty) {
+        _invalidateReads();
+        for (final key in displaced) {
+          _stale.remove(key);
+          _sourceErrors.remove(key);
+        }
       }
       cancellation = _cancelSerial;
-      if (_disposed) return;
       _cache = RhythmCache(
-        sources: [...sources, source],
-        turns: turns,
-        lastReadMs: _cache.lastReadMs,
-        truncatedSources: _cache.truncatedSources,
+        sources: [...sources.where((s) => !displaced.contains(s.key)), source],
+        turns: turns.where((t) => !displaced.contains(t.sourceKey)).toList(),
+        lastReadMs: {
+          for (final entry in _cache.lastReadMs.entries)
+            if (!displaced.contains(entry.key)) entry.key: entry.value,
+        },
+        truncatedSources: _cache.truncatedSources.difference(displaced.toSet()),
       );
       _stale.add(source.key);
       _reproject();
@@ -130,7 +139,9 @@ class SessionRhythmController extends ChangeNotifier {
     if (refresh && !_disposed && cancellation == _cancelSerial) {
       // A source selected during an existing serial read gets its own refresh,
       // while cancellation invalidates this queued intent as well as the read.
-      if (_busy) await _active;
+      while (_busy && !_disposed && cancellation == _cancelSerial) {
+        await _active;
+      }
       if (!_disposed &&
           cancellation == _cancelSerial &&
           sources.any((s) => s.key == source.key)) {
@@ -275,9 +286,17 @@ class SessionRhythmController extends ChangeNotifier {
         final facts = await _snapshot(source, generation);
         if (!_valid(generation, source.key)) break;
         final readAt = now().toUtc();
-        final cutoff = readAt
-            .subtract(const Duration(days: 30))
-            .millisecondsSinceEpoch;
+        final civilCutoff = rhythmRangeStartUtc(
+          readAt,
+          RhythmRange.days30,
+          calendar: calendar,
+        );
+        final elapsedCutoff = readAt.subtract(const Duration(days: 30));
+        // Keep a superset of both retention promises. A fall-back transition
+        // can put the civil 30-day midnight before the elapsed-time cutoff.
+        final cutoff =
+            (civilCutoff.isBefore(elapsedCutoff) ? civilCutoff : elapsedCutoff)
+                .millisecondsSinceEpoch;
         final retained = facts
             .where(
               (t) =>
@@ -342,12 +361,16 @@ class SessionRhythmController extends ChangeNotifier {
     }
   }
 
-  void cancel() {
-    if (_disposed) return;
+  void _invalidateReads() {
     if (_busy) _stale.addAll(sources.map((s) => s.key));
     _generation++;
     _cancelSerial++;
     _busy = false;
+  }
+
+  void cancel() {
+    if (_disposed) return;
+    _invalidateReads();
     _notify();
   }
 

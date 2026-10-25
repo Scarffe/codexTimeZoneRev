@@ -95,6 +95,27 @@ class RhythmProjection {
   final bool truncated;
 }
 
+/// Shared projection/retention boundary: civil dates use timezone-aware
+/// midnight construction, while the 24-hour view is an elapsed-time window.
+DateTime rhythmRangeStartUtc(
+  DateTime now,
+  RhythmRange range, {
+  RhythmCalendar? calendar,
+}) {
+  final cal = calendar ?? RhythmCalendar.system(), end = now.toUtc();
+  if (range == RhythmRange.hours24) {
+    return end.subtract(const Duration(hours: 24));
+  }
+  final local = cal.toLocal(end);
+  return cal
+      .localDate(
+        local.year,
+        local.month,
+        local.day - (range == RhythmRange.days7 ? 6 : 29),
+      )
+      .toUtc();
+}
+
 RhythmProjection projectSessionRhythm(
   RhythmCache cache, {
   required DateTime now,
@@ -107,16 +128,7 @@ RhythmProjection projectSessionRhythm(
     throw ArgumentError.value(maxPlotPoints, 'maxPlotPoints');
   }
   final cal = calendar ?? RhythmCalendar.system(), end = now.toUtc();
-  final localNow = cal.toLocal(end);
-  final start = range == RhythmRange.hours24
-      ? end.subtract(const Duration(hours: 24))
-      : cal
-            .localDate(
-              localNow.year,
-              localNow.month,
-              localNow.day - (range == RhythmRange.days7 ? 6 : 29),
-            )
-            .toUtc();
+  final start = rhythmRangeStartUtc(end, range, calendar: cal);
   final startMs = start.millisecondsSinceEpoch,
       endMs = end.millisecondsSinceEpoch;
   final from = selectedHour == null

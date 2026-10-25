@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:codex_timezone/services/backend.dart';
 import 'package:codex_timezone/services/session_rhythm.dart';
+import 'package:codex_timezone/services/session_rhythm_projection.dart';
 import 'package:codex_timezone/services/session_rhythm_store.dart';
 import 'package:codex_timezone/state/session_rhythm_controller.dart';
 
@@ -46,6 +47,182 @@ Map<String, dynamic> page({
 final clock = DateTime.utc(2026, 10, 25, 12);
 final end = clock.millisecondsSinceEpoch - 1000;
 void main() {
+  test('three explicit additions retain every serial read intent behind held A and B', () async {
+    const sourceC = RhythmSource(
+      path: r'C:\synthetic\c.jsonl',
+      sessionId: 'c',
+      title: 'C',
+    );
+    final heldA = Completer<Map<String, dynamic>>(),
+        heldB = Completer<Map<String, dynamic>>();
+    final aStarted = Completer<void>(), bStarted = Completer<void>();
+    final backend = FakeRhythmBackend((p) {
+      if (p['path'] == sourceA.path) {
+        aStarted.complete();
+        return heldA.future;
+      }
+      if (p['path'] == sourceB.path) {
+        bStarted.complete();
+        return heldB.future;
+      }
+      return page(
+        id: 'c',
+        records: [fact(3, end: end)],
+      );
+    });
+    final c = SessionRhythmController(
+      backend: backend,
+      store: SessionRhythmStore.memory(),
+      now: () => clock,
+    );
+    final first = c.addSource(sourceA);
+    await aStarted.future;
+    final second = c.addSource(sourceB);
+    await Future<void>.delayed(Duration.zero);
+    final third = c.addSource(sourceC);
+    await Future<void>.delayed(Duration.zero);
+    heldA.complete(page(records: [fact(1, end: end)]));
+    await Future<void>.delayed(Duration.zero);
+    expect(backend.calls.map((p) => p['path']), [sourceA.path, sourceB.path]);
+    expect(bStarted.isCompleted, true);
+    heldB.complete(
+      page(
+        id: 'b',
+        records: [fact(2, end: end)],
+      ),
+    );
+    await Future.wait([first, second, third]);
+    expect(backend.calls.map((p) => p['path']), [
+      sourceA.path,
+      sourceB.path,
+      sourceC.path,
+    ]);
+    expect(c.turns.map((t) => t.sourceKey).toSet(), {
+      sourceA.key,
+      sourceB.key,
+      sourceC.key,
+    });
+    expect(c.lastReadMsBySource.keys.toSet(), {
+      sourceA.key,
+      sourceB.key,
+      sourceC.key,
+    });
+    expect(c.cacheStale, false);
+    await c.shutdown();
+  });
+  test('concurrent same-path replacements are coherent while selection persistence is held', () async {
+    final store = HeldWriteStore();
+    final original = [
+      sourceA,
+      for (var n = 1; n <= 7; n++)
+        RhythmSource(path: 'C:/synthetic/$n', sessionId: '$n', title: '$n'),
+    ];
+    await store.write(
+      RhythmCache(
+        sources: original,
+        turns: [row(1, end: end)],
+        lastReadMs: {sourceA.key: end},
+        truncatedSources: {sourceA.key},
+      ),
+    );
+    final c = SessionRhythmController(
+      backend: FakeRhythmBackend((p) => page()),
+      store: store,
+      now: () => clock,
+    );
+    await c.initialize();
+    final seen = <List<RhythmSource>>[];
+    c.addListener(() => seen.add(c.sources.toList()));
+    final gate = store.holdNext();
+    const replacementB = RhythmSource(
+      path: r'C:\synthetic\a.jsonl',
+      sessionId: 'replacement-b',
+      title: 'B',
+    );
+    const replacementC = RhythmSource(
+      path: r'C:\synthetic\a.jsonl',
+      sessionId: 'replacement-c',
+      title: 'C',
+    );
+    final first = c.addSource(replacementB, refresh: false);
+    await store.entered.future;
+    final second = c.addSource(replacementC, refresh: false);
+    await Future<void>.delayed(Duration.zero);
+    gate.complete();
+    await Future.wait([first, second]);
+    expect(c.sources.length, 8);
+    expect(
+      c.sources.where((s) => s.path == sourceA.path).map((s) => s.sessionId),
+      ['replacement-c'],
+    );
+    expect(c.turns, isEmpty);
+    expect(c.lastReadMsBySource.containsKey(sourceA.key), false);
+    expect(c.projection.truncated, false);
+    expect(c.storageError, isNull);
+    expect(seen.every((sources) => sources.length == 8), true);
+    final saved = await store.read();
+    expect(
+      saved.sources.map((s) => s.key).toSet(),
+      c.sources.map((s) => s.key).toSet(),
+    );
+    await c.shutdown();
+  });
+  test('refresh retains the first civil 30-day hour across fallback for projection and restart', () async {
+    final transition = DateTime.utc(2026, 11, 1, 6);
+    final calendar = RhythmCalendar(
+      toLocal: (t) =>
+          t.subtract(Duration(hours: t.isBefore(transition) ? 4 : 5)),
+      localDate: (y, m, d) {
+        final date = DateTime.utc(y, m, d);
+        return date.add(
+          Duration(hours: date.isBefore(DateTime.utc(2026, 11, 2)) ? 4 : 5),
+        );
+      },
+    );
+    final now = DateTime.utc(2026, 11, 3, 4, 30),
+        start = DateTime.utc(2026, 10, 4, 4, 10).millisecondsSinceEpoch,
+        terminal = DateTime.utc(2026, 10, 4, 4, 15).millisecondsSinceEpoch;
+    final store = SessionRhythmStore.memory();
+    final backend = FakeRhythmBackend(
+      (p) => page(
+        records: [
+          fact(
+            1,
+            start: start,
+            end: terminal,
+            duration: 300000,
+            available: false,
+          ),
+        ],
+      ),
+    );
+    final c = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => now,
+      calendar: calendar,
+    );
+    await c.addSource(sourceA);
+    c.setRange(RhythmRange.days30);
+    expect(c.projection.fromUtc, DateTime.utc(2026, 10, 4, 4));
+    expect(c.turns.length, 1);
+    expect(c.projection.completedCount, 1);
+    expect(c.projection.distribution.pointsMs, [300000]);
+    expect(c.projection.hours.first.completedCount, 1);
+    expect(c.projection.truncated, false);
+    await c.shutdown();
+    final restored = SessionRhythmController(
+      backend: backend,
+      store: store,
+      now: () => now,
+      calendar: calendar,
+    );
+    await restored.initialize();
+    restored.setRange(RhythmRange.days30);
+    expect(restored.projection.completedCount, 1);
+    expect(backend.calls.length, 1);
+    await restored.shutdown();
+  });
   test(
     'cancel invalidates a source refresh queued behind another source',
     () async {
@@ -401,5 +578,37 @@ class BrokenStore extends SessionRhythmStore {
   Future<void> write(RhythmCache cache) async {
     writes++;
     throw StateError('disk');
+  }
+}
+
+class HeldWriteStore extends SessionRhythmStore {
+  HeldWriteStore() : super.memory();
+  Completer<void>? _next;
+  late Completer<void> entered;
+  Future<void> _writes = Future<void>.value();
+  Completer<void> holdNext() {
+    entered = Completer<void>();
+    return _next = Completer<void>();
+  }
+
+  @override
+  Future<void> write(RhythmCache cache) {
+    final gate = _next;
+    _next = null;
+    final write = _writes.then((_) async {
+      if (gate != null) {
+        entered.complete();
+        await gate.future;
+      }
+      await super.write(cache);
+    });
+    _writes = write.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return write;
+  }
+
+  @override
+  Future<void> flush() async {
+    await _writes;
+    await super.flush();
   }
 }
