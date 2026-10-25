@@ -188,6 +188,62 @@ void main() {
       isFalse,
     );
   });
+  for (final memory in [false, true]) {
+    test('UTC date retention alone drops day 31 and keeps day 30 memory=$memory', () async {
+      var clock = DateTime.utc(2026, 9, 25);
+      final store = memory
+          ? QuotaHistoryStore.memory(
+              now: () => clock,
+              perSourceTarget: 1000,
+              globalTarget: 10000,
+            )
+          : QuotaHistoryStore(
+              temp,
+              now: () => now,
+              perSourceTarget: 1000,
+              globalTarget: 10000,
+            );
+      final rows = [
+        row('run:1', DateTime.utc(2026, 9, 25, 23, 59, 59)),
+        row('run:2', DateTime.utc(2026, 9, 26)),
+        row('run:3', now),
+      ];
+      if (memory) {
+        for (final record in rows) {
+          await store.append(record);
+        }
+        clock = now;
+      } else {
+        final source = Directory('${temp.path}/profile-a');
+        await source.create();
+        for (final (index, date) in [
+          '2026-09-25',
+          '2026-09-26',
+          '2026-10-25',
+        ].indexed) {
+          await File('${source.path}/$date.jsonl')
+              .writeAsString('${jsonEncode(rows[index].toJson())}\n');
+        }
+      }
+      await store.flush();
+      expect(
+        (await store.read(range())).records.map((r) => r.attemptId),
+        ['run:2', 'run:3'],
+        reason:
+            'Date-only retention must use UTC midnight; actual Dart local offset at fixture date is ${DateTime(2026, 10, 25).timeZoneOffset}',
+      );
+      if (!memory) {
+        expect(
+          await File('${temp.path}/profile-a/2026-09-25.jsonl').exists(),
+          isFalse,
+        );
+        expect(
+          await File('${temp.path}/profile-a/2026-09-26.jsonl').exists(),
+          isTrue,
+        );
+      }
+    });
+  }
   test('same-day parts count together and global trimming deletes oldest whole days', () async {
     final directory = Directory('${temp.path}/profile-a');
     await directory.create();

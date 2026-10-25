@@ -230,7 +230,7 @@ class QuotaHistoryStore implements QuotaHistorySink {
     final today = _day(_now());
     if (_retentionDay == today) return;
     final oldest = _day(
-      DateTime.parse(today).subtract(const Duration(days: 29)),
+      DateTime.parse('${today}T00:00:00Z').subtract(const Duration(days: 29)),
     );
     if (directory == null) {
       _memory.removeWhere(
