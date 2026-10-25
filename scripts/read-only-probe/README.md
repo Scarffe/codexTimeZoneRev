@@ -47,7 +47,11 @@ sequential children. Four `account/read(false)` responses were null, correctly
 classified `auth_required`. Both children were cleaned up and no auth file was
 created. The earlier envelope failure was reproduced and repaired using the
 fixed-tag official notification shape. Authenticated continuity remains NOT_RUN
-until a dedicated source is logged in by the user. No raw config, account,
+for this empty-home engineering probe. Separate rc22 GUI acceptance subsequently
+used a human-authenticated dedicated source: initial/manual reads and another
+read after restarting only the candidate passed, with matching nonempty visible
+identity fields compared in memory. That does not establish a stable principal
+or workspace identifier. No raw config, account,
 stderr, email, token or credential content is exported.
 
 The fake-only checks are `test-owned-stdio.ps1`,
@@ -62,5 +66,6 @@ status and non-reparse ancestry, owned `.env` absence, and observation time and
 generation. Invalid, unreadable or changed sources remain unverified. This tool
 does not implement a policy/registry framework or treat a local policy snapshot
 as runtime backend attestation. The audited exact policy inspector is retained
-with the new evidence; it is run before the official probe. Real login,
-authenticated continuity and model/task execution remain NOT_RUN.
+with the new evidence; it is run before the official probe. This engineering
+entry never performs login or model/task execution. Its empty-home identity
+observations remain separate from the subsequent dedicated-source GUI acceptance.
