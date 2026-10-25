@@ -171,8 +171,12 @@ impl Rpc {
         if let Some(home) = home {
             super::account_sources::isolate_command(&mut command, home);
         }
+        command.arg("app-server");
+        if home.is_some() {
+            command.arg("--strict-config");
+        }
         command
-            .args(["app-server", "--listen", "stdio://"])
+            .args(["--listen", "stdio://"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -527,6 +531,7 @@ mod tests {
                 "timeout",
                 "limits_only",
                 "rate_limited",
+                "current_args",
             ] {
                 let target = root.path().join(if cfg!(windows) {
                     format!("{mode}.exe")
@@ -573,6 +578,12 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("tester@example.com"));
+    }
+    #[test]
+    fn current_observation_child_keeps_existing_startup_arguments() {
+        let mut rpc = Rpc::start(&fixture("current_args"), Duration::from_secs(10)).unwrap();
+        let value = read_typed(&mut rpc, false).unwrap();
+        assert!(!value["limits"].is_null());
     }
     #[test]
     fn rate_limit_failure_is_sanitized_and_light_query_fails() {

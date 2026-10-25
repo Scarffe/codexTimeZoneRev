@@ -2,6 +2,9 @@
 use std::{io::{self, BufRead}, time::Duration};
 fn main() {
     let mode = std::env::current_exe().unwrap().file_stem().unwrap().to_string_lossy().into_owned();
+    if mode == "current_args" {
+        assert_eq!(std::env::args().skip(1).collect::<Vec<_>>(), ["app-server", "--listen", "stdio://"]);
+    }
     let mut account_reads = 0;
     for line in io::stdin().lock().lines() {
         let line = line.unwrap();

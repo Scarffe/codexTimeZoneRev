@@ -25,8 +25,20 @@ fn main() {
         .into_owned();
     let home = std::env::var_os("CODEX_HOME").expect("explicit home required");
     assert_eq!(std::env::current_dir().unwrap(), Path::new(&home));
-    let args = std::env::args().collect::<Vec<_>>().join(" ");
+    let av = std::env::args().skip(1).collect::<Vec<_>>();
+    let args = av.join(" ");
     assert!(args.contains("cli_auth_credentials_store=\"file\""));
+    if mode == "startup_args" {
+        let receipt = if args.contains("generate-json-schema") {
+            ".schema-args.json"
+        } else {
+            ".stdio-args.json"
+        };
+        std::fs::write(
+            Path::new(&home).parent().unwrap().join(receipt),
+            format!("[{}]", av.iter().map(|arg| json_string(arg)).collect::<Vec<_>>().join(",")),
+        ).unwrap();
+    }
     for key in ["OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_AUTH_TOKEN"] {
         assert!(std::env::var_os(key).is_none());
     }

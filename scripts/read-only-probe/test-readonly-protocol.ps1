@@ -74,6 +74,44 @@ Assert (!$wire[4].params.refreshToken -and !$wire[5].params.refreshToken) 'accou
 Safe $result 'stable result'
 Assert ($null -eq $result.diagnostic) 'documented nested requirements null has no rejecting diagnostic'
 
+# The pinned official server includes optional emittedAtMs envelope metadata.
+# It is timing metadata, not an account/config field and is never exported.
+foreach($timestamp in @($null,[long]1780000000000)) {
+    $frames=Good-Frames
+    $notice=@{method='configWarning';params=@{secret=$canary};emittedAtMs=$timestamp}|ConvertTo-Json -Compress
+    $frames=@($frames[0],$notice)+@($frames[1..4])
+    $child=Fake-Child $frames; $result=Probe $child
+    Assert ($result.status -ceq 'observed_identity_stable') 'official optional notification timestamp accepted'
+    Assert ($result.notificationCount -eq 1 -and $result.accountReadCount -eq 2) 'timestamp notification does not consume pending response'
+    Safe $result 'timestamp notification'
+}
+foreach($timestamp in @($true,'1780000000000',1.5,@{},@())) {
+    $frames=Good-Frames
+    $notice=@{method='configWarning';params=@{};emittedAtMs=$timestamp}|ConvertTo-Json -Compress -Depth 5
+    $frames=@($frames[0],$notice)+@($frames[1..4])
+    $child=Fake-Child $frames; $result=Probe $child
+    Assert ($result.status -ceq 'failed' -and $result.diagnostic.boundary -ceq 'notification_envelope') 'invalid notification timestamp rejected'
+    No-Accounts $child 'malformed notification stops before account reads'
+    Safe $result 'malformed timestamp'
+}
+$frames=Good-Frames
+$notice=@{method='configWarning';params=@{};emittedAtMs=[long]1780000000000;$canary=$canary}|ConvertTo-Json -Compress
+$frames=@($frames[0],$notice)+@($frames[1..4])
+$child=Fake-Child $frames; $result=Probe $child
+Assert ($result.status -ceq 'failed') 'timestamp compatibility does not admit arbitrary envelope fields'
+No-Accounts $child 'unknown notification field stops before accounts'; Safe $result 'unknown envelope field'
+$frames=Good-Frames
+$frames=@($frames[0],'{"method":"remoteControl/status/changed","params":{"secret":"SECRET_CANARY_PERSONAL_TOKEN_9e81"},"emittedAtMs":1780000000000}')+@($frames[1..4])
+$child=Fake-Child $frames; $result=Probe $child
+Assert ($result.status -ceq 'observed_identity_stable' -and $result.notificationCount -eq 1) 'unsolicited official remote-control status is discarded without changing handshake'
+Assert ((Methods $child) -cnotcontains 'remoteControl/status/read') 'status notification never enables or queries remote control'
+Safe $result 'known startup notification'
+$frames=Good-Frames
+$frames=@($frames[0],'{"method":"mcpServer/startupStatus/updated","params":{"secret":"SECRET_CANARY_PERSONAL_TOKEN_9e81"},"emittedAtMs":1780000000000}')+@($frames[1..4])
+$child=Fake-Child $frames; $result=Probe $child
+Assert ($result.reasonCode -ceq 'unexpected_notification' -and $result.diagnostic.shape.knownNotificationMethod -ceq 'mcpServer/startupStatus/updated') 'other known notifications remain diagnostic only'
+No-Accounts $child 'other notification stops before accounts'; Safe $result 'unaccepted known method'
+
 # Removing the boundary projection would merge these distinct failures again.
 # Unknown key names and values deliberately carry the same privacy canary.
 $diagnosticCases=@(

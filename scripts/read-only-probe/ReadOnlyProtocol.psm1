@@ -95,17 +95,21 @@ function Get-K32JsonKind($Value,[bool]$Present=$true) {
 }
 function Get-K32FrameShape($Frame,[bool]$Parsed=$true) {
     # Only fixed field names, JSON-kind enums and presence booleans leave here.
-    $shape=[ordered]@{topLevelKind='unavailable';idKind='unavailable';resultKind='unavailable';errorKind='unavailable';methodKind='unavailable';requirementsKind='unavailable';configKind='unavailable';originsKind='unavailable';storeConstraintKind='unavailable';effectiveStoreKind='unavailable';accountKind='unavailable';requiresOpenaiAuthKind='unavailable';unknownTopLevelKeyPresent=$false}
+    $shape=[ordered]@{topLevelKind='unavailable';idKind='unavailable';resultKind='unavailable';errorKind='unavailable';methodKind='unavailable';emittedAtMsKind='unavailable';knownNotificationMethod='unrecognized';requirementsKind='unavailable';configKind='unavailable';originsKind='unavailable';storeConstraintKind='unavailable';effectiveStoreKind='unavailable';accountKind='unavailable';requiresOpenaiAuthKind='unavailable';unknownTopLevelKeyPresent=$false}
     if (!$Parsed) { return $shape }
     $shape.topLevelKind=Get-K32JsonKind $Frame
-    foreach($key in @('id','result','error','method')) {
+    foreach($key in @('id','result','error','method','emittedAtMs')) {
         $present=Has-K32Key $Frame $key
         $value=$null; if ($present) { $value=$Frame[$key] }
         $shape[$key+'Kind']=Get-K32JsonKind $value $present
     }
+    # Fixed protocol enums only. Unknown methods and all payload values remain private.
+    if ((Has-K32Key $Frame 'method') -and $Frame.method -is [string] -and $Frame.method -cin @('configWarning','warning','guardianWarning','deprecationNotice','account/updated','account/rateLimits/updated','account/gatewayOAuth/changed','app/list/updated','remoteControl/status/changed','mcpServer/startupStatus/updated','skills/changed','windows/worldWritableWarning','windowsSandbox/setupCompleted','account/login/completed')) {
+        $shape.knownNotificationMethod=$Frame.method
+    }
     if ($Frame -is [Collections.IDictionary]) {
         foreach($key in $Frame.Keys) {
-            if ($key -cnotin @('id','result','error','method','params')) { $shape.unknownTopLevelKeyPresent=$true }
+            if ($key -cnotin @('id','result','error','method','params','emittedAtMs')) { $shape.unknownTopLevelKeyPresent=$true }
         }
     }
     $body=$null; if (Has-K32Key $Frame 'result') { $body=$Frame.result }
@@ -201,9 +205,16 @@ function Read-K32Result {
         if (Has-K32Key $frame 'method') {
             $State.Diagnostic.boundary='notification_envelope'
             if (Has-K32Key $frame 'id') { Stop-K32 'unexpected_server_request' }
-            if (!(Test-K32Keys $frame @('method','params')) -or $frame.method -isnot [string]) { Stop-K32 'malformed_response' }
+            $notificationKeys=@('method','params')
+            if (Has-K32Key $frame 'emittedAtMs') {
+                $notificationKeys+= 'emittedAtMs'
+                if ($null -ne $frame.emittedAtMs -and $frame.emittedAtMs -isnot [long]) { Stop-K32 'malformed_response' }
+            }
+            if (!(Test-K32Keys $frame $notificationKeys) -or $frame.method -isnot [string]) { Stop-K32 'malformed_response' }
             if ($frame.method -ceq 'account/updated' -and $State.BaselineSeen) { Stop-K32 'identity_observation_changed' }
-            if ($frame.method -cnotin @('configWarning','warning','account/updated')) { Stop-K32 'unexpected_notification' }
+            # The official server emits this status after initialize even when
+            # remote control is disabled. Discard it; never enable/query it.
+            if ($frame.method -cnotin @('configWarning','warning','account/updated','remoteControl/status/changed')) { Stop-K32 'unexpected_notification' }
             $State.NotificationCount++
             continue
         }

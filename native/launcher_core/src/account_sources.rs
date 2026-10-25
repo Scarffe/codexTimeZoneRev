@@ -82,10 +82,13 @@ pub(crate) fn isolate_command(command: &mut Command, home: &Path) {
             command.env_remove(key);
         }
     }
-    command
-        .env("CODEX_HOME", home)
-        .current_dir(home)
-        .args(["-c", "cli_auth_credentials_store=\"file\""]);
+    command.env("CODEX_HOME", home).current_dir(home).args([
+        "--no-daemon",
+        "-c",
+        "cli_auth_credentials_store=\"file\"",
+        "-c",
+        "analytics.enabled=false",
+    ]);
 }
 fn quiet(command: &mut Command) {
     command
@@ -963,6 +966,7 @@ mod tests {
                 "home_mismatch",
                 "home_nonstring",
                 "home_alias",
+                "startup_args",
             ] {
                 fs::copy(
                     &exe,
@@ -1012,9 +1016,15 @@ mod tests {
             let (_root, s) = service(mode);
             let id = create(&s);
             let result = s.usage(&id);
-            assert!(result.is_err(), "unverified managed handshake was accepted: {mode}");
+            assert!(
+                result.is_err(),
+                "unverified managed handshake was accepted: {mode}"
+            );
             assert_eq!(result.unwrap_err().kind, "isolation_failed");
-            assert!(!s.root.join(".home-gate-bypassed").exists(), "RPC crossed managed home gate: {mode}");
+            assert!(
+                !s.root.join(".home-gate-bypassed").exists(),
+                "RPC crossed managed home gate: {mode}"
+            );
             assert!(!s.state.lock().unwrap().active.contains_key(&id));
         }
     }
@@ -1328,6 +1338,53 @@ mod tests {
             }
             assert!(s.state.lock().unwrap().bound.is_none());
         }
+    }
+    #[cfg(windows)]
+    #[test]
+    fn managed_schema_child_receives_root_isolation_arguments() {
+        let root = tempfile::tempdir().unwrap();
+        let s = Service::new(root.path().join("account-profiles"));
+        s.verify_cli(&fixture("startup_args"), Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        let args: Vec<String> =
+            serde_json::from_slice(&fs::read(s.root.join(".schema-args.json")).unwrap()).unwrap();
+        assert_eq!(
+            &args[..args.len() - 1],
+            [
+                "--no-daemon",
+                "-c",
+                "cli_auth_credentials_store=\"file\"",
+                "-c",
+                "analytics.enabled=false",
+                "app-server",
+                "generate-json-schema",
+                "--out",
+            ]
+        );
+    }
+    #[cfg(windows)]
+    #[test]
+    fn managed_stdio_child_receives_strict_config_after_root_isolation_arguments() {
+        let root = tempfile::tempdir().unwrap();
+        let s = Service::new(root.path().join("account-profiles"));
+        s.verify_cli(&fixture("startup_args"), Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        let args: Vec<String> =
+            serde_json::from_slice(&fs::read(s.root.join(".stdio-args.json")).unwrap()).unwrap();
+        assert_eq!(
+            args,
+            [
+                "--no-daemon",
+                "-c",
+                "cli_auth_credentials_store=\"file\"",
+                "-c",
+                "analytics.enabled=false",
+                "app-server",
+                "--strict-config",
+                "--listen",
+                "stdio://",
+            ]
+        );
     }
     #[test]
     fn shutdown_cancels_capability_child_and_observational_activity() {

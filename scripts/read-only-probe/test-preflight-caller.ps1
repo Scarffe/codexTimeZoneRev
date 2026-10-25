@@ -29,10 +29,12 @@ namespace K32Probe {
 $parseErrors=$null;$tokens=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'run-official-preflight.ps1'),[ref]$tokens,[ref]$parseErrors)
 if($parseErrors.Count){throw 'caller_parse_failed'}
-foreach($evidencePath in @('',(Join-Path $PSScriptRoot 'not-created-by-test'),'Z:\missing\not-created')){
-  $blocked=& (Join-Path $PSScriptRoot 'run-official-preflight.ps1') -EvidenceDirectory $evidencePath | ConvertFrom-Json
-  Assert ($blocked.status -ceq 'blocked' -and $blocked.reasonCode -ceq 'startup_auth_backend_unverified') 'public_entry_remains_blocked_for_any_evidence_path'
-  Assert ($blocked.processesStarted -eq 0 -and $blocked.accountReads -eq 0 -and $null -eq [K32Probe.OwnedStdioChild]::Last) 'public_entry_returns_before_child_start_or_account_read'
+foreach($evidencePath in @($PSScriptRoot,'Z:\missing\not-created')){
+  $rejected=$false
+  try { & (Join-Path $PSScriptRoot 'run-official-preflight.ps1') -EvidenceDirectory $evidencePath | Out-Null }
+  catch { $rejected=$_.Exception.Message -ceq 'evidence_outside_workspace' }
+  Assert $rejected 'restored_entry_validates_explicit_evidence_path'
+  Assert ($null -eq [K32Probe.OwnedStdioChild]::Last) 'invalid_evidence_returns_before_child_start'
 }
 $argumentsFunction=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Get-K32ReadonlyArguments'},$true)
 Assert ($null -ne $argumentsFunction) 'pure_future_arguments_builder_exists'

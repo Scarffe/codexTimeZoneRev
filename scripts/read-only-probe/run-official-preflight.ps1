@@ -1,22 +1,11 @@
-param([string]$EvidenceDirectory='')
+param([Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$EvidenceDirectory)
 $ErrorActionPreference='Stop'
-function Get-K32OfficialStartupCapability {
-  # The same-version startup/policy path has been audited. The actual effective
-  # backend and identity probe remain incomplete; this offline change preserves
-  # the prior no-start state, without an override or retry fallback.
-  [pscustomobject]@{supported=$false;reasonCode='startup_auth_backend_unverified'}
-}
 function Get-K32ReadonlyArguments {
-  # Future launch template only; the public entry still returns before any use.
+  # Engineering entry: refresh the documented local policy/binary checks first.
+  # Effective file storage is verified again by the protocol before account RPC.
   @('--no-daemon','-c','cli_auth_credentials_store="file"','-c','analytics.enabled=false','app-server','--strict-config','--listen','stdio://')
 }
-$startupCapability=Get-K32OfficialStartupCapability
-if(!$startupCapability.supported){
-  [ordered]@{status='blocked';reasonCode=$startupCapability.reasonCode;processesStarted=0;accountReads=0;realModelRequests=$false;authenticatedContinuityVerified=$false}|ConvertTo-Json
-  return
-}
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-if(!$EvidenceDirectory){$EvidenceDirectory=Join-Path $repo 'environment/k3-2-readonly-validation-20261025-a'}
 $EvidenceDirectory=[IO.Path]::GetFullPath($EvidenceDirectory)
 $allowed=[IO.Path]::GetFullPath((Join-Path $repo 'environment')).TrimEnd('\')+'\'
 if(!$EvidenceDirectory.StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)){throw 'evidence_outside_workspace'}
