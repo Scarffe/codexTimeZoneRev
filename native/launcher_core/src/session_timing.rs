@@ -172,7 +172,7 @@ impl Timing {
         let Intervals {
             groups,
             invalid,
-            zero,
+            zero: _,
             outside,
         } = self.intervals(bounds);
         let mut all: Vec<_> = groups.into_iter().flatten().collect();
@@ -184,10 +184,17 @@ impl Timing {
         if invalid > 0 {
             reasons.push("invalid_items");
         }
-        if zero > 0 {
-            reasons.push("zero_duration_items");
-        }
-        if outside > 0 {
+        // Valid instantaneous items add no interval length. Keep the shared H2
+        // classifier unchanged, but still reject zero items outside history's
+        // logged window instead of letting their zero length hide bad bounds.
+        let zero_outside = bounds.is_some_and(|(start, end)| {
+            self.items.values().any(|item| {
+                item.start
+                    .zip(item.end)
+                    .is_some_and(|(a, b)| a == b && (a < start || b > end))
+            })
+        });
+        if outside > 0 || zero_outside {
             reasons.push("outside_bounds");
         }
         if merged.is_empty() {

@@ -124,7 +124,8 @@ pub(super) fn project(reader: &Reader, request: &Request, catching_up: bool) -> 
         reasons.extend(t.evidence.conflicts.iter().cloned());
         if reader.incomplete || catching_up { reasons.insert("incomplete_history".into()); }
         if reader.missing_identity { reasons.insert("missing_identity".into()); }
-        if reader.unsupported { reasons.insert("unsupported_token_schema".into()); }
+        // Legacy token schemas do not invalidate explicit item time intervals.
+        // The default token-verification report keeps its own unsupported flag.
         if lifecycle.start.is_none() { reasons.insert("missing_start_time".into()); }
         if lifecycle.end.is_none() { reasons.insert("missing_terminal_time".into()); }
         let available = reasons.is_empty();
@@ -331,6 +332,98 @@ mod tests {
                 "{cause}"
             );
             assert_eq!(v["records"][0]["durationMs"], 10000);
+        }
+    }
+    #[test]
+    fn session_history_legacy_token_schema_does_not_hide_explicit_activity() {
+        for legacy in [
+            event(
+                "token_count",
+                "a",
+                json!({"info":{"total_token_usage":{"output_tokens":20}}}),
+            ),
+            json!({"type":"compacted","payload":{}}),
+        ] {
+            let f = file(&[
+                complete("a"),
+                item("a", "positive", "AgentMessage", 100000, 101000),
+                legacy,
+            ]);
+            let mut pool = ReaderPool::default();
+            let history = read(&mut pool, &f, json!({}));
+            assert_eq!(history["records"][0]["activityAvailable"], true);
+            assert_eq!(history["records"][0]["partial"], false);
+            assert_eq!(
+                history["records"][0]["activityIntervals"],
+                json!([[100000, 101000]])
+            );
+            assert_eq!(history["records"][0]["reasons"], json!([]));
+            let default = pool.poll(f.path().to_path_buf()).unwrap();
+            assert_eq!(default["quality"]["status"], "unsupported");
+            assert!(default["quality"]["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("unsupported_token_schema")));
+            assert_eq!(default["last"]["analysis"]["observedMs"], 1000);
+        }
+    }
+    #[test]
+    fn session_history_legal_instantaneous_items_do_not_hide_positive_activity() {
+        let f = file(&[
+            complete("a"),
+            item("a", "positive", "Reasoning", 100000, 101000),
+            item("a", "zero", "AgentMessage", 102000, 102000),
+        ]);
+        let mut pool = ReaderPool::default();
+        let history = read(&mut pool, &f, json!({}));
+        assert_eq!(history["records"][0]["activityAvailable"], true);
+        assert_eq!(history["records"][0]["partial"], false);
+        assert_eq!(
+            history["records"][0]["activityIntervals"],
+            json!([[100000, 101000]])
+        );
+        assert_eq!(history["records"][0]["reasons"], json!([]));
+        let default = pool.poll(f.path().to_path_buf()).unwrap();
+        assert_eq!(default["last"]["analysis"]["zeroItems"], 1);
+        assert_eq!(default["last"]["analysis"]["observedMs"], 1000);
+        assert_eq!(default["last"]["analysis"]["partial"], false);
+    }
+    #[test]
+    fn session_history_only_instantaneous_items_leave_activity_unknown() {
+        let f = file(&[
+            complete("a"),
+            item("a", "zero", "AgentMessage", 102000, 102000),
+        ]);
+        let history = read(&mut ReaderPool::default(), &f, json!({}));
+        assert_eq!(history["records"][0]["activityAvailable"], false);
+        assert_eq!(history["records"][0]["partial"], true);
+        assert_eq!(history["records"][0]["activityIntervals"], json!([]));
+        assert!(history["records"][0]["reasons"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("missing_activity")));
+    }
+    #[test]
+    fn session_history_outside_instantaneous_items_still_block_activity() {
+        for point in [99999, 111001] {
+            let f = file(&[
+                complete("a"),
+                item("a", "positive", "AgentMessage", 100000, 101000),
+                item("a", "zero-outside", "Reasoning", point, point),
+            ]);
+            let mut pool = ReaderPool::default();
+            let history = read(&mut pool, &f, json!({}));
+            assert_eq!(history["records"][0]["activityAvailable"], false);
+            assert!(history["records"][0]["reasons"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("outside_bounds")));
+            let default = pool.poll(f.path().to_path_buf()).unwrap();
+            // Default H2 has always counted zero rows separately before its
+            // positive-interval bounds check; the history correction is local.
+            assert_eq!(default["last"]["analysis"]["zeroItems"], 1);
+            assert_eq!(default["last"]["analysis"]["outOfBoundsItems"], 0);
+            assert_eq!(default["last"]["analysis"]["observedMs"], 1000);
         }
     }
     #[test]
