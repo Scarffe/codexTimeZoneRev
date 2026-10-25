@@ -127,6 +127,7 @@ class _SessionRhythmPanelState extends State<SessionRhythmPanel> {
             ],
           ),
           const SizedBox(height: 8),
+          if (!c.cacheReady) const Text('正在恢复缓存…'),
           Text(
             '完成 ${p.completedCount} · 取消 ${p.cancelledCount} · 样本 ${p.distribution.count} · 已记录活动 ${rhythmSeconds(p.activityMs)}',
           ),
@@ -164,7 +165,8 @@ class _SessionRhythmPanelState extends State<SessionRhythmPanel> {
                 mainAxisSize: MainAxisSize.min,
                 key: const ValueKey('rhythm-add'),
                 onPress:
-                    candidate == null ||
+                    !c.cacheReady ||
+                        candidate == null ||
                         c.sources.any((s) => s.key == candidate.key) ||
                         c.sources.length >= 8
                     ? null

@@ -32,6 +32,9 @@ class SessionRhythmController extends ChangeNotifier {
   Future<void>? _active;
   List<RhythmSource> get sources => _cache.sources;
   List<RhythmTurn> get turns => _cache.turns;
+
+  /// The initial cache read finished, including a recoverable read failure.
+  bool get cacheReady => _initialized;
   bool get busy => _busy;
   String? get error =>
       _sourceErrors.isEmpty ? null : _sourceErrors.values.join('\n');

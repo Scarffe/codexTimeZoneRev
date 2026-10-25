@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
 import 'package:codex_timezone/app/session_rhythm_charts.dart';
+import 'package:codex_timezone/app/session_rhythm_panel.dart';
 import 'package:codex_timezone/services/session_rhythm.dart';
 import 'package:codex_timezone/services/session_rhythm_projection.dart';
 import 'package:codex_timezone/services/session_rhythm_store.dart';
@@ -13,6 +14,8 @@ import 'package:codex_timezone/state/session_metrics_controller.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import 'session_rhythm_application_test.dart' show RhythmAppBackend;
+import 'session_rhythm_controller_test.dart' show HeldReadStore;
+import 'monitor_charts_test.dart' show chartApp;
 import 'account_usage_page_test.dart' show PageUsage;
 import 'support/session_rhythm_fixture.dart';
 
@@ -28,6 +31,91 @@ class UnreadableRhythmStore extends SessionRhythmStore {
 
 void main() {
   setUpAll(timezone.initializeTimeZones);
+  for (final restoredCount in [7, 8]) {
+    testWidgets(
+      'source Add waits cache readiness and then honors restored $restoredCount/8 capacity',
+      (tester) async {
+        final store = HeldReadStore(), backend = RhythmAppBackend();
+        final cached = RhythmCache(
+          sources: rhythmFixtureSources.take(restoredCount).toList(),
+        );
+        await store.write(cached);
+        final gate = store.holdNextRead();
+        final rhythm = SessionRhythmController(
+          backend: backend,
+          store: store,
+          now: () => rhythmFixtureNow,
+        );
+        final initialized = rhythm.initialize();
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete();
+          rhythm.dispose();
+        });
+        await store.entered.future;
+        expect(rhythm.cacheReady, false);
+        const candidate = RhythmSource(
+          path: 'C:/synthetic/ninth.jsonl',
+          sessionId: 'ninth',
+          title: 'Ninth',
+        );
+        await tester.pumpWidget(
+          chartApp(
+            SessionRhythmPanel(
+              controller: rhythm,
+              available: [
+                {
+                  'path': candidate.path,
+                  'id': candidate.sessionId,
+                  'title': candidate.title,
+                },
+              ],
+              onList: () {},
+              onOpen: (_) {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('rhythm-sources')));
+        await tester.pumpAndSettle();
+        tester
+            .widget<MonitorChoice>(
+              find.byKey(const ValueKey('rhythm-source-choice')),
+            )
+            .onChanged(candidate.key);
+        await tester.pumpAndSettle();
+        final add = find.byKey(const ValueKey('rhythm-add'));
+        final disabledWhileRestoring =
+            tester.widget<FButton>(add).onPress == null;
+        expect(find.text('来源 0/8'), findsOneWidget);
+        await tester.ensureVisible(add);
+        if (disabledWhileRestoring) await tester.tap(add);
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(tester.takeException(), isNull);
+        expect(backend.calls, isEmpty);
+        gate.complete();
+        await tester.pump();
+        await initialized;
+        await tester.pumpAndSettle();
+        expect(rhythm.cacheReady, true);
+        expect(find.text('来源 $restoredCount/8'), findsOneWidget);
+        if (restoredCount == 8) {
+          expect(tester.widget<FButton>(add).onPress, isNull);
+          await tester.ensureVisible(add);
+          await tester.tap(add);
+          await tester.pump(const Duration(milliseconds: 200));
+        } else {
+          expect(tester.widget<FButton>(add).onPress, isNotNull);
+        }
+        expect(tester.takeException(), isNull);
+        expect(backend.calls, isEmpty);
+        expect(store.writes, 0);
+        expect((await store.read()).toJson(), cached.toJson());
+        await tester.pumpWidget(const SizedBox());
+        await rhythm.shutdown();
+        expect(disabledWhileRestoring, true);
+      },
+    );
+  }
   for (final overlapping in [false, true]) {
     testWidgets(
       'lane click selects activity owner and opens its turn, overlap=$overlapping',
