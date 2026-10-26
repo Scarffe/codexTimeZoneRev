@@ -4,6 +4,7 @@
 #include <oleacc.h>
 #include <array>
 #include <cstdint>
+#include "ui_copy.h"
 
 namespace production_tray {
 struct Commands { UINT open, refresh, pause, exit; };
@@ -19,7 +20,8 @@ class StyledMenu final {
  public:
   StyledMenu(const Commands& commands, bool paused,
              const Appearance& appearance = {}, UINT dpi = 96,
-             bool use_system_menu = false);
+             bool use_system_menu = false,
+             ui_copy::Language language = ui_copy::Language::zh);
   ~StyledMenu();
   StyledMenu(const StyledMenu&) = delete;
   StyledMenu& operator=(const StyledMenu&) = delete;
@@ -44,6 +46,7 @@ class StyledMenu final {
   HBRUSH surface_ = nullptr, selection_ = nullptr, border_ = nullptr;
   Appearance appearance_;
   UINT dpi_;
+  ui_copy::Language language_;
   UINT width_ = 0;
   bool styled_ = false;
   std::array<Item, 5> items_{};

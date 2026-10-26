@@ -97,6 +97,7 @@ struct State {
 State* current = nullptr;  // All callbacks execute on this UI thread.
 HANDLE monitorMutex = nullptr;
 production_tray::Appearance trayAppearance;
+ui_copy::Language uiLanguage = ui_copy::Language::zh;
 
 struct DisplayProbe { std::ofstream* out; int count=0; };
 BOOL CALLBACK ProbeMonitor(HMONITOR monitor,HDC,LPRECT,LPARAM parameter) {
@@ -251,7 +252,8 @@ bool Notify(const std::wstring& text,const std::string& kind,int64_t serial,cons
   ++s.notificationAttempts; s.notificationText=text; s.notificationKind=kind; s.notificationSerial=serial;
   NOTIFYICONDATAW icon{}; icon.cbSize=sizeof(icon); icon.hWnd=s.owner; icon.uID=1; icon.uFlags=NIF_INFO;
   icon.dwInfoFlags=NIIF_INFO|NIIF_NOSOUND;
-  const wchar_t* title=kind=="quota" ? L"Codex 额度提醒" : ((kind=="session" || kind=="attention") ? L"Codex 回合提醒" : L"Codex 后台运行");
+  const auto& copy=ui_copy::For(uiLanguage);
+  const wchar_t* title=kind=="quota" ? copy.quota_title : ((kind=="session" || kind=="attention") ? copy.turn_title : copy.background_title);
   wcsncpy_s(icon.szInfoTitle,title,_TRUNCATE); wcsncpy_s(icon.szInfo,text.c_str(),_TRUNCATE);
   const bool accepted=Shell_NotifyIconW(NIM_MODIFY,&icon)!=FALSE;
   if(accepted) { ++s.notificationShellAccepted; s.pendingNotificationRoute=route; }
@@ -657,7 +659,7 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         std::optional<production_tray::StyledMenu> styled;
         if(s.production) styled.emplace(
             production_tray::Commands{kMain,kRefresh,kPause,kExit},s.paused,
-            trayAppearance,GetDpiForWindow(menuOwner));
+            trayAppearance,GetDpiForWindow(menuOwner),false,uiLanguage);
         HMENU menu=styled ? styled->get() : CreatePopupMenu();
         if(!menu) return 0;
         if(!s.production) {
@@ -715,8 +717,8 @@ LRESULT CALLBACK OwnerProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if(command>=kTestQuota && command<=kTestResume) {
           if(!s.testControls) return 0;
           ++s.testActionInjections;
-          if(command==kTestQuota) Notify(L"测试注入：额度提醒","quota",++s.alertSerial,"monitorDetails");
-          if(command==kTestSession) Notify(L"测试注入：回合提醒","session",++s.sessionAlertSerial,"sessionDetails");
+          if(command==kTestQuota) Notify(ui_copy::For(uiLanguage).test_quota,"quota",++s.alertSerial,"monitorDetails");
+          if(command==kTestSession) Notify(ui_copy::For(uiLanguage).test_session,"session",++s.sessionAlertSerial,"sessionDetails");
           if(command==kTestClick) NotificationClick(true);
           if(command==kTestClose) SendMessageW(s.mainWindow,WM_CLOSE,0,0);
           if(command==kTestLegacy) { ConfigureMonitor(2,true,s.preferencesSerial+1); ShowPet(); }
@@ -881,6 +883,13 @@ void ConfigureTrayAppearance(const production_tray::Appearance& appearance) {
   // A hidden main window still receives the palette through the channel.
   trayAppearance = appearance;
 }
+void ConfigureUiLanguage(HWND main_window,const std::string& language) {
+  DWORD pid=0;
+  if(!IsWindow(main_window) || !GetWindowThreadProcessId(main_window,&pid) ||
+     pid!=GetCurrentProcessId()) return;
+  uiLanguage=ui_copy::ParseLanguage(language);
+  SetWindowTextW(main_window,ui_copy::For(uiLanguage).window_title);
+}
 
 void ConfigureWorkspace(bool keep_alive,const std::string& workspace) {
   if(!current || !current->production) return;
@@ -894,7 +903,7 @@ void HideMonitorMain() {
   ShowWindow(current->mainWindow,SW_HIDE);
   if(!current->backgroundNotices && (current->keepAlive || current->backgroundStart)) {
     ++current->backgroundNotices;
-    Notify(L"窗口已隐藏，监控仍在后台运行。双击托盘恢复，托盘菜单可退出。","background",0,"monitorDetails");
+    Notify(ui_copy::For(uiLanguage).background_body,"background",0,"monitorDetails");
   }
   Report();
 }

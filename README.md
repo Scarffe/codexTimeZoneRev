@@ -21,11 +21,11 @@
 
 rc21 在新分支重构了工作区排版：总览采用自适应数字入口卡，启动器突出目标时间并分组设置，分析页分离来源、筛选和读数。三套主题与原有交互继续保留；账户、会话和 API 的数据及操作仍分别管理。原审美与本轮离线功能修复另存于 `feature/classic-workspace`，rc20 历史版本仍保留于 `feature/k3-2-readonly-preflight`。本轮也完成 K3.2 离线诊断分层与未来 strict 启动模板整理，没有开放真实任务、热切换或模型请求。
 
-### 字体与后续中英文
+### 字体与中英文
 
 Windows 使用 Segoe UI Variable Text，中文回退至 Microsoft YaHei UI / Microsoft YaHei；其他平台保留 PingFang SC、Noto Sans CJK SC 回退。它们是适合屏幕界面的平台字体，但不存在人人最舒适的唯一字体。可读性还取决于字号、字重、行距、对比和控件留白；参见 [Windows 字体指导](https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/typography) 与[微软雅黑说明](https://learn.microsoft.com/en-gb/typography/font-list/microsoft-yahei)。
 
-当前应用文案仍为中文，尚未提供中英文切换。后续采用共享自适应布局和资源字符串，按语言处理字体回退、文本长度及日期数字格式，而非复制两套页面或缩小英文强行塞入中文宽度。账号栏现在将标签置于控件行上方；分析页的来源、类型、视图按字段组留白，并验证 125% 字号。国际化实现依据 [Flutter 官方文档](https://docs.flutter.dev/ui/internationalization)。
+rc26 提供顶部中英文切换，默认中文；正常版记住选择，合成体验版仅本次生效。六工作区、图表、设置、说明窗口及 Windows 标题/托盘/通知共用资源，英文选择器适当加宽，中文和英文分别使用 1.5 / 1.45 行距。别名、路径、会话标题与来源原文保持不变；语言切换保留数据、草稿和已打开的说明，不触发重新采集或重复提醒。具体交付及未验证边界见 [rc26 说明](STAGE-ROADMAP-CLOSURE.md)。
 
 ### K3.0 多账号独立任务：离线能力原型
 

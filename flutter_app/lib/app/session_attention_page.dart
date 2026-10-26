@@ -1,3 +1,6 @@
+import '../l10n/copy_sessions.dart';
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -18,7 +21,8 @@ class SessionAttentionPage extends StatefulWidget {
 
 class _SessionAttentionPageState extends State<SessionAttentionPage> {
   String _filter = 'unread';
-  String? _path, _actionError;
+  String? _path;
+  Object? _actionError;
   bool _busy = false, _listed = false;
   String _alias = '';
   Future<void> _run(Future<void> Function() action) async {
@@ -30,7 +34,7 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
     try {
       await action();
     } catch (error) {
-      if (mounted) setState(() => _actionError = error.toString());
+      if (mounted) setState(() => _actionError = error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -53,10 +57,16 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '明确关注 ${c.watches.length}/8 · 未读 ${c.unreadCount}',
+              AppCopy.of(context).text(
+                'sessions.watchedUnread',
+                args: {'p0': c.watches.length, 'p1': c.unreadCount},
+              ),
               style: context.theme.typography.display.sm,
             ),
-            const Text('只读取你明确关注的会话；不会根据最近活动自动添加。新关注先建立基线，历史完成不产生提醒。'),
+            Text(
+              AppCopy.of(context)
+                  .text('sessions.onlyExplicitlyWatchedSessionsAreReadRecent'),
+            ),
             const SizedBox(height: 12),
             FCard(
               child: Padding(
@@ -75,16 +85,24 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                 await c.refreshSessions();
                                 if (mounted) setState(() => _listed = true);
                               }),
-                        child: const Text('列出可关注会话'),
+                        child: Text(
+                          AppCopy.of(context)
+                              .text('sessions.listAvailableSessions'),
+                        ),
                       ),
                     ),
                     if (_listed && c.availableSessions.isEmpty)
-                      const Text('暂无可选择的会话。'),
+                      Text(
+                        AppCopy.of(context)
+                            .text('sessions.noSessionsAvailable'),
+                      ),
                     if (c.availableSessions.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       FSelect<String>.search(
                         key: const ValueKey('attention-selector'),
-                        label: const Text('本机会话'),
+                        label: Text(
+                          AppCopy.of(context).text('sessions.localSessions'),
+                        ),
                         items: {
                           for (final (index, s) in c.availableSessions.indexed)
                             '${s.title} · ${s.id} · ${index + 1}': s.path,
@@ -100,7 +118,9 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                         control: FTextFieldControl.managed(
                           onChange: (value) => _alias = value.text,
                         ),
-                        label: const Text('别名（可选）'),
+                        label: Text(
+                          AppCopy.of(context).text('sessions.aliasOptional'),
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Align(
@@ -124,7 +144,10 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                   );
                                 }),
                           child: Text(
-                            c.watches.length >= 8 ? '已达到 8 个关注上限' : '添加关注',
+                            c.watches.length >= 8
+                                ? AppCopy.of(context)
+                                      .text('sessions.watchLimitReached')
+                                : AppCopy.of(context).text('sessions.addWatch'),
                           ),
                         ),
                       ),
@@ -135,20 +158,29 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
             ),
             if (_actionError != null)
               Text(
-                '操作未保存：$_actionError',
+                AppCopy.of(context).text(
+                  'sessions.changesNotSaved',
+                  args: {
+                    'p0': AppCopy.of(context)
+                        .attentionDiagnostic(_actionError!),
+                  },
+                ),
                 key: const ValueKey('attention-action-error'),
               ),
             if (c.error != null)
-              Text(c.error!, key: const ValueKey('attention-error')),
+              Text(
+                AppCopy.of(context).attentionDiagnostic(c.error!),
+                key: const ValueKey('attention-error'),
+              ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 for (final (value, label) in [
-                  ('unread', '未读'),
-                  ('active', '关注中'),
-                  ('all', '全部'),
+                  ('unread', AppCopy.of(context).text('sessions.unread')),
+                  ('active', AppCopy.of(context).text('sessions.watching')),
+                  ('all', AppCopy.of(context).text('sessions.all')),
                 ])
                   Semantics(
                     selected: _filter == value,
@@ -168,13 +200,19 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                   onPress: _busy || c.unreadCount == 0
                       ? null
                       : () => _run(c.markAllRead),
-                  child: const Text('全部标为已读'),
+                  child: Text(
+                    AppCopy.of(context).text('sessions.markAllAsRead'),
+                  ),
                 ),
               ],
             ),
             if (_filter != 'unread') ...[
               if (watches.isEmpty)
-                Text(_filter == 'active' ? '暂无启用的关注。' : '尚未添加关注。'),
+                Text(
+                  _filter == 'active'
+                      ? AppCopy.of(context).text('sessions.noActiveWatches')
+                      : AppCopy.of(context).text('sessions.noWatchesAdded'),
+                ),
               for (final item in watches)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -186,17 +224,26 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            item.title,
+                            AppCopy.of(context).attentionWatchTitle(item.watch),
                             style: context.theme.typography.body.lg,
                           ),
                           Text(
-                            '${item.watch.enabled ? '关注中' : '已暂停'} · ${_status(item.status)}',
+                            '${item.watch.enabled ? AppCopy.of(context).text('sessions.watching') : AppCopy.of(context).text('sessions.paused')} · ${_status(item.status)}',
                           ),
                           Text(item.expectedSessionId),
                           Text(item.path),
                           if (item.readError != null)
-                            const Text('读取失败 · 当前状态未知；不会推断任务失败。'),
-                          if (item.catchingUp) const Text('正在读取历史 · 尚未建立完整基线'),
+                            Text(
+                              AppCopy.of(context).text(
+                                'sessions.readFailedCurrentStatusUnknownTaskFailure',
+                              ),
+                            ),
+                          if (item.catchingUp)
+                            Text(
+                              AppCopy.of(context).text(
+                                'sessions.readingHistoryBaselineNotYetComplete',
+                              ),
+                            ),
                           Wrap(
                             spacing: 8,
                             children: [
@@ -213,7 +260,11 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                         ),
                                       ),
                                 child: Text(
-                                  item.watch.enabled ? '暂停关注' : '恢复关注',
+                                  item.watch.enabled
+                                      ? AppCopy.of(context)
+                                            .text('sessions.pauseWatch')
+                                      : AppCopy.of(context)
+                                            .text('sessions.resumeWatch'),
                                 ),
                               ),
                               FButton(
@@ -223,7 +274,10 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                 onPress: _busy
                                     ? null
                                     : () => _run(() => c.unwatch(item.key)),
-                                child: const Text('移除关注'),
+                                child: Text(
+                                  AppCopy.of(context)
+                                      .text('sessions.removeWatch'),
+                                ),
                               ),
                             ],
                           ),
@@ -235,7 +289,12 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
             ],
             if (_filter != 'active') ...[
               if (notices.isEmpty)
-                Text(_filter == 'unread' ? '暂无未读提醒。' : '暂无完成提醒。'),
+                Text(
+                  _filter == 'unread'
+                      ? AppCopy.of(context).text('sessions.noUnreadReminders')
+                      : AppCopy.of(context)
+                            .text('sessions.noCompletionReminders'),
+                ),
               for (final notice in notices)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -247,11 +306,31 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${notice.read ? '已读' : '未读'} · ${notice.title}',
+                            '${notice.read ? AppCopy.of(context).text('sessions.read') : AppCopy.of(context).text('sessions.unread')} · ${notice.title}',
                             style: context.theme.typography.body.lg,
                           ),
-                          Text('回合已完成 · ${notice.createdAt.toLocal()}'),
-                          Text('会话 ${notice.sessionId} · 回合 ${notice.turnId}'),
+                          Text(
+                            AppCopy.of(context).text(
+                              'sessions.turnCompleted',
+                              args: {
+                                'p0': (AppCopy.of(context).isEnglish
+                                    ? AppCopy.of(context).dateTime(
+                                        notice.createdAt,
+                                        includeSeconds: true,
+                                      )
+                                    : notice.createdAt.toLocal()),
+                              },
+                            ),
+                          ),
+                          Text(
+                            AppCopy.of(context).text(
+                              'sessions.sessionTurn',
+                              args: {
+                                'p0': notice.sessionId,
+                                'p1': notice.turnId,
+                              },
+                            ),
+                          ),
                           Text(notice.path),
                           Wrap(
                             spacing: 8,
@@ -260,7 +339,11 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                 key: ValueKey('notice-open-${notice.id}'),
                                 mainAxisSize: MainAxisSize.min,
                                 onPress: () => widget.onOpenNotice(notice),
-                                child: const Text('打开原会话分析'),
+                                child: Text(
+                                  AppCopy.of(context).text(
+                                    'sessions.openOriginalSessionAnalysis',
+                                  ),
+                                ),
                               ),
                               if (!notice.read)
                                 FButton(
@@ -270,7 +353,10 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                                   onPress: _busy
                                       ? null
                                       : () => _run(() => c.markRead(notice.id)),
-                                  child: const Text('标为已读'),
+                                  child: Text(
+                                    AppCopy.of(context)
+                                        .text('sessions.markAsRead'),
+                                  ),
                                 ),
                             ],
                           ),
@@ -287,9 +373,17 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
     },
   );
   String _status(SessionAttentionStatus value) => switch (value) {
-    SessionAttentionStatus.running => '回合进行中',
-    SessionAttentionStatus.completed => '回合已完成',
-    SessionAttentionStatus.cancelled => '已取消',
-    SessionAttentionStatus.unknown => '状态未知',
+    SessionAttentionStatus.running => AppCopy.of(
+      context,
+    ).text('sessions.turnRunning'),
+    SessionAttentionStatus.completed => AppCopy.of(
+      context,
+    ).text('sessions.turnCompleted2'),
+    SessionAttentionStatus.cancelled => AppCopy.of(
+      context,
+    ).text('sessions.cancelled'),
+    SessionAttentionStatus.unknown => AppCopy.of(
+      context,
+    ).text('sessions.statusUnknown'),
   };
 }

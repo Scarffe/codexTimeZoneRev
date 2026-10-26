@@ -1,3 +1,7 @@
+import '../l10n/copy_analysis.dart';
+import '../l10n/app_copy.dart';
+import '../l10n/app_language.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -36,8 +40,9 @@ String _number(double value) => value == value.roundToDouble()
     ? value.toStringAsFixed(0)
     : value.toString();
 
-String _seconds(int? ms) =>
-    ms == null ? '未知' : '${(ms / 1000).toStringAsFixed(3)} s';
+String _seconds(BuildContext context, int? ms) => ms == null
+    ? AppCopy.of(context).text('analysis.unknown')
+    : '${(ms / 1000).toStringAsFixed(3)} s';
 
 TextStyle _labelStyle(BuildContext context) =>
     context.theme.typography.body.sm.copyWith(fontSize: 12);
@@ -123,7 +128,7 @@ class MonitorChoice extends StatelessWidget {
               Text(label, style: _labelStyle(context)),
               const SizedBox(width: 6),
               SizedBox(
-                width: 112,
+                width: AppCopy.of(context).isEnglish ? 150 : 112,
                 child: Semantics(label: label, child: select),
               ),
             ],
@@ -179,7 +184,10 @@ class MonitorChartFrame extends StatelessWidget {
                 children: [
                   for (final control in controls)
                     SizedBox(
-                      width: math.min(142, constraints.maxWidth),
+                      width: math.min(
+                        AppCopy.of(context).isEnglish ? 180 : 142,
+                        constraints.maxWidth,
+                      ),
                       child: control,
                     ),
                 ],
@@ -205,8 +213,13 @@ class MonitorChartFrame extends StatelessWidget {
 
 /// Native, local inspection works with keyboard, touch and screen readers.
 class _InspectValues extends StatefulWidget {
-  const _InspectValues({required this.records, this.identity});
+  const _InspectValues({
+    required this.records,
+    required this.language,
+    this.identity,
+  });
   final List<String> records;
+  final AppLanguage language;
   final Object? identity;
 
   @override
@@ -216,19 +229,33 @@ class _InspectValues extends StatefulWidget {
 class _InspectValuesState extends State<_InspectValues> {
   RawDialogRoute<void>? _route;
   NavigatorState? _navigator;
+  final _records = ValueNotifier<List<String>>(const []);
+
+  @override
+  void initState() {
+    super.initState();
+    _records.value = widget.records;
+  }
 
   @override
   void didUpdateWidget(_InspectValues oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.identity != widget.identity ||
-        !listEquals(oldWidget.records, widget.records)) {
+        (oldWidget.language == widget.language &&
+            !listEquals(oldWidget.records, widget.records))) {
       _dismissInspection();
     }
+    // The modal and its chart can rebuild in either order on a locale change.
+    // Publish after this frame so its existing scroll view receives fresh copy.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _records.value = widget.records;
+    });
   }
 
   @override
   void dispose() {
     _dismissInspection();
+    _records.dispose();
     super.dispose();
   }
 
@@ -251,57 +278,62 @@ class _InspectValuesState extends State<_InspectValues> {
 
   void _openInspection() {
     if (_route != null) return;
-    final records = widget.records;
     final navigator = Navigator.of(context, rootNavigator: true);
     late final RawDialogRoute<void> route;
     route = RawDialogRoute<void>(
       barrierDismissible: true,
-      barrierLabel: '关闭图表数值',
+      barrierLabel: AppCopy.of(context).text('analysis.closeChartValues'),
       barrierColor: const Color(0x80000000),
-      pageBuilder: (context, _, _) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 620,
-              maxHeight: MediaQuery.sizeOf(context).height * .85,
-            ),
-            child: FCard(
-              style: FCardStyleDelta.delta(
-                decoration: DecorationDelta.shapeDelta(
-                  color: context.theme.colors.card,
-                ),
+      pageBuilder: (context, _, _) => ValueListenableBuilder<List<String>>(
+        valueListenable: _records,
+        builder: (context, records, _) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 620,
+                maxHeight: MediaQuery.sizeOf(context).height * .85,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('图表数值', style: context.theme.typography.body.lg),
-                    const SizedBox(height: 12),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (final record in records)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(record),
-                              ),
-                          ],
+              child: FCard(
+                style: FCardStyleDelta.delta(
+                  decoration: DecorationDelta.shapeDelta(
+                    color: context.theme.colors.card,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        AppCopy.of(context).text('analysis.chartValues'),
+                        style: context.theme.typography.body.lg,
+                      ),
+                      const SizedBox(height: 12),
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final record in records)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: Text(record),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    FButton(
-                      onPress: () {
-                        if (identical(_route, route)) _dismissInspection();
-                      },
-                      child: const Text('关闭'),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      FButton(
+                        onPress: () {
+                          if (identical(_route, route)) _dismissInspection();
+                        },
+                        child: Text(AppCopy.of(context).text('analysis.close')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -327,7 +359,7 @@ class _InspectValuesState extends State<_InspectValues> {
       variant: FButtonVariant.ghost,
       prefix: const Icon(FLucideIcons.table2, size: 16),
       onPress: _openInspection,
-      child: const Text('查看数值'),
+      child: Text(AppCopy.of(context).text('analysis.inspectValues')),
     ),
   );
 }
@@ -618,7 +650,11 @@ class _HoverMarkState extends State<_HoverMark>
                       widget.inspectionAvailable)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
-                      child: Text('完整内容请查看数值', style: style),
+                      child: Text(
+                        AppCopy.of(context)
+                            .text('analysis.inspectValuesForTheFullRecord'),
+                        style: style,
+                      ),
                     ),
                 ],
               ),
@@ -736,16 +772,21 @@ Object _compositionRowIdentity(List<ChartBar> bars, int index) {
   );
 }
 
-String _compositionRecord(ChartBar bar, double? value, String unit) =>
+String _compositionRecord(
+  BuildContext context,
+  ChartBar bar,
+  double? value,
+  String unit,
+) =>
     '${bar.label}：${bar.cancelled
-        ? '取消'
+        ? AppCopy.of(context).text('analysis.cancelled')
         : value == null
-        ? '未知'
-        : '${inspectionNumber(value)} $unit'}'
-    '${bar.detail == null ? '' : '\n${bar.detail}'}';
+        ? AppCopy.of(context).text('analysis.unknown')
+        : '${inspectionNumber(value)} $unit'}${bar.detail == null ? '' : '\n${bar.detail}'}';
 
-String _compositionValue(double? value, String unit) => value == null
-    ? '未知'
+String _compositionValue(BuildContext context, double? value, String unit) =>
+    value == null
+    ? AppCopy.of(context).text('analysis.unknown')
     : value > 0 && value < .01
     ? '<0.01 $unit'
     : '${value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toStringAsFixed(2)} $unit';
@@ -775,15 +816,21 @@ class MonitorRingChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bars.isEmpty) return const Text('暂无可绘制数据');
+    if (bars.isEmpty) {
+      return Text(AppCopy.of(context).text('analysis.noDrawableData'));
+    }
     final palette = DashboardPalette.of(context);
     final records = [
-      for (final bar in bars) _compositionRecord(bar, _percent(bar), '%'),
+      for (final bar in bars)
+        _compositionRecord(context, bar, _percent(bar), '%'),
     ];
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label: '独立额度环图，${bars.length} 项，每项分母 100%，未知不计为零。',
+      label: AppCopy.of(context).text(
+        'analysis.independentQuotaRingsItemsEachWithA',
+        args: {'p0': bars.length},
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -840,6 +887,7 @@ class MonitorRingChart extends StatelessWidget {
                                         bars[i].cancelled
                                             ? '×'
                                             : _compositionValue(
+                                                context,
                                                 _percent(bars[i]),
                                                 '%',
                                               ),
@@ -872,7 +920,11 @@ class MonitorRingChart extends StatelessWidget {
                                     ),
                                   ],
                                   if (bars[i].cancelled)
-                                    Text('取消', style: _labelStyle(context)),
+                                    Text(
+                                      AppCopy.of(context)
+                                          .text('analysis.cancelled'),
+                                      style: _labelStyle(context),
+                                    ),
                                 ],
                               ),
                             ),
@@ -885,7 +937,11 @@ class MonitorRingChart extends StatelessWidget {
             },
           ),
           if (showInspection == true)
-            _InspectValues(records: records, identity: inspectionIdentity),
+            _InspectValues(
+              records: records,
+              language: AppCopy.of(context).language,
+              identity: inspectionIdentity,
+            ),
         ],
       ),
     );
@@ -960,14 +1016,17 @@ class MonitorCategoryDotChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bars.isEmpty) return const Text('暂无可绘制数据');
+    if (bars.isEmpty) {
+      return Text(AppCopy.of(context).text('analysis.noDrawableData'));
+    }
     double? value(ChartBar bar) => bar.cancelled ? null : _known(bar.value);
     final scale = _Scale(
       bars.fold<double>(0, (max, bar) => math.max(max, value(bar) ?? 0)),
       integers: integers,
     );
     final records = [
-      for (final bar in bars) _compositionRecord(bar, value(bar), unit),
+      for (final bar in bars)
+        _compositionRecord(context, bar, value(bar), unit),
     ];
     final inspect = _needsInspection(
       context,
@@ -981,11 +1040,18 @@ class MonitorCategoryDotChart extends StatelessWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label: '分类点图，${bars.length} 个汇总组，每组一个点，单位 $unit，未知保留缺口。',
+      label: AppCopy.of(context).text(
+        'analysis.categoryDotChartAggregateGroupsOnePoint',
+        args: {'p0': bars.length, 'p1': unit},
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('分类汇总 · $unit', style: _labelStyle(context)),
+          Text(
+            AppCopy.of(context)
+                .text('analysis.categoryAggregates', args: {'p0': unit}),
+            style: _labelStyle(context),
+          ),
           const SizedBox(height: 8),
           for (var i = 0; i < bars.length; i++)
             Padding(
@@ -1004,8 +1070,8 @@ class MonitorCategoryDotChart extends StatelessWidget {
                     ),
                     Text(
                       bars[i].cancelled
-                          ? '取消 ×'
-                          : _compositionValue(value(bars[i]), unit),
+                          ? AppCopy.of(context).text('analysis.cancelled2')
+                          : _compositionValue(context, value(bars[i]), unit),
                       style: _labelStyle(context)
                           .copyWith(color: palette.muted),
                     ),
@@ -1074,7 +1140,11 @@ class MonitorCategoryDotChart extends StatelessWidget {
             child: _HorizontalTicks(scale: scale),
           ),
           if (inspect)
-            _InspectValues(records: records, identity: inspectionIdentity),
+            _InspectValues(
+              records: records,
+              language: AppCopy.of(context).language,
+              identity: inspectionIdentity,
+            ),
         ],
       ),
     );
@@ -1092,8 +1162,8 @@ class MonitorBarChart extends StatelessWidget {
     this.xLabel = '',
     this.height = 214,
     this.maxValue,
-    this.primaryLabel = '数值',
-    this.secondaryLabel = '补充数值',
+    this.primaryLabel = '',
+    this.secondaryLabel = '',
     this.line = false,
     this.compactMeters = false,
     this.inspectionIdentity,
@@ -1150,12 +1220,20 @@ class MonitorBarChart extends StatelessWidget {
 
   Object _markKey(int index, String series) => (_rowIdentity(index), series);
 
-  String _value(double? value) =>
-      _known(value) == null ? '未知' : '${_number(value!)} $unit';
-  String _visibleValue(double? value) {
+  String _primaryLabel(BuildContext context) => primaryLabel.isEmpty
+      ? AppCopy.of(context).text('analysis.value')
+      : primaryLabel;
+  String _secondaryLabel(BuildContext context) => secondaryLabel.isEmpty
+      ? AppCopy.of(context).text('analysis.secondaryValue')
+      : secondaryLabel;
+
+  String _value(BuildContext context, double? value) => _known(value) == null
+      ? AppCopy.of(context).text('analysis.unknown')
+      : '${_number(value!)} $unit';
+  String _visibleValue(BuildContext context, double? value) {
     final known = _known(value);
-    if (known == null) return '未知';
-    if (known == known.roundToDouble()) return _value(known);
+    if (known == null) return AppCopy.of(context).text('analysis.unknown');
+    if (known == known.roundToDouble()) return _value(context, known);
     if (known < .01) return '<0.01 $unit';
     final number = known
         .toStringAsFixed(2)
@@ -1164,13 +1242,13 @@ class MonitorBarChart extends StatelessWidget {
     return '$number $unit';
   }
 
-  String _record(ChartBar bar) =>
-      '${bar.label}${stacked ? ' · $primaryLabel' : ''}：${bar.cancelled ? '取消' : _inspectionValue(bar.value)}'
-      '${stacked ? ' · $secondaryLabel：${_inspectionValue(bar.secondaryValue)}' : ''}'
-      '${bar.detail == null ? '' : '\n${bar.detail}'}';
+  String _record(BuildContext context, ChartBar bar) =>
+      '${bar.label}${stacked ? ' · ${_primaryLabel(context)}' : ''}：${bar.cancelled ? AppCopy.of(context).text('analysis.cancelled') : _inspectionValue(context, bar.value)}${stacked ? ' · ${_secondaryLabel(context)}：${_inspectionValue(context, bar.secondaryValue)}' : ''}${bar.detail == null ? '' : '\n${bar.detail}'}';
 
-  String _inspectionValue(double? value) =>
-      _known(value) == null ? '未知' : '${inspectionNumber(value!)} $unit';
+  String _inspectionValue(BuildContext context, double? value) =>
+      _known(value) == null
+      ? AppCopy.of(context).text('analysis.unknown')
+      : '${inspectionNumber(value!)} $unit';
 
   bool _hiddenRecord(ChartBar bar) {
     if (compactMeters && horizontal) return false;
@@ -1190,7 +1268,9 @@ class MonitorBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bars.isEmpty) return const Text('暂无可绘制数据');
+    if (bars.isEmpty) {
+      return Text(AppCopy.of(context).text('analysis.noDrawableData'));
+    }
     final actual = bars.fold<double>(
       0,
       (max, bar) => math.max(
@@ -1202,7 +1282,7 @@ class MonitorBarChart extends StatelessWidget {
       ),
     );
     final scale = _Scale(actual, requested: maxValue, integers: integers);
-    final records = bars.map(_record).toList();
+    final records = bars.map((value) => _record(context, value)).toList();
     final inspect = _needsInspection(
       context,
       showInspection,
@@ -1215,13 +1295,20 @@ class MonitorBarChart extends StatelessWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label:
-          '${line
-              ? '折线图'
+      label: AppCopy.of(context).text(
+        'analysis.itemsKnownValuesUnit',
+        args: {
+          'p0': line
+              ? AppCopy.of(context).text('analysis.lineChart')
               : horizontal
-              ? '横条图'
-              : '柱形图'}，${bars.length} 项，$knownCount 项有已知值，单位 $unit。'
-          '${bars.take(4).map(_record).join('；')}',
+              ? AppCopy.of(context).text('analysis.horizontalBarChart')
+              : AppCopy.of(context).text('analysis.columnChart'),
+          'p1': bars.length,
+          'p2': knownCount,
+          'p3': unit,
+          'p4': bars.take(4).map((value) => _record(context, value)).join('；'),
+        },
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1233,11 +1320,11 @@ class MonitorBarChart extends StatelessWidget {
                 Text(unit, style: _labelStyle(context)),
                 if (stacked) ...[
                   _Legend(
-                    label: primaryLabel,
+                    label: _primaryLabel(context),
                     color: _BarSeriesColors.of(context).primary,
                   ),
                   _Legend(
-                    label: secondaryLabel,
+                    label: _secondaryLabel(context),
                     color: _BarSeriesColors.of(context).secondary,
                   ),
                 ],
@@ -1249,6 +1336,7 @@ class MonitorBarChart extends StatelessWidget {
               builder: (context, constraints) {
                 if (!inspect) return _meters(context, scale);
                 final action = _InspectValues(
+                  language: AppCopy.of(context).language,
                   records: records,
                   identity: inspectionIdentity,
                 );
@@ -1273,7 +1361,7 @@ class MonitorBarChart extends StatelessWidget {
                 key: ValueKey(_rowIdentity(i)),
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Semantics(
-                  label: _record(bars[i]),
+                  label: _record(context, bars[i]),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -1307,15 +1395,18 @@ class MonitorBarChart extends StatelessWidget {
                       if (stacked &&
                           !bars[i].cancelled &&
                           _known(bars[i].secondaryValue) == null)
-                        Text('$secondaryLabel —', style: _labelStyle(context)),
+                        Text(
+                          '${_secondaryLabel(context)} —',
+                          style: _labelStyle(context),
+                        ),
                       if (bars.length <= 4)
                         Text(
                           bars[i].cancelled
-                              ? '取消'
-                              : '${_visibleValue(bars[i].value)}${stacked ? ' · ${_visibleValue(bars[i].secondaryValue)}' : ''}',
+                              ? AppCopy.of(context).text('analysis.cancelled')
+                              : '${_visibleValue(context, bars[i].value)}${stacked ? ' · ${_visibleValue(context, bars[i].secondaryValue)}' : ''}',
                           semanticsLabel: bars[i].cancelled
-                              ? '取消'
-                              : '${_value(bars[i].value)}${stacked ? ' · ${_value(bars[i].secondaryValue)}' : ''}',
+                              ? AppCopy.of(context).text('analysis.cancelled')
+                              : '${_value(context, bars[i].value)}${stacked ? ' · ${_value(context, bars[i].secondaryValue)}' : ''}',
                           style: _labelStyle(context),
                         ),
                     ],
@@ -1336,7 +1427,11 @@ class MonitorBarChart extends StatelessWidget {
             ),
           if (!compactMeters && inspect) ...[
             const SizedBox(height: 8),
-            _InspectValues(records: records, identity: inspectionIdentity),
+            _InspectValues(
+              records: records,
+              language: AppCopy.of(context).language,
+              identity: inspectionIdentity,
+            ),
           ],
         ],
       ),
@@ -1360,7 +1455,7 @@ class MonitorBarChart extends StatelessWidget {
             identity: _markIdentity(index, 'cancelled'),
             showDetails: hoverDetails,
             inspectionAvailable: showInspection != false,
-            record: _record(bar),
+            record: _record(context, bar),
             child: Text('×', key: ValueKey('monitor-bar-$index-cancelled')),
           ),
         ),
@@ -1380,7 +1475,7 @@ class MonitorBarChart extends StatelessWidget {
             showDetails: hoverDetails,
             inspectionAvailable: showInspection != false,
             viewport: Rect.fromLTWH(0, -top, width, plotHeight),
-            record: _record(bar),
+            record: _record(context, bar),
             motion: primary > 0 ? _MarkMotion.horizontal : null,
             color: _BarSeriesColors.of(context).primary,
             child: ColoredBox(
@@ -1396,7 +1491,7 @@ class MonitorBarChart extends StatelessWidget {
             identity: _markIdentity(index, 'unknown'),
             showDetails: hoverDetails,
             inspectionAvailable: showInspection != false,
-            record: _record(bar),
+            record: _record(context, bar),
             child: Text('—', key: ValueKey('monitor-bar-$index-unknown')),
           ),
         ),
@@ -1417,7 +1512,7 @@ class MonitorBarChart extends StatelessWidget {
               width,
               plotHeight,
             ),
-            record: _record(bar),
+            record: _record(context, bar),
             motion: secondary > 0 ? _MarkMotion.horizontal : null,
             color: _BarSeriesColors.of(context).secondary,
             child: ColoredBox(
@@ -1455,8 +1550,8 @@ class MonitorBarChart extends StatelessWidget {
                           Text(bars[i].label, style: _labelStyle(context)),
                           Text(
                             bars[i].cancelled
-                                ? '取消'
-                                : _visibleValue(bars[i].value),
+                                ? AppCopy.of(context).text('analysis.cancelled')
+                                : _visibleValue(context, bars[i].value),
                             style: context.theme.typography.body.md.copyWith(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -1613,7 +1708,7 @@ class MonitorBarChart extends StatelessWidget {
                                 width: slot,
                                 bottom: 4,
                                 child: Semantics(
-                                  label: _record(bars[i]),
+                                  label: _record(context, bars[i]),
                                   child: Center(
                                     child: _HoverMark(
                                       showDetails: hoverDetails,
@@ -1625,7 +1720,7 @@ class MonitorBarChart extends StatelessWidget {
                                             ? 'cancelled'
                                             : 'unknown',
                                       ),
-                                      record: _record(bars[i]),
+                                      record: _record(context, bars[i]),
                                       child: Text(
                                         bars[i].cancelled ? '×' : '—',
                                         key: ValueKey(
@@ -1660,14 +1755,14 @@ class MonitorBarChart extends StatelessWidget {
                                           _known(bars[i].value)! /
                                           scale.max,
                                 child: Semantics(
-                                  label: _record(bars[i]),
+                                  label: _record(context, bars[i]),
                                   child: _HoverMark(
                                     identity: _markIdentity(i, 'primary'),
                                     showDetails: hoverDetails,
                                     inspectionAvailable:
                                         showInspection != false,
                                     viewport: viewport(i),
-                                    record: _record(bars[i]),
+                                    record: _record(context, bars[i]),
                                     motion: _known(bars[i].value) == 0
                                         ? null
                                         : line
@@ -1711,7 +1806,7 @@ class MonitorBarChart extends StatelessWidget {
                                   showDetails: hoverDetails,
                                   inspectionAvailable: showInspection != false,
                                   viewport: viewport(i, secondary: true),
-                                  record: _record(bars[i]),
+                                  record: _record(context, bars[i]),
                                   motion: _known(bars[i].secondaryValue) == 0
                                       ? null
                                       : _MarkMotion.column,
@@ -1787,8 +1882,9 @@ class MonitorBarChart extends StatelessWidget {
                             if (bars.length <= 4)
                               Text(
                                 bars[i].cancelled
-                                    ? '取消'
-                                    : _value(bars[i].value),
+                                    ? AppCopy.of(context)
+                                          .text('analysis.cancelled')
+                                    : _value(context, bars[i].value),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: _labelStyle(context),
@@ -1880,7 +1976,7 @@ class MonitorCoverageChart extends StatelessWidget {
     if (observedMs < 0 ||
         unclassifiedMs < 0 ||
         observedMs + unclassifiedMs == 0) {
-      return const Text('暂无可绘制覆盖数据');
+      return Text(AppCopy.of(context).text('analysis.noDrawableCoverageData'));
     }
     final total = observedMs + unclassifiedMs;
     return Column(
@@ -1890,9 +1986,24 @@ class MonitorCoverageChart extends StatelessWidget {
           spacing: 12,
           runSpacing: 6,
           children: [
-            Text('已观测 ${_seconds(observedMs)}'),
-            Text('未归类 ${_seconds(unclassifiedMs)}'),
-            Text('窗口合计 ${_seconds(total)}'),
+            Text(
+              AppCopy.of(context).text(
+                'analysis.observed',
+                args: {'p0': _seconds(context, observedMs)},
+              ),
+            ),
+            Text(
+              AppCopy.of(context).text(
+                'analysis.unclassified',
+                args: {'p0': _seconds(context, unclassifiedMs)},
+              ),
+            ),
+            Text(
+              AppCopy.of(context).text(
+                'analysis.windowTotal',
+                args: {'p0': _seconds(context, total)},
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -1904,18 +2015,24 @@ class MonitorCoverageChart extends StatelessWidget {
             inspectionIdentity: inspectionIdentity,
             bars: [
               ChartBar(
-                label: '已观测 / 未归类',
+                label: AppCopy.of(context)
+                    .text('analysis.observedUnclassified'),
                 identity: 'coverage',
                 value: observedMs / 1000,
                 secondaryValue: unclassifiedMs / 1000,
-                detail: '窗口合计 ${inspectionSeconds(total)}。',
+                detail: AppCopy.of(context).text(
+                  'analysis.windowTotal2',
+                  args: {
+                    'p0': inspectionSeconds(total, copy: AppCopy.of(context)),
+                  },
+                ),
               ),
             ],
             unit: 's',
             horizontal: true,
             stacked: true,
-            primaryLabel: '已观测',
-            secondaryLabel: '未归类',
+            primaryLabel: AppCopy.of(context).text('analysis.observed2'),
+            secondaryLabel: AppCopy.of(context).text('analysis.unclassified2'),
             maxValue: total / 1000,
           ),
         ),
@@ -1938,20 +2055,41 @@ class MonitorIntervalChart extends StatelessWidget {
       (row.category, row.startedAtMs, row.ordinal);
   Object _identity(SessionActivityTimelineRow row) =>
       (inspectionIdentity, _rowIdentity(row));
-  String _record(SessionActivityTimelineRow row) =>
-      '${row.label} · 偏移 ${inspectionSeconds(row.offsetStartMs)} → ${inspectionSeconds(row.offsetEndMs)} · 项时长 ${inspectionSeconds(row.durationMs)}\n'
-      '记录开始：${row.startedAtMs ?? '未知'} · 记录结束：${row.completedAtMs ?? '未知'} · Unix epoch 毫秒'
-      '${row.drawable ? '' : '\n未绘制：${row.reasonText}'}';
+  String _record(BuildContext context, SessionActivityTimelineRow row) =>
+      AppCopy.of(context).text(
+        'analysis.offsetItemDurationNRecordedStartRecordedEnd',
+        args: {
+          'p0': AppCopy.of(context).timelineRowLabel(row),
+          'p1': inspectionSeconds(row.offsetStartMs, copy: AppCopy.of(context)),
+          'p2': inspectionSeconds(row.offsetEndMs, copy: AppCopy.of(context)),
+          'p3': inspectionSeconds(row.durationMs, copy: AppCopy.of(context)),
+          'p4': row.startedAtMs ?? AppCopy.of(context).text('analysis.unknown'),
+          'p5':
+              row.completedAtMs ?? AppCopy.of(context).text('analysis.unknown'),
+          'p6': row.drawable
+              ? ''
+              : AppCopy.of(context).text(
+                  'analysis.nnotDrawn',
+                  args: {'p0': AppCopy.of(context).timelineRowReasons(row)},
+                ),
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
-    if (!data.available) return Text(data.reasonText);
-    if (data.rows.isEmpty) return const Text('暂无可绘制活动记录');
+    if (!data.available) {
+      return Text(AppCopy.of(context).timelineDescription(data));
+    }
+    if (data.rows.isEmpty) {
+      return Text(
+        AppCopy.of(context).text('analysis.noDrawableActivityRecords'),
+      );
+    }
     final span = data.spanMs;
     final scale = span == null
         ? null
         : _Scale(span / 1000, requested: span / 1000);
-    final records = data.rows.map(_record).toList();
+    final records = data.rows.map((value) => _record(context, value)).toList();
     final inspect = _needsInspection(
       context,
       showInspection,
@@ -1961,16 +2099,27 @@ class MonitorIntervalChart extends StatelessWidget {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label:
-          '${data.rows.length} 条日志活动记录，${data.rows.where((r) => r.drawable).length} 条可定位。'
-          '窗口 ${_seconds(span)}。活动可重叠；空白不代表等待。',
+      label: AppCopy.of(context).text(
+        'analysis.loggedActivityRecordsPositionedWindowActivityMay',
+        args: {
+          'p0': data.rows.length,
+          'p1': data.rows.where((r) => r.drawable).length,
+          'p2': _seconds(context, span),
+        },
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (span == null)
-            const Text('缺少回合边界，仅保留已记录事实。')
+            Text(
+              AppCopy.of(context)
+                  .text('analysis.missingTurnBoundariesOnlyRecordedFactsAre'),
+            )
           else ...[
-            Text('相对窗口时间 (s)', style: _labelStyle(context)),
+            Text(
+              AppCopy.of(context).text('analysis.relativeWindowTimeS'),
+              style: _labelStyle(context),
+            ),
             const SizedBox(height: 6),
             _HorizontalTicks(scale: scale!),
             const SizedBox(height: 8),
@@ -1979,11 +2128,11 @@ class MonitorIntervalChart extends StatelessWidget {
             spacing: 12,
             runSpacing: 6,
             children: [
-              for (final category in const {
-                'message': '消息',
-                'reasoning': '推理',
-                'tool': '工具',
-                'other': '其他',
+              for (final category in {
+                'message': AppCopy.of(context).text('analysis.message'),
+                'reasoning': AppCopy.of(context).text('analysis.reasoning'),
+                'tool': AppCopy.of(context).text('analysis.tool'),
+                'other': AppCopy.of(context).text('analysis.other'),
               }.entries)
                 _Legend(
                   label: category.value,
@@ -1995,13 +2144,16 @@ class MonitorIntervalChart extends StatelessWidget {
           for (final row in data.rows)
             Semantics(
               key: ValueKey(_rowIdentity(row)),
-              label: _record(row),
+              label: _record(context, row),
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(row.label, style: _labelStyle(context)),
+                    Text(
+                      AppCopy.of(context).timelineRowLabel(row),
+                      style: _labelStyle(context),
+                    ),
                     const SizedBox(height: 6),
                     if (span != null && row.drawable)
                       SizedBox(
@@ -2055,7 +2207,7 @@ class MonitorIntervalChart extends StatelessWidget {
                                         width,
                                         48,
                                       ),
-                                      record: _record(row),
+                                      record: _record(context, row),
                                       inspectionAvailable: inspect,
                                       motion: _MarkMotion.horizontal,
                                       color: _ChartPalette.of(context)
@@ -2077,18 +2229,32 @@ class MonitorIntervalChart extends StatelessWidget {
                       )
                     else
                       Text(
-                        '— ${row.reasonText.isEmpty ? '无法定位' : row.reasonText}',
+                        '— ${AppCopy.of(context).timelineRowReasons(row).isEmpty ? AppCopy.of(context).text('analysis.cannotPosition') : AppCopy.of(context).timelineRowReasons(row)}',
                         style: _labelStyle(context),
                       ),
                   ],
                 ),
               ),
             ),
-          const Text('日志活动可重叠；空白不代表等待。', style: TextStyle(fontSize: 12)),
-          if (data.sourcePartial) const Text('来源不完整'),
-          if (data.omittedItems > 0) Text('省略 ${data.omittedItems} 项'),
+          Text(
+            AppCopy.of(context)
+                .text('analysis.loggedActivityMayOverlapBlankSpaceDoes'),
+            style: TextStyle(fontSize: 12),
+          ),
+          if (data.sourcePartial)
+            Text(AppCopy.of(context).text('analysis.partialSource')),
+          if (data.omittedItems > 0)
+            Text(
+              AppCopy.of(
+                context,
+              ).text('analysis.itemsOmitted', args: {'p0': data.omittedItems}),
+            ),
           if (inspect)
-            _InspectValues(records: records, identity: inspectionIdentity),
+            _InspectValues(
+              records: records,
+              language: AppCopy.of(context).language,
+              identity: inspectionIdentity,
+            ),
         ],
       ),
     );

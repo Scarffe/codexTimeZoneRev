@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -30,7 +32,7 @@ class _AccountsWorkspacePageState extends State<AccountsWorkspacePage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('账号额度来源 · 与本机会话日志、独立 API 测速分别记录。'),
+        Text(AppCopy.of(context).text('accounts.intro')),
         const SizedBox(height: 12),
         if (widget.usage.sources != null)
           AccountSourcesPanel(owner: widget.usage.sources!),
@@ -47,7 +49,7 @@ class _AccountsWorkspacePageState extends State<AccountsWorkspacePage> {
                     ? FButtonVariant.outline
                     : FButtonVariant.primary,
                 onPress: () => setState(() => _history = false),
-                child: const Text('当前额度'),
+                child: Text(AppCopy.of(context).text('accounts.current')),
               ),
               FButton(
                 key: const ValueKey('accounts-history'),
@@ -56,7 +58,7 @@ class _AccountsWorkspacePageState extends State<AccountsWorkspacePage> {
                     ? FButtonVariant.primary
                     : FButtonVariant.outline,
                 onPress: () => setState(() => _history = true),
-                child: const Text('历史与节奏'),
+                child: Text(AppCopy.of(context).text('accounts.history')),
               ),
             ],
           ),

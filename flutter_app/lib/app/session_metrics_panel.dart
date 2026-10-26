@@ -1,3 +1,6 @@
+import '../l10n/copy_analysis.dart';
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -25,7 +28,8 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
       _response = 'composition';
   SessionMetricsController get controller => widget.controller;
   String _short(Object? value, [int limit = 28]) {
-    final text = (value ?? '未知').toString();
+    final text = (value ?? AppCopy.of(context).text('analysis.unknown'))
+        .toString();
     return text.length > limit ? '${text.substring(0, limit - 1)}…' : text;
   }
 
@@ -43,7 +47,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
       final id = (s['id'] ?? '').toString();
       final tag = id.length > 8 ? id.substring(id.length - 8) : id;
       final base =
-          '${_short(controller.sessionName(s))} · ${_project(s['cwd'])} · $tag';
+          '${_short(AppCopy.of(context).sessionTitle(s))} · ${_project(s['cwd'])} · $tag';
       var label = base;
       var suffix = 2;
       while (result.containsKey(label)) {
@@ -56,7 +60,8 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
 
   void _information() => showMonitorInformation(
     context,
-    title: '会话信息',
+    title: AppCopy.of(context).text('analysis.sessionInformation'),
+    titleKey: 'analysis.sessionInformation',
     builder: (context) => ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -74,92 +79,192 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             MonitorInformationFact(
-              label: '来源项目',
-              value: '${info?['cwd'] ?? '未知（尚未成功读取）'}',
+              label: AppCopy.of(context).text('analysis.sourceProject'),
+              value:
+                  '${info?['cwd'] ?? AppCopy.of(context).text('analysis.unknownNoSuccessfulRead')}',
               copyable: info != null,
             ),
             MonitorInformationFact(
-              label: '会话',
-              value: info == null ? '等待核验' : controller.sessionName(info),
+              label: AppCopy.of(context).text('analysis.session'),
+              value: info == null
+                  ? AppCopy.of(context).text('analysis.awaitingVerification')
+                  : AppCopy.of(context).sessionTitle(info),
             ),
             MonitorInformationFact(
-              label: '会话 ID',
-              value: '${info?['id'] ?? '未知'}',
+              label: AppCopy.of(context).text('analysis.sessionID'),
+              value:
+                  '${info?['id'] ?? AppCopy.of(context).text('analysis.unknown')}',
               copyable: info?['id'] != null,
             ),
             MonitorInformationFact(
-              label: '日志',
-              value: controller.selected ?? '未选择',
+              label: AppCopy.of(context).text('analysis.log'),
+              value:
+                  controller.selected ??
+                  AppCopy.of(context).text('analysis.notSelected'),
               copyable: controller.selected != null,
             ),
             MonitorInformationFact(
-              label: '当前回合',
-              value: '${controller.data?['current']?['turnId'] ?? '未知'}',
-            ),
-            MonitorInformationFact(
-              label: '上轮身份',
-              value: '${last?['turnId'] ?? '未知'}',
-            ),
-            MonitorInformationFact(
-              label: '日志写入时间',
-              value: controller.activityLabel(selectedMetadata ?? const {}),
-            ),
-            MonitorInformationFact(
-              label: '最近成功读取',
+              label: AppCopy.of(context).text('analysis.currentTurn'),
               value:
-                  controller.lastRead?.toLocal().toString().split('.').first ??
-                  '尚未成功读取',
+                  '${controller.data?['current']?['turnId'] ?? AppCopy.of(context).text('analysis.unknown')}',
             ),
-            MonitorInformationFact(label: '统计来源', value: quality.sourceLabel),
-            for (final reason in quality.reasons) Text(reason),
+            MonitorInformationFact(
+              label: AppCopy.of(context).text('analysis.lastTurnIdentity'),
+              value:
+                  '${last?['turnId'] ?? AppCopy.of(context).text('analysis.unknown')}',
+            ),
+            MonitorInformationFact(
+              label: AppCopy.of(context).text('analysis.logWriteTime'),
+              value: AppCopy.of(context)
+                  .sessionActivityLabel(selectedMetadata ?? const {}),
+            ),
+            MonitorInformationFact(
+              label: AppCopy.of(context).text('analysis.lastSuccessfulRead'),
+              value:
+                  (AppCopy.of(context).isEnglish && controller.lastRead != null
+                      ? AppCopy.of(context)
+                            .dateTime(controller.lastRead, includeSeconds: true)
+                      : controller.lastRead
+                            ?.toLocal()
+                            .toString()
+                            .split('.')
+                            .first) ??
+                  AppCopy.of(context).text('analysis.noSuccessfulRead'),
+            ),
+            MonitorInformationFact(
+              label: AppCopy.of(context).text('analysis.measurementSource'),
+              value: AppCopy.of(context).sessionSourceLabel(quality),
+            ),
+            for (final reason in AppCopy.of(
+              context,
+            ).sessionQualityReasons(quality, controller.data))
+              Text(reason),
             Text(
-              '日志报告值 · 未充分核验：${quality.reportedTokensPerSecond?.toStringAsFixed(2) ?? '不可用'}${quality.reportedTokensPerSecond == null ? '' : ' tokens/s'}',
+              AppCopy.of(context).text(
+                'analysis.logReportedValueNotFullyVerified',
+                args: {
+                  'p0':
+                      quality.reportedTokensPerSecond?.toStringAsFixed(2) ??
+                      AppCopy.of(context).text('analysis.unavailable'),
+                  'p1': quality.reportedTokensPerSecond == null
+                      ? ''
+                      : ' tokens/s',
+                },
+              ),
             ),
             if (controller.listError != null)
               MonitorInformationFact(
-                label: '列表刷新失败',
-                value: controller.listError!,
+                label: AppCopy.of(context).text('analysis.listRefreshFailed'),
+                value: AppCopy.of(context)
+                    .sessionDiagnostic(controller.listError!),
                 copyable: true,
               ),
             if (controller.selectionError != null)
               MonitorInformationFact(
-                label: '选择保存/恢复',
-                value: controller.selectionError!,
+                label: AppCopy.of(context)
+                    .text('analysis.selectionSaveRestore'),
+                value: AppCopy.of(context)
+                    .sessionDiagnostic(controller.selectionError!),
                 copyable: true,
               ),
             if (controller.error != null)
               MonitorInformationFact(
-                label: '读取失败',
-                value: controller.error!,
+                label: AppCopy.of(context).text('analysis.readFailed'),
+                value: AppCopy.of(context).sessionDiagnostic(controller.error!),
                 copyable: true,
               ),
             for (final group in quality.verifiedGroups)
               Text(
-                '会话 ${group['sessionId']} · ${group['model']} · ${group['effort']} · ${group['serviceTier']}：${group['turnCount']} 回合',
+                AppCopy.of(context).text(
+                  'analysis.sessionTurns',
+                  args: {
+                    'p0': group['sessionId'],
+                    'p1': group['model'],
+                    'p2': group['effort'],
+                    'p3': group['serviceTier'],
+                    'p4': group['turnCount'],
+                  },
+                ),
               ),
             if (analysis != null) ...[
               Text(
-                '已记录响应：${analysis['responseCount'] ?? '不可用'} 次 · 输出合计：${analysis['responseOutputTokens'] ?? '不可用'} tokens · 与回合总数：${analysis['usageMatchesTurn'] == true
-                    ? '一致'
-                    : analysis['usageMatchesTurn'] == false
-                    ? '不一致'
-                    : '不可核对'}',
+                AppCopy.of(context).text(
+                  'analysis.recordedResponsesTotalOutputTokensTurnTotal',
+                  args: {
+                    'p0':
+                        analysis['responseCount'] ??
+                        AppCopy.of(context).text('analysis.unavailable'),
+                    'p1':
+                        analysis['responseOutputTokens'] ??
+                        AppCopy.of(context).text('analysis.unavailable'),
+                    'p2': analysis['usageMatchesTurn'] == true
+                        ? AppCopy.of(context).text('analysis.matched')
+                        : analysis['usageMatchesTurn'] == false
+                        ? AppCopy.of(context).text('analysis.mismatched')
+                        : AppCopy.of(context).text('analysis.notVerifiable'),
+                  },
+                ),
               ),
-              Text('未归类时间：${_seconds(analysis['unclassifiedMs'])}'),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.unclassifiedTime',
+                  args: {'p0': _seconds(analysis['unclassifiedMs'])},
+                ),
+              ),
               for (final response in SessionChartData.fromData(
                 controller.data,
               ).responses)
                 Text(
-                  '${response.id} · 输出 ${response.outputTokens ?? '不可用'} · 推理 ${response.reasoningTokens ?? '不可用'} tokens',
+                  AppCopy.of(context).text(
+                    'analysis.outputReasoningTokens',
+                    args: {
+                      'p0': response.id,
+                      'p1':
+                          response.outputTokens ??
+                          AppCopy.of(context).text('analysis.unavailable'),
+                      'p2':
+                          response.reasoningTokens ??
+                          AppCopy.of(context).text('analysis.unavailable'),
+                    },
+                  ),
                 ),
             ],
-            if (!timeline.available) const Text('计时数据不完整或不可核验'),
+            if (!timeline.available)
+              Text(
+                AppCopy.of(context)
+                    .text('analysis.timingDataIncompleteOrUnverifiable'),
+              ),
             for (final row in timeline.rows.take(200))
               Text(
-                '${row.label} · 偏移 ${row.offsetStartMs ?? '未知'} → ${row.offsetEndMs ?? '未知'} ms · ${row.drawable ? '可定位' : row.reasonText}\n记录开始：${row.startedAtMs ?? '未知'} · 记录结束：${row.completedAtMs ?? '未知'} · Unix epoch 毫秒',
+                AppCopy.of(context).text(
+                  'analysis.offsetMsNRecordedStartRecordedEndUnix',
+                  args: {
+                    'p0': AppCopy.of(context).timelineRowLabel(row),
+                    'p1':
+                        row.offsetStartMs ??
+                        AppCopy.of(context).text('analysis.unknown'),
+                    'p2':
+                        row.offsetEndMs ??
+                        AppCopy.of(context).text('analysis.unknown'),
+                    'p3': row.drawable
+                        ? AppCopy.of(context).text('analysis.positioned')
+                        : AppCopy.of(context).timelineRowReasons(row),
+                    'p4':
+                        row.startedAtMs ??
+                        AppCopy.of(context).text('analysis.unknown'),
+                    'p5':
+                        row.completedAtMs ??
+                        AppCopy.of(context).text('analysis.unknown'),
+                  },
+                ),
               ),
             if (timeline.omittedItems > 0)
-              Text('省略 ${timeline.omittedItems} 项'),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.itemsOmitted',
+                  args: {'p0': timeline.omittedItems},
+                ),
+              ),
           ],
         );
       },
@@ -169,7 +274,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
   String _seconds(Object? value) =>
       SessionActivityTimelineData.isSafeMilliseconds(value)
       ? '${((value as int) / 1000).toStringAsFixed(3)} s'
-      : '不可用';
+      : AppCopy.of(context).text('analysis.unavailable');
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -204,7 +309,10 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('会话回合统计', style: context.theme.typography.display.lg),
+                  Text(
+                    AppCopy.of(context).text('analysis.sessionTurnStatistics'),
+                    style: context.theme.typography.display.lg,
+                  ),
                   const SizedBox(height: 16),
                   LayoutBuilder(
                     builder: (context, constraints) => Wrap(
@@ -218,7 +326,8 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                                 ? 420
                                 : constraints.maxWidth,
                             child: Semantics(
-                              label: '最近会话',
+                              label: AppCopy.of(context)
+                                  .text('analysis.recentSessions'),
                               child: FSelect<String>.search(
                                 key: const ValueKey('session-selector'),
 
@@ -228,7 +337,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                                   return controller.sessions
                                       .where(
                                         (s) => [
-                                          controller.sessionName(s),
+                                          AppCopy.of(context).sessionTitle(s),
                                           s['cwd'],
                                           s['id'],
                                           s['path'],
@@ -245,13 +354,19 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                           ),
                         MonitorIconAction(
                           key: const ValueKey('session-information'),
-                          label: '会话信息与诊断',
+                          label: AppCopy.of(
+                            context,
+                          ).text('analysis.sessionInformationAndDiagnostics'),
                           icon: FLucideIcons.info,
                           onPress: _information,
                         ),
                         MonitorIconAction(
                           key: const ValueKey('session-refresh'),
-                          label: controller.listing ? '正在列出会话' : '刷新本机会话列表',
+                          label: controller.listing
+                              ? AppCopy.of(context)
+                                    .text('analysis.listingSessions')
+                              : AppCopy.of(context)
+                                    .text('analysis.refreshLocalSessionList'),
                           icon: FLucideIcons.refreshCw,
                           onPress: controller.listing ? null : controller.list,
                         ),
@@ -261,14 +376,21 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                             variant: FButtonVariant.ghost,
                             onPress: () => controller.select(null),
                             prefix: const Icon(FLucideIcons.square, size: 14),
-                            child: const Text('停止会话采集'),
+                            child: Text(
+                              AppCopy.of(context)
+                                  .text('analysis.stopSessionCollection'),
+                            ),
                           ),
                       ],
                     ),
                   ),
                   if (controller.selected != null &&
                       controller.selectorValue == null)
-                    const Text('当前采集会话不在最近列表中；仍继续采集，可选择其他会话。'),
+                    Text(
+                      AppCopy.of(
+                        context,
+                      ).text('analysis.theCollectedSessionIsOutsideTheRecent'),
+                    ),
                   const SizedBox(height: 12),
                   DefaultTextStyle.merge(
                     style: context.theme.typography.body.sm.copyWith(
@@ -283,24 +405,50 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                               ? null
                               : const ValueKey('session-short-identity'),
                           label: info == null
-                              ? '会话身份等待核验'
-                              : '${controller.sessionName(info)} · ${info['cwd'] ?? '未知项目'}',
+                              ? AppCopy.of(context).text(
+                                  'analysis.sessionIdentityAwaitingVerification',
+                                )
+                              : '${AppCopy.of(context).sessionTitle(info)} · ${info['cwd'] ?? AppCopy.of(context).text('analysis.unknownProject')}',
                           child: Text(
-                            '会话状态：${controller.stateLabel}',
+                            AppCopy.of(context).text(
+                              'analysis.sessionStatus',
+                              args: {
+                                'p0': AppCopy.of(context).sessionStateLabel(
+                                  selected: controller.selected != null,
+                                  readFailed: controller.error != null,
+                                  catchingUp:
+                                      controller.data?['catchingUp'] == true,
+                                  status:
+                                      controller.data?['current']?['status'],
+                                ),
+                              },
+                            ),
                             key: const ValueKey('session-state'),
                           ),
                         ),
                         if (controller.selected != null) ...[
                           Text(
                             controller.data?['catchingUp'] == true
-                                ? '正在读取历史 · 尚无可用最近完成回合'
+                                ? AppCopy.of(context).text(
+                                    'analysis.readingHistoryNoRecentCompletedTurnAvailable',
+                                  )
                                 : last == null
-                                ? '最近完成 · 暂无样本'
-                                : '最近完成 · 含工具与等待',
+                                ? AppCopy.of(
+                                    context,
+                                  ).text('analysis.recentlyCompletedNoSample')
+                                : AppCopy.of(context).text(
+                                    'analysis.recentlyCompletedIncludesToolsAndWaiting',
+                                  ),
                             key: const ValueKey('session-completed-summary'),
                           ),
                           Text(
-                            '样本质量：${quality.label}',
+                            AppCopy.of(context).text(
+                              'analysis.sampleQuality',
+                              args: {
+                                'p0': AppCopy.of(context)
+                                    .sessionQualityLabel(quality),
+                              },
+                            ),
                             key: const ValueKey('session-quality'),
                           ),
                         ],
@@ -308,16 +456,29 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                     ),
                   ),
                   if (controller.listError != null)
-                    const Text('列表刷新失败 · 信息中查看诊断'),
+                    Text(
+                      AppCopy.of(context).text(
+                        'analysis.listRefreshFailedSeeInformationForDiagnostics',
+                      ),
+                    ),
                   if (controller.selectionError != null)
-                    Text(controller.selectionError!),
+                    Text(
+                      AppCopy.of(context)
+                          .sessionDiagnostic(controller.selectionError!),
+                    ),
                   if (controller.error != null)
                     Text(
-                      '会话读取失败 · 信息中查看诊断',
+                      AppCopy.of(context).text(
+                        'analysis.sessionReadFailedSeeInformationForDiagnostics',
+                      ),
                       style: TextStyle(color: context.theme.colors.destructive),
                     ),
                   if (controller.selected == null)
-                    const Text('请选择会话；不会自动猜测当前对话。')
+                    Text(
+                      AppCopy.of(
+                        context,
+                      ).text('analysis.selectASessionTheCurrentConversationIs'),
+                    )
                   else ...[
                     const SizedBox(height: 16),
                     Container(
@@ -339,41 +500,50 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                             children: [
                               _Metric(
                                 width: width,
-                                label: '回合均值',
+                                label: AppCopy.of(context)
+                                    .text('analysis.turnAverage'),
                                 value:
                                     publish &&
                                         quality.verifiedTokensPerSecond != null
                                     ? '${quality.verifiedTokensPerSecond!.toStringAsFixed(2)} tokens/s'
-                                    : '不可用',
+                                    : AppCopy.of(context)
+                                          .text('analysis.unavailable'),
                                 valueKey: 'session-rate-value',
                               ),
                               _Metric(
                                 width: width,
-                                label: '输出 · 含推理',
+                                label: AppCopy.of(context)
+                                    .text('analysis.outputIncludesReasoning'),
                                 value:
                                     last?['outputTokens'] is int &&
                                         (last!['outputTokens'] as int) >= 0 &&
                                         (last['outputTokens'] as int) <=
                                             9007199254740991
                                     ? '${last['outputTokens']} tokens'
-                                    : '不可用',
+                                    : AppCopy.of(context)
+                                          .text('analysis.unavailable'),
                                 valueKey: 'session-output-value',
                               ),
                               _Metric(
                                 width: width,
-                                label: '首模型 token 等待',
+                                label: AppCopy.of(context)
+                                    .text('analysis.firstModelTokenWait'),
                                 value: recordedFirst && !contradicts
                                     ? _seconds(first)
-                                    : '不可用',
+                                    : AppCopy.of(context)
+                                          .text('analysis.unavailable'),
                                 valueKey: 'session-first-token-value',
-                                note: '可能含推理',
+                                note: AppCopy.of(context)
+                                    .text('analysis.mayIncludeReasoning'),
                               ),
                               _Metric(
                                 width: width,
-                                label: '完整回合',
+                                label: AppCopy.of(context)
+                                    .text('analysis.completeTurn'),
                                 value: validDuration
                                     ? _seconds(duration)
-                                    : '不可用',
+                                    : AppCopy.of(context)
+                                          .text('analysis.unavailable'),
                                 valueKey: 'session-duration-value',
                               ),
                             ],
@@ -381,7 +551,12 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                         },
                       ),
                     ),
-                    if (contradicts) const Text('首模型 token 不可用：超过完整回合耗时'),
+                    if (contradicts)
+                      Text(
+                        AppCopy.of(context).text(
+                          'analysis.firstModelTokenUnavailableExceedsCompleteTurn',
+                        ),
+                      ),
                   ],
                 ],
               ),

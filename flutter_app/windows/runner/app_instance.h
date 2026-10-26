@@ -71,7 +71,11 @@ inline BOOL CALLBACK FindWindow(HWND window,LPARAM parameter) {
   auto& found=*reinterpret_cast<Search*>(parameter); const auto& o=*found.options;
   DWORD pid=0; GetWindowThreadProcessId(window,&pid); if(!pid || pid==GetCurrentProcessId()) return TRUE;
   wchar_t cls[128]{},title[256]{}; GetClassNameW(window,cls,128); GetWindowTextW(window,title,256);
-  if(o.windowClass!=cls || o.title!=title) return TRUE;
+  // Display titles are localized. The properties installed by Mark identify
+  // current runners; the old Chinese title still admits unmarked legacy ones.
+  const bool marked=GetPropW(window,kPrimaryProperty)!=nullptr ||
+      GetPropW(window,kIsolatedProperty)!=nullptr;
+  if(o.windowClass!=cls || (!marked && o.title!=title)) return TRUE;
   if((GetPropW(window,kIsolatedProperty)!=nullptr)!=o.isolated) return TRUE;
   HANDLE process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid); if(!process) return TRUE;
   const auto path=ImagePath(process); const auto user=User(process);

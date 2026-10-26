@@ -1,6 +1,7 @@
+import '../l10n/app_copy.dart';
+
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
@@ -13,13 +14,14 @@ import 'inspection_format.dart';
 
 String historyDate(DateTime time) =>
     time.toLocal().toIso8601String().substring(0, 10);
-String historyTime(DateTime? time) => time == null
-    ? '未知'
+String historyTime(DateTime? time, {AppCopy? copy}) => time == null
+    ? (copy?.text('common.unknown') ?? '未知')
     : '${time.toLocal().toIso8601String().substring(0, 19).replaceFirst('T', ' ')} ${historyOffset(time.toLocal().timeZoneOffset.inMinutes)}';
 String historyOffset(int minutes) =>
     'UTC${minutes < 0 ? '-' : '+'}${(minutes.abs() ~/ 60).toString().padLeft(2, '0')}:${(minutes.abs() % 60).toString().padLeft(2, '0')}';
-String _historyClock(DateTime? time) =>
-    time == null ? '未知' : time.toLocal().toIso8601String().substring(11, 19);
+String _historyClock(DateTime? time, AppCopy copy) => time == null
+    ? copy.text('common.unknown')
+    : time.toLocal().toIso8601String().substring(11, 19);
 
 /// One keyboard/semantics target and one painter, independent of sample count.
 /// The readout has no timer and is cleared only when pointer/focus leaves.
@@ -30,10 +32,13 @@ class _HistoryInspection extends StatefulWidget {
     required this.painter,
     required this.pick,
     required this.label,
+    required this.identity,
+    required this.keyPrefix,
   });
   final List<String> records;
   final double height;
-  final String label;
+  final String label, keyPrefix;
+  final Object identity;
   final CustomPainter Function(int?) painter;
   final int? Function(Offset, Size) pick;
   @override
@@ -46,7 +51,7 @@ class _HistoryInspectionState extends State<_HistoryInspection> {
   @override
   void didUpdateWidget(_HistoryInspection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(widget.records, oldWidget.records)) _index = null;
+    if (widget.identity != oldWidget.identity) _index = null;
   }
 
   void _step(int delta) {
@@ -65,7 +70,9 @@ class _HistoryInspectionState extends State<_HistoryInspection> {
     // Observe the existing policy; these factual charts are deliberately static,
     // so reduced motion and hidden TickerMode never allocate animation tickers.
     DashboardMotionScope.enabledOf(context);
-    final readout = _index == null ? '悬停或聚焦后用方向键读取观测' : widget.records[_index!];
+    final readout = _index == null
+        ? AppCopy.of(context).text('history.inspectionHint')
+        : widget.records[_index!];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -132,7 +139,7 @@ class _HistoryInspectionState extends State<_HistoryInspection> {
                   ),
                   child: RepaintBoundary(
                     child: CustomPaint(
-                      key: ValueKey('${widget.label}-canvas'),
+                      key: ValueKey('${widget.keyPrefix}-canvas'),
                       size: Size(constraints.maxWidth, widget.height),
                       painter: widget.painter(_index),
                     ),
@@ -143,11 +150,11 @@ class _HistoryInspectionState extends State<_HistoryInspection> {
           ),
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 64,
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 64),
           child: Text(
             readout,
-            key: ValueKey('${widget.label}-readout'),
+            key: ValueKey('${widget.keyPrefix}-readout'),
             style: context.theme.typography.body.sm.copyWith(height: 1.15),
           ),
         ),
@@ -170,12 +177,39 @@ class QuotaHistoryTrendChart extends StatelessWidget {
   final (DateTime, DateTime)? highlightedInterval;
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     final points = projection.trendSegments.expand((c) => c.points).toList();
     final records = <String>[
       for (var i = 0; i < points.length; i++)
-        '${historyTime(points[i].completedAtUtc)} · 剩余 ${inspectionNumber(points[i].remainingPercent)}% · 已用 ${inspectionNumber(points[i].usedPercent)}%\n'
-            '${points[i].timeQuality == UsageObservationTimeQuality.localReceiptFallback ? '接收时间（回退）' : '查询完成时间'} · ${i == 0 ? '首个绘制观测' : '距前绘制观测 ${inspectionNumber(points[i].completedAtUtc.difference(points[i - 1].completedAtUtc).inMilliseconds / 1000)} s'} · 记录间隔 ${points[i].expectedIntervalSec} s\n'
-            '报告重置：${historyTime(points[i].resetsAtUtc)}',
+        copy.text(
+          'history.trendRecord',
+          args: {
+            'time': historyTime(points[i].completedAtUtc, copy: copy),
+            'remaining': inspectionNumber(points[i].remainingPercent),
+            'used': inspectionNumber(points[i].usedPercent),
+            'quality': copy.text(
+              points[i].timeQuality ==
+                      UsageObservationTimeQuality.localReceiptFallback
+                  ? 'history.receiptFallback'
+                  : 'history.queryCompletion',
+            ),
+            'distance': i == 0
+                ? copy.text('history.firstDrawn')
+                : copy.text(
+                    'history.sincePrevious',
+                    args: {
+                      'seconds': inspectionNumber(
+                        points[i].completedAtUtc
+                                .difference(points[i - 1].completedAtUtc)
+                                .inMilliseconds /
+                            1000,
+                      ),
+                    },
+                  ),
+            'interval': points[i].expectedIntervalSec,
+            'reset': historyTime(points[i].resetsAtUtc, copy: copy),
+          },
+        ),
     ];
     final palette = DashboardPalette.of(context);
     final style = context.theme.typography.body.sm.copyWith(
@@ -183,7 +217,9 @@ class QuotaHistoryTrendChart extends StatelessWidget {
       color: palette.muted,
     );
     return _HistoryInspection(
-      label: '额度趋势',
+      label: copy.text('history.trend'),
+      keyPrefix: '额度趋势',
+      identity: (projection, used),
       records: records,
       height: 220,
       pick: (offset, size) {
@@ -345,6 +381,7 @@ class QuotaHistoryHeatmap extends StatelessWidget {
   final List<QuotaHistoryHourCell> cells;
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     final rows = <String>[];
     for (final c in cells) {
       final key = '${c.localDate}|${c.utcOffsetMinutes}';
@@ -352,9 +389,25 @@ class QuotaHistoryHeatmap extends StatelessWidget {
     }
     final records = [
       for (final c in cells)
-        '${c.localDate} ${c.localHour.toString().padLeft(2, '0')}:00 ${historyOffset(c.utcOffsetMinutes)} · 观测剩余 ${c.observedRemaining == null ? '未知' : '${inspectionNumber(c.observedRemaining!)}%'}\n'
-            '${c.sampleCount == 1 ? '仅 1 次观测' : '${c.sampleCount} 次观测'} · 查询失败 ${c.failureCount} 次${c.hasGap ? ' · 有未观测缺口' : ''}\n'
-            '首 ${_historyClock(c.firstObservedUtc)} · 末 ${_historyClock(c.lastObservedUtc)}',
+        copy.text(
+          'history.hourRecord',
+          args: {
+            'date': c.localDate,
+            'hour': c.localHour.toString().padLeft(2, '0'),
+            'offset': historyOffset(c.utcOffsetMinutes),
+            'remaining': c.observedRemaining == null
+                ? copy.text('common.unknown')
+                : '${inspectionNumber(c.observedRemaining!)}%',
+            'samples': copy.text(
+              c.sampleCount == 1 ? 'history.singleSample' : 'history.samples',
+              args: {'count': c.sampleCount},
+            ),
+            'failures': c.failureCount,
+            'gap': c.hasGap ? copy.text('history.hasGap') : '',
+            'first': _historyClock(c.firstObservedUtc, copy),
+            'last': _historyClock(c.lastObservedUtc, copy),
+          },
+        ),
     ];
     final palette = DashboardPalette.of(context);
     final style = context.theme.typography.body.sm.copyWith(
@@ -378,7 +431,7 @@ class QuotaHistoryHeatmap extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
                 children: [
-                  const Text('剩余 0%'),
+                  Text(copy.text('history.zeroRemaining')),
                   const SizedBox(width: 8),
                   Expanded(
                     child: SizedBox(
@@ -398,7 +451,9 @@ class QuotaHistoryHeatmap extends StatelessWidget {
               ),
             ),
             _HistoryInspection(
-              label: '小时观测',
+              label: copy.text('history.hourly'),
+              keyPrefix: '小时观测',
+              identity: cells,
               records: records,
               height: height,
               pick: (offset, size) {
@@ -542,29 +597,35 @@ class _HeatmapPainter extends CustomPainter {
   bool shouldRepaint(_HeatmapPainter oldDelegate) => true;
 }
 
-String _eventLabel(QuotaHistoryEvent e) => switch (e.kind) {
-  QuotaHistoryEventKind.usedIncrease =>
-    '已用比例上升 ${inspectionNumber(e.deltaPercentagePoints!.abs())} 个百分点',
-  QuotaHistoryEventKind.usedDecrease =>
-    '已用比例回落 ${inspectionNumber(e.deltaPercentagePoints!.abs())} 个百分点',
-  QuotaHistoryEventKind.reportedResetChanged => '报告重置时间变化',
-  QuotaHistoryEventKind.crossedReportedReset => '跨过上次报告时点',
-  QuotaHistoryEventKind.queryFailure =>
-    '查询失败 · ${e.errorKind ?? 'unavailable'}',
-  QuotaHistoryEventKind.noLimits => '未报告可用额度',
-  QuotaHistoryEventKind.missingWindow => '所选窗口暂缺',
-  QuotaHistoryEventKind.clockReversal => '观测时钟倒退',
+String _eventLabel(AppCopy copy, QuotaHistoryEvent e) => switch (e.kind) {
+  QuotaHistoryEventKind.usedIncrease => copy.text(
+    'history.event.usedIncrease',
+    args: {'points': inspectionNumber(e.deltaPercentagePoints!.abs())},
+  ),
+  QuotaHistoryEventKind.usedDecrease => copy.text(
+    'history.event.usedDecrease',
+    args: {'points': inspectionNumber(e.deltaPercentagePoints!.abs())},
+  ),
+  QuotaHistoryEventKind.reportedResetChanged => copy.text(
+    'history.event.resetChanged',
+  ),
+  QuotaHistoryEventKind.crossedReportedReset => copy.text(
+    'history.event.crossedReset',
+  ),
+  QuotaHistoryEventKind.queryFailure => copy.text(
+    'history.event.failure',
+    args: {'kind': e.errorKind ?? 'unavailable'},
+  ),
+  QuotaHistoryEventKind.noLimits => copy.text('history.event.noLimits'),
+  QuotaHistoryEventKind.missingWindow => copy.text(
+    'history.event.missingWindow',
+  ),
+  QuotaHistoryEventKind.clockReversal => copy.text(
+    'history.event.clockReversal',
+  ),
 };
-String _gapLabel(QuotaHistoryGapReason r) => switch (r) {
-  QuotaHistoryGapReason.unobserved => '未观测区间',
-  QuotaHistoryGapReason.failure => '查询失败间隔',
-  QuotaHistoryGapReason.noLimits => '无可用额度间隔',
-  QuotaHistoryGapReason.missingWindow => '窗口暂缺间隔',
-  QuotaHistoryGapReason.segmentChanged => '登录段变化',
-  QuotaHistoryGapReason.clockReversal => '时钟倒退边界',
-  QuotaHistoryGapReason.runChanged => '跨运行边界',
-  QuotaHistoryGapReason.storage => '历史文件缺失边界',
-};
+String _gapLabel(AppCopy copy, QuotaHistoryGapReason reason) =>
+    copy.text('history.gap.${reason.name}');
 
 class QuotaHistoryTimeline extends StatefulWidget {
   const QuotaHistoryTimeline({
@@ -582,61 +643,67 @@ class QuotaHistoryTimeline extends StatefulWidget {
 
 class _QuotaHistoryTimelineState extends State<QuotaHistoryTimeline> {
   late List<(DateTime, DateTime, String)> _items;
-  @override
-  void initState() {
-    super.initState();
-    _prepare();
-  }
-
-  @override
-  void didUpdateWidget(QuotaHistoryTimeline oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.projection, widget.projection)) _prepare();
-  }
-
-  void _prepare() {
+  QuotaHistoryProjection? _preparedProjection;
+  bool? _preparedEnglish;
+  void _prepare(AppCopy copy) {
+    if (identical(_preparedProjection, widget.projection) &&
+        _preparedEnglish == copy.isEnglish) {
+      return;
+    }
+    _preparedProjection = widget.projection;
+    _preparedEnglish = copy.isEnglish;
     _items = [
       for (final e in widget.projection.events)
         (
           e.fromUtc,
           e.toUtc,
-          '${_eventLabel(e)}${e.previousReportedResetUtc != null || e.reportedResetUtc != null ? '\n报告：${historyTime(e.previousReportedResetUtc)} → ${historyTime(e.reportedResetUtc)}' : ''}',
+          '${_eventLabel(copy, e)}${e.previousReportedResetUtc != null || e.reportedResetUtc != null ? copy.text(
+                  'history.resetReport',
+                  args: {
+                    'previous': historyTime(e.previousReportedResetUtc, copy: copy),
+                    'current': historyTime(e.reportedResetUtc, copy: copy),
+                  },
+                ) : ''}',
         ),
       for (final g in widget.projection.gaps)
-        (g.fromUtc, g.toUtc, _gapLabel(g.reason)),
+        (g.fromUtc, g.toUtc, _gapLabel(copy, g.reason)),
     ]..sort((a, b) => b.$2.compareTo(a.$2));
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 350,
-    child: _items.isEmpty
-        ? const Text('所选范围没有变化或异常记录')
-        : ListView.builder(
-            key: const ValueKey('history-timeline-list'),
-            itemCount: _items.length,
-            itemBuilder: (context, index) {
-              final item = _items[index],
-                  interval = (_items[index].$1, _items[index].$2);
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: FButton(
-                  key: ValueKey('history-event-$index'),
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  variant: interval == widget.selected
-                      ? FButtonVariant.primary
-                      : FButtonVariant.outline,
-                  onPress: () => widget.onSelect(interval),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${item.$3}\n${historyTime(item.$1)}\n至 ${historyTime(item.$2)}',
-                      style: context.theme.typography.body.sm,
+  Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
+    _prepare(copy);
+    return SizedBox(
+      height: 350,
+      child: _items.isEmpty
+          ? Text(copy.text('history.noEvents'))
+          : ListView.builder(
+              key: const ValueKey('history-timeline-list'),
+              itemCount: _items.length,
+              itemBuilder: (context, index) {
+                final item = _items[index],
+                    interval = (_items[index].$1, _items[index].$2);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FButton(
+                    key: ValueKey('history-event-$index'),
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    variant: interval == widget.selected
+                        ? FButtonVariant.primary
+                        : FButtonVariant.outline,
+                    onPress: () => widget.onSelect(interval),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${item.$3}\n${historyTime(item.$1, copy: copy)}\n${copy.text('history.until', args: {'time': historyTime(item.$2, copy: copy)})}',
+                        style: context.theme.typography.body.sm,
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
-          ),
-  );
+                );
+              },
+            ),
+    );
+  }
 }

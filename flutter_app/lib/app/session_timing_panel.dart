@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -35,22 +37,38 @@ class SessionTimingPanel extends StatelessWidget {
     String milliseconds(int value) => '${(value / 1000).toStringAsFixed(3)} s';
     String time(String key) => a?[key] is num
         ? '${((a![key] as num) / 1000).toStringAsFixed(3)} s'
-        : '不可用';
+        : AppCopy.of(context).text('analysis.unavailable');
     final match = a?['usageMatchesTurn'];
     final reconciliation = match == true
-        ? '一致'
+        ? AppCopy.of(context).text('analysis.matched')
         : match == false
-        ? '不一致'
-        : '不可核对';
+        ? AppCopy.of(context).text('analysis.mismatched')
+        : AppCopy.of(context).text('analysis.notVerifiable');
     final responses = (a?['recentResponses'] as List?) ?? const [];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 12),
-        Text('活动时间线 · 上轮', style: context.theme.typography.display.sm),
-        if (a == null || a['partial'] == true) const Text('计时数据不完整或不可核验'),
-        if (match == false) const Text('响应用量与回合总数不一致'),
-        Text('重叠 ${time('overlapMs')} · 未归类 ${time('unclassifiedMs')}（非等待判定）'),
+        Text(
+          AppCopy.of(context).text('analysis.activityTimelineLastTurn'),
+          style: context.theme.typography.display.sm,
+        ),
+        if (a == null || a['partial'] == true)
+          Text(
+            AppCopy.of(context)
+                .text('analysis.timingDataIncompleteOrUnverifiable'),
+          ),
+        if (match == false)
+          Text(
+            AppCopy.of(context)
+                .text('analysis.responseUsageDoesNotMatchTheTurn'),
+          ),
+        Text(
+          AppCopy.of(context).text(
+            'analysis.overlapUnclassifiedDoesNotIdentifyWaiting',
+            args: {'p0': time('overlapMs'), 'p1': time('unclassifiedMs')},
+          ),
+        ),
         SessionActivityTimeline(
           key: const ValueKey('session-activity-timeline'),
           data: SessionActivityTimelineData.fromAnalysis(a),
@@ -58,54 +76,135 @@ class SessionTimingPanel extends StatelessWidget {
         ),
         MonitorDisclosure(
           key: const ValueKey('session-timing-disclosure'),
-          label: '耗时与口径',
+          label: AppCopy.of(context).text('analysis.timingAndDefinitions'),
           toggleKey: const ValueKey('session-timing-details'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('只读耗时分析 · 上轮'),
               Text(
-                '首模型 token 等待：${validFirst
-                    ? milliseconds(firstTokenMs as int)
-                    : firstContradictsDuration
-                    ? '不可用（超过完整回合耗时）'
-                    : '不可用'}',
+                AppCopy.of(context)
+                    .text('analysis.readOnlyTimingAnalysisLastTurn'),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.firstModelTokenWait2',
+                  args: {
+                    'p0': validFirst
+                        ? milliseconds(firstTokenMs as int)
+                        : firstContradictsDuration
+                        ? AppCopy.of(context).text(
+                            'analysis.unavailableExceedsCompleteTurnDuration',
+                          )
+                        : AppCopy.of(context).text('analysis.unavailable'),
+                  },
+                ),
                 key: const ValueKey('session-first-model-wait'),
               ),
               Text(
-                '首模型 token 后的回合耗时：${canSubtractFirst ? milliseconds((durationMs as int) - (firstTokenMs as int)) : '不可用'}',
+                AppCopy.of(context).text(
+                  'analysis.turnDurationAfterFirstModelToken',
+                  args: {
+                    'p0': canSubtractFirst
+                        ? milliseconds(
+                            (durationMs as int) - (firstTokenMs as int),
+                          )
+                        : AppCopy.of(context).text('analysis.unavailable'),
+                  },
+                ),
                 key: const ValueKey('session-after-first-duration'),
               ),
-              const Text(
-                '首模型 token 可能属于推理，并不保证是可见正文；其后仍可包含工具、等待和其他活动，不代表纯生成时长。',
+              Text(
+                AppCopy.of(context)
+                    .text('analysis.theFirstModelTokenMayBeReasoning'),
               ),
               Text(
-                '已记录响应：${a?['responseCount'] ?? '不可用'} 次 · 输出合计：${a?['responseOutputTokens'] ?? '不可用'} tokens · 与回合总数：$reconciliation',
+                AppCopy.of(context).text(
+                  'analysis.recordedResponsesTotalOutputTokensTurnTotal',
+                  args: {
+                    'p0':
+                        a?['responseCount'] ??
+                        AppCopy.of(context).text('analysis.unavailable'),
+                    'p1':
+                        a?['responseOutputTokens'] ??
+                        AppCopy.of(context).text('analysis.unavailable'),
+                    'p2': reconciliation,
+                  },
+                ),
               ),
-              Text('消息项：${time('messageMs')} · 推理项：${time('reasoningMs')}'),
-              Text('工具项：${time('toolMs')} · 其他项：${time('otherMs')}'),
-              Text('活动区间合并：${time('observedMs')} · 类别间重叠：${time('overlapMs')}'),
-              Text('未归类时间：${time('unclassifiedMs')}'),
-              const Text('各类别内部已合并重叠，类别之间仍可能重叠，不能直接相加。未归类时间不等于模型生成或等待时间。'),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.messageItemsReasoningItems',
+                  args: {'p0': time('messageMs'), 'p1': time('reasoningMs')},
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.toolItemsOtherItems',
+                  args: {'p0': time('toolMs'), 'p1': time('otherMs')},
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.activityIntervalUnionCrossCategoryOverlap',
+                  args: {'p0': time('observedMs'), 'p1': time('overlapMs')},
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.unclassifiedTime',
+                  args: {'p0': time('unclassifiedMs')},
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'analysis.overlapsAreMergedWithinEachCategoryCategories',
+                ),
+              ),
               if (a == null || a['partial'] == true)
                 Text(
-                  '缺失/倒序 ${a?['invalidItems'] ?? 0} 项，零时长 ${a?['zeroItems'] ?? 0} 项，越界 ${a?['outOfBoundsItems'] ?? 0} 项，缺少身份 ${a?['missingIdentityRecords'] ?? 0} 条${a?['truncated'] == true ? '，已达采集上限' : ''}。',
+                  AppCopy.of(context).text(
+                    'analysis.missingReversedItemsZeroDurationOutsideBounds',
+                    args: {
+                      'p0': a?['invalidItems'] ?? 0,
+                      'p1': a?['zeroItems'] ?? 0,
+                      'p2': a?['outOfBoundsItems'] ?? 0,
+                      'p3': a?['missingIdentityRecords'] ?? 0,
+                      'p4': a?['truncated'] == true
+                          ? AppCopy.of(context)
+                                .text('analysis.collectionLimitReached')
+                          : '',
+                    },
+                  ),
                 ),
-              const Text('时间来自日志项起止记录，回合边界仅秒级；尚无完整流式计时，模型生成速度不可用。'),
+              Text(
+                AppCopy.of(context)
+                    .text('analysis.timingComesFromLoggedItemBoundariesTurn'),
+              ),
             ],
           ),
         ),
         if (responses.isNotEmpty)
           MonitorDisclosure(
             key: const ValueKey('session-response-disclosure'),
-            label: '最近响应用量（最多 12 条）',
+            label: AppCopy.of(context).text('analysis.recentResponseUsageUpTo'),
             toggleKey: const ValueKey('session-response-details'),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 for (final response in responses)
                   Text(
-                    '${response['responseId']} · 输出 ${response['outputTokens'] ?? '不可用'} · 推理 ${response['reasoningTokens'] ?? '不可用'} tokens',
+                    AppCopy.of(context).text(
+                      'analysis.outputReasoningTokens',
+                      args: {
+                        'p0': response['responseId'],
+                        'p1':
+                            response['outputTokens'] ??
+                            AppCopy.of(context).text('analysis.unavailable'),
+                        'p2':
+                            response['reasoningTokens'] ??
+                            AppCopy.of(context).text('analysis.unavailable'),
+                      },
+                    ),
                   ),
               ],
             ),

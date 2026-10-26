@@ -1,3 +1,6 @@
+import '../l10n/app_language.dart';
+import '../l10n/app_copy.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
@@ -9,15 +12,22 @@ import '../services/session_rhythm_projection.dart';
 import 'dashboard_style.dart';
 import 'monitor_charts.dart';
 
-String rhythmStatusLabel(RhythmStatus status) => switch (status) {
-  RhythmStatus.completed => '完成',
-  RhythmStatus.cancelled => '取消',
-  RhythmStatus.running => '未终结',
-  RhythmStatus.unknown => '未知',
+String rhythmStatusLabel(
+  RhythmStatus status, {
+  AppCopy copy = const AppCopy(AppLanguage.zh),
+}) => switch (status) {
+  RhythmStatus.completed => copy.text('analysis.completed'),
+  RhythmStatus.cancelled => copy.text('analysis.cancelled'),
+  RhythmStatus.running => copy.text('analysis.notTerminal'),
+  RhythmStatus.unknown => copy.text('analysis.unknown'),
 };
 
-String rhythmSeconds(num? value) =>
-    value == null ? '未知' : '${(value / 1000).toStringAsFixed(2)} s';
+String rhythmSeconds(
+  num? value, {
+  AppCopy copy = const AppCopy(AppLanguage.zh),
+}) => value == null
+    ? copy.text('analysis.unknown')
+    : '${(value / 1000).toStringAsFixed(2)} s';
 
 /// Persistent inspection: no tooltip, timer or animation; arrows inspect, Enter selects.
 class RhythmInspection extends StatefulWidget {
@@ -93,7 +103,8 @@ class _RhythmInspectionState extends State<RhythmInspection> {
             builder: (context, box) {
               final size = Size(box.maxWidth, widget.height);
               return Semantics(
-                label: '图表：方向键检查，回车选择',
+                label: AppCopy.of(context)
+                    .text('analysis.chartArrowKeysInspectEnterSelects'),
                 focusable: true,
                 child: MouseRegion(
                   cursor: SystemMouseCursors.click,
@@ -235,21 +246,26 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
       children: [
         MonitorChartFrame(
           key: const ValueKey('rhythm-heatmap'),
-          title: '日 × 小时 · 活动热力',
+          title: AppCopy.of(context).text('analysis.dayHourActivityHeatmap'),
           icon: FLucideIcons.grid2x2,
           controls: [
             MonitorChoice(
-              label: '热力指标',
+              label: AppCopy.of(context).text('analysis.heatmapMetric'),
               value: metric,
-              items: const {
-                '完成数': 'completed',
-                '取消数': 'cancelled',
-                '活动时间': 'activity',
+              items: {
+                AppCopy.of(context).text('analysis.completedCount'):
+                    'completed',
+                AppCopy.of(context).text('analysis.cancelledCount'):
+                    'cancelled',
+                AppCopy.of(context).text('analysis.activityTime'): 'activity',
               },
               onChanged: (v) => setState(() => metric = v),
             ),
           ],
-          footnotes: const ['浅色：无记录 / 未知 · 底线：部分'],
+          footnotes: [
+            AppCopy.of(context)
+                .text('analysis.paleNoRecordUnknownUnderlinePartial'),
+          ],
           child: RhythmInspection(
             key: ValueKey(
               'rhythm-hours-${ordered.firstOrNull?.key}-${ordered.lastOrNull?.key}-${rows.length}',
@@ -353,13 +369,22 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
               }
             }),
             readout: (i) {
-              if (i == null) return const Text('悬停 / 方向键查看 · 点击 / 回车筛选');
+              if (i == null) {
+                return Text(
+                  AppCopy.of(context)
+                      .text('analysis.hoverArrowsInspectClickEnterFilters'),
+                );
+              }
               final h = ordered[i];
               final active =
                   widget.selectedHour == null ||
                   h.key == widget.selectedHour!.key;
               return Text(
-                '${h.label} · ${active ? '完成 ${h.completedCount} · 取消 ${h.cancelledCount} · 活动 ${rhythmSeconds(h.activityMs)}' : '未选小时 · 数值已隐藏'}${h.incomplete ? ' · 部分' : ''}',
+                '${h.label} · ${active ? AppCopy.of(context).text('analysis.completedCancelledActivity', args: {
+                        'p0': h.completedCount,
+                        'p1': h.cancelledCount,
+                        'p2': rhythmSeconds(h.activityMs, copy: AppCopy.of(context)),
+                      }) : AppCopy.of(context).text('analysis.unselectedHourValuesHidden')}${h.incomplete ? AppCopy.of(context).text('analysis.partial') : ''}',
                 key: const ValueKey('rhythm-hour-readout'),
               );
             },
@@ -369,7 +394,7 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
         const SizedBox(height: 12),
         MonitorChartFrame(
           key: const ValueKey('rhythm-lanes'),
-          title: '会话活动泳道',
+          title: AppCopy.of(context).text('analysis.sessionActivityLanes'),
           icon: FLucideIcons.rows3,
           child: RhythmInspection(
             key: ValueKey(
@@ -483,7 +508,13 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
                   );
                 }
                 if (lane.activityMs == null) {
-                  label(canvas, '活动未知 · 可检查回合', Offset(104, y), palette.muted);
+                  label(
+                    canvas,
+                    AppCopy.of(context)
+                        .text('analysis.activityUnknownTurnCanBeInspected'),
+                    Offset(104, y),
+                    palette.muted,
+                  );
                 }
                 if (selected != null &&
                     flat[selected].$1.key == lane.source.key) {
@@ -501,8 +532,9 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
             }),
             readout: (i) => Text(
               i == null
-                  ? '悬停 / 方向键查看 · 点击 / 回车选中'
-                  : '${flat[i].$1.title} · ${flat[i].$2.turnId} · ${rhythmStatusLabel(flat[i].$2.status)} · ${rhythmSeconds(flat[i].$2.durationMs)}',
+                  ? AppCopy.of(context)
+                        .text('analysis.hoverArrowsInspectClickEnterSelects')
+                  : '${flat[i].$1.title} · ${flat[i].$2.turnId} · ${rhythmStatusLabel(flat[i].$2.status, copy: AppCopy.of(context))} · ${rhythmSeconds(flat[i].$2.durationMs, copy: AppCopy.of(context))}',
             ),
             onSelect: (i) => widget.onTurn(flat[i].$1, flat[i].$2),
           ),
@@ -510,9 +542,15 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
         const SizedBox(height: 12),
         MonitorChartFrame(
           key: const ValueKey('rhythm-distribution'),
-          title: '完整回合耗时 · 箱线与样本',
+          title: AppCopy.of(context)
+              .text('analysis.completeTurnDurationBoxPlotAndSamples'),
           icon: FLucideIcons.chartNoAxesColumn,
-          footnotes: d.showBox ? const [] : const ['样本不足 5 个 · 仅显示点'],
+          footnotes: d.showBox
+              ? const []
+              : [
+                  AppCopy.of(context)
+                      .text('analysis.fewerThanSamplesPointsOnly'),
+                ],
           child: RhythmInspection(
             key: ValueKey(
               'rhythm-samples-${p.fromUtc}-${widget.selectedHour?.key}-${d.count}',
@@ -570,13 +608,22 @@ class _SessionRhythmChartsState extends State<SessionRhythmCharts> {
               label(canvas, '0.00 s', const Offset(0, 68), palette.muted);
               label(
                 canvas,
-                rhythmSeconds(d.maximumMs),
+                rhythmSeconds(d.maximumMs, copy: AppCopy.of(context)),
                 Offset(math.max(80, size.width - 100), 68),
                 palette.muted,
               );
             }),
             readout: (i) => Text(
-              '样本 ${d.count} · 中位数 ${rhythmSeconds(d.medianMs)}${i == null ? '' : ' · ${plottedSamples[i]?.$1.title ?? ''} ${plottedSamples[i]?.$2.turnId ?? ''} · ${rhythmSeconds(d.pointsMs[i])}'}',
+              AppCopy.of(context).text(
+                'analysis.samplesMedian',
+                args: {
+                  'p0': d.count,
+                  'p1': rhythmSeconds(d.medianMs, copy: AppCopy.of(context)),
+                  'p2': i == null
+                      ? ''
+                      : ' · ${plottedSamples[i]?.$1.title ?? ''} ${plottedSamples[i]?.$2.turnId ?? ''} · ${rhythmSeconds(d.pointsMs[i], copy: AppCopy.of(context))}',
+                },
+              ),
             ),
             onSelect: (i) {
               final pair = plottedSamples[i];

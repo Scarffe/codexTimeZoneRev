@@ -19,9 +19,7 @@ import 'support/workspace_attention_fixture.dart';
 
 class LanguagePreferences extends InMemorySharedPreferencesStore {
   LanguagePreferences({String? language})
-    : super.withData({
-        if (language != null) 'flutter.flutter-language': language,
-      });
+    : super.withData({'flutter.flutter-language': ?language});
   int reads = 0, writes = 0;
   bool rejectWrites = false;
   @override
@@ -221,10 +219,7 @@ void main() {
       find.text('Language changed, but the preference could not be saved.'),
       findsWidgets,
     );
-    expect(
-      (await preferences.getAll())['flutter.flutter-language'],
-      isNull,
-    );
+    expect((await preferences.getAll())['flutter.flutter-language'], isNull);
     await tester.pumpWidget(const SizedBox());
   });
 }

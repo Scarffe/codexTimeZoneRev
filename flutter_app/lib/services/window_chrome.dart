@@ -8,7 +8,7 @@ class WindowChromeResult {
   final Map<String, int> hresults;
 }
 
-typedef _Appearance = (bool, int, int, int, int?, int?, int?, int?);
+typedef _Appearance = (bool, int, int, int, int?, int?, int?, int?, String?);
 
 /// Synchronizes only this app's native frame, independently of blur/material.
 /// Each application owner gets a queue so late native replies cannot reorder
@@ -31,6 +31,7 @@ class WindowChrome {
     int? menuSelectedArgb,
     int? menuAccentArgb,
     int? menuDangerArgb,
+    String? uiLanguage,
   }) {
     final appearance = (
       dark,
@@ -41,6 +42,7 @@ class WindowChrome {
       menuSelectedArgb == null ? null : menuSelectedArgb & 0xffffffff,
       menuAccentArgb == null ? null : menuAccentArgb & 0xffffffff,
       menuDangerArgb == null ? null : menuDangerArgb & 0xffffffff,
+      uiLanguage,
     );
     final next = _pending.then((_) => _apply(appearance));
     _pending = next.then<void>((_) {});
@@ -67,6 +69,7 @@ class WindowChrome {
           if (appearance.$6 != null) 'menuSelectedArgb': appearance.$6,
           if (appearance.$7 != null) 'menuAccentArgb': appearance.$7,
           if (appearance.$8 != null) 'menuDangerArgb': appearance.$8,
+          if (appearance.$9 != null) 'uiLanguage': appearance.$9,
         },
       );
       final status = switch (reply?['status']) {

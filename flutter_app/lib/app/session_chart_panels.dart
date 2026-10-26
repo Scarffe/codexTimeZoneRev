@@ -1,3 +1,6 @@
+import '../l10n/copy_analysis.dart';
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -72,34 +75,60 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     onChanged: onChanged,
   );
 
-  Widget _empty() =>
-      const SizedBox(height: 155, child: Center(child: Text('暂无样本')));
+  Widget _empty() => SizedBox(
+    height: 155,
+    child: Center(child: Text(AppCopy.of(context).text('analysis.noSamples'))),
+  );
 
   Widget _recent(BuildContext context) {
     final rows = data.recentTerminals(recentRange);
     final status = recentMetric == 'status';
     return MonitorChartFrame(
       key: const ValueKey('session-recent-chart'),
-      title: '最近回合',
+      title: AppCopy.of(context).text('analysis.recentTurns'),
       icon: FLucideIcons.chartColumn,
       controls: [
-        _choice('session-recent-metric', '指标', recentMetric, const {
-          '耗时': 'duration',
-          '结束状态': 'status',
-        }, onRecentMetric),
+        _choice(
+          'session-recent-metric',
+          AppCopy.of(context).text('analysis.metric'),
+          recentMetric,
+          {
+            AppCopy.of(context).text('analysis.duration'): 'duration',
+            AppCopy.of(context).text('analysis.terminalStatus'): 'status',
+          },
+          onRecentMetric,
+        ),
         if (!status)
-          _choice('session-recent-presentation', '图形', _presentation, const {
-            '折线': 'line',
-            '柱形': 'bar',
-          }, (value) => setState(() => _presentation = value)),
-        _choice('session-recent-range', '回合范围', '$recentRange', const {
-          '8 条': '8',
-          '16 条': '16',
-          '64 条': '64',
-        }, onRecentRange),
+          _choice(
+            'session-recent-presentation',
+            AppCopy.of(context).text('analysis.chart'),
+            _presentation,
+            {
+              AppCopy.of(context).text('analysis.line'): 'line',
+              AppCopy.of(context).text('analysis.bars'): 'bar',
+            },
+            (value) => setState(() => _presentation = value),
+          ),
+        _choice(
+          'session-recent-range',
+          AppCopy.of(context).text('analysis.turnRange'),
+          '$recentRange',
+          {
+            AppCopy.of(context).text('analysis.turns'): '8',
+            AppCopy.of(context).text('analysis.turns2'): '16',
+            AppCopy.of(context).text('analysis.turns3'): '64',
+          },
+          onRecentRange,
+        ),
       ],
       footnotes: [
-        status ? '日志终结状态 · ${rows.length} 条' : '日志报告耗时 · × 取消 · 缺口为未知',
+        status
+            ? AppCopy.of(context).text(
+                'analysis.loggedTerminalStatusTurns',
+                args: {'p0': rows.length},
+              )
+            : AppCopy.of(context)
+                  .text('analysis.logReportedDurationCancelledGapsAreUnknown'),
       ],
       child: rows.isEmpty
           ? _empty()
@@ -115,7 +144,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                   ? [
                       ChartBar(
                         identity: 'completed',
-                        label: '完成',
+                        label: AppCopy.of(context).text('analysis.completed'),
                         value: rows
                             .where((row) => !row.cancelled)
                             .length
@@ -123,7 +152,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                       ),
                       ChartBar(
                         identity: 'cancelled',
-                        label: '取消',
+                        label: AppCopy.of(context).text('analysis.cancelled'),
                         value: rows
                             .where((row) => row.cancelled)
                             .length
@@ -141,16 +170,28 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                               ? null
                               : rows[i].durationMs! / 1000,
                           cancelled: rows[i].cancelled,
-                          detail:
-                              '回合 ${rows[i].id} · ${rows[i].cancelled ? '取消' : '完成'}',
+                          detail: AppCopy.of(context).text(
+                            'analysis.turn',
+                            args: {
+                              'p0': rows[i].id,
+                              'p1': rows[i].cancelled
+                                  ? AppCopy.of(context)
+                                        .text('analysis.cancelled')
+                                  : AppCopy.of(context)
+                                        .text('analysis.completed'),
+                            },
+                          ),
                         ),
                     ],
               line: !status && _presentation == 'line',
               height: MediaQuery.sizeOf(context).width <= 620 ? 236 : 225,
-              unit: status ? '回合' : 's',
+              unit: status ? AppCopy.of(context).text('analysis.turns4') : 's',
               horizontal: status,
               integers: status,
-              xLabel: status ? '结束状态 · 所选范围' : '回合顺序',
+              xLabel: status
+                  ? AppCopy.of(context)
+                        .text('analysis.terminalStatusSelectedRange')
+                  : AppCopy.of(context).text('analysis.turnOrder'),
             ),
     );
   }
@@ -162,28 +203,32 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     final unit = switch (configurationMetric) {
       'output' => 'tokens',
       'duration' => 's',
-      'count' => '回合',
+      'count' => AppCopy.of(context).text('analysis.turns4'),
       _ => 'tokens/s',
     };
     return MonitorChartFrame(
       key: const ValueKey('session-configuration-chart'),
-      title: '配置对比',
+      title: AppCopy.of(context).text('analysis.configurationComparison'),
       icon: FLucideIcons.chartBar,
       controls: [
         _choice(
           'session-configuration-metric',
-          '指标',
+          AppCopy.of(context).text('analysis.metric'),
           configurationMetric,
-          const {
-            '回合均值': 'rate',
-            '输出 token': 'output',
-            '完整回合耗时': 'duration',
-            '回合数': 'count',
+          {
+            AppCopy.of(context).text('analysis.turnAverage'): 'rate',
+            AppCopy.of(context).text('analysis.outputTokens'): 'output',
+            AppCopy.of(context).text('analysis.completeTurnDuration'):
+                'duration',
+            AppCopy.of(context).text('analysis.turnCount'): 'count',
           },
           onConfigurationMetric,
         ),
       ],
-      footnotes: const ['已核验分组 · 会话 / 模型 / 推理强度 / 服务层级'],
+      footnotes: [
+        AppCopy.of(context)
+            .text('analysis.verifiedGroupsSessionModelReasoningEffortService'),
+      ],
       child: rows.isEmpty
           ? _empty()
           : MonitorCategoryDotChart(
@@ -203,7 +248,10 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                       'count' => row.turnCount.toDouble(),
                       _ => row.tokensPerSecond,
                     },
-                    detail: '${row.label} · ${row.turnCount} 回合 · 分组汇总',
+                    detail: AppCopy.of(context).text(
+                      'analysis.turnsGroupAggregate',
+                      args: {'p0': row.label, 'p1': row.turnCount},
+                    ),
                   ),
               ],
               unit: unit,
@@ -219,7 +267,14 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     if (activityView == 'coverage') {
       final coverage = data.coverage;
       child = coverage == null
-          ? const SizedBox(height: 155, child: Center(child: Text('覆盖不可核验')))
+          ? SizedBox(
+              height: 155,
+              child: Center(
+                child: Text(
+                  AppCopy.of(context).text('analysis.coverageUnverifiable'),
+                ),
+              ),
+            )
           : MonitorCoverageChart(
               inspectionIdentity: (
                 widget.sessionIdentity,
@@ -244,7 +299,8 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                 for (final row in data.activities)
                   ChartBar(
                     identity: row.category,
-                    label: row.label,
+                    label: AppCopy.of(context)
+                        .activityCategoryLabel(row.category),
                     value: row.milliseconds == null
                         ? null
                         : row.milliseconds! / 1000,
@@ -269,24 +325,42 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     }
     return MonitorChartFrame(
       key: const ValueKey('session-activity-chart'),
-      title: '上轮活动',
+      title: AppCopy.of(context).text('analysis.lastTurnActivity'),
       icon: FLucideIcons.activity,
       controls: [
-        _choice('session-activity-view', '视图', activityView, const {
-          '区间': 'interval',
-          '分类时长': 'duration',
-          '覆盖': 'coverage',
-        }, onActivityView),
+        _choice(
+          'session-activity-view',
+          AppCopy.of(context).text('analysis.view'),
+          activityView,
+          {
+            AppCopy.of(context).text('analysis.intervals'): 'interval',
+            AppCopy.of(context).text('analysis.categoryDuration'): 'duration',
+            AppCopy.of(context).text('analysis.coverage'): 'coverage',
+          },
+          onActivityView,
+        ),
       ],
       footnotes: [
-        if (completedIdentity != null) '最近完成 · $completedIdentity',
-        if (activityView == 'interval') '相对日志窗口 · 边界精度约 1 s',
-        if (activityView == 'duration') '各类内部并集 · 类别可能重叠',
-        if (activityView == 'coverage' && data.coverage != null) '近似日志覆盖',
-        '未归类 ≠ 等待',
-        if (data.timeline.sourcePartial) '部分日志',
+        if (completedIdentity != null)
+          AppCopy.of(
+            context,
+          ).text('analysis.recentlyCompleted', args: {'p0': completedIdentity}),
+        if (activityView == 'interval')
+          AppCopy.of(context)
+              .text('analysis.relativeLogWindowBoundaryResolutionAboutS'),
+        if (activityView == 'duration')
+          AppCopy.of(context)
+              .text('analysis.unionWithinEachCategoryCategoriesMayOverlap'),
+        if (activityView == 'coverage' && data.coverage != null)
+          AppCopy.of(context).text('analysis.approximateLogCoverage'),
+        AppCopy.of(context).text('analysis.unclassifiedWaiting'),
+        if (data.timeline.sourcePartial)
+          AppCopy.of(context).text('analysis.partialLog'),
         if (data.timeline.omittedItems > 0)
-          '省略 ${data.timeline.omittedItems} 项',
+          AppCopy.of(context).text(
+            'analysis.itemsOmitted',
+            args: {'p0': data.timeline.omittedItems},
+          ),
       ],
       child: child,
     );
@@ -295,29 +369,45 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
   Widget _response(BuildContext context) {
     final composition = responseView == 'composition';
     final legend = switch (responseView) {
-      'total' => '总输出 · 含推理',
-      'reasoning' => '推理',
-      _ => '非推理输出 + 推理',
+      'total' => AppCopy.of(
+        context,
+      ).text('analysis.totalOutputIncludesReasoning'),
+      'reasoning' => AppCopy.of(context).text('analysis.reasoning'),
+      _ => AppCopy.of(context).text('analysis.nonReasoningOutputReasoning'),
     };
     return MonitorChartFrame(
       key: const ValueKey('session-response-chart'),
-      title: '上轮响应 · 最近响应',
+      title: AppCopy.of(context)
+          .text('analysis.lastTurnResponsesRecentResponses'),
       icon: FLucideIcons.chartColumnStacked,
       controls: [
-        _choice('session-response-view', '视图', responseView, const {
-          '输出构成': 'composition',
-          '总输出': 'total',
-          '推理': 'reasoning',
-        }, onResponseView),
+        _choice(
+          'session-response-view',
+          AppCopy.of(context).text('analysis.view'),
+          responseView,
+          {
+            AppCopy.of(context).text('analysis.outputComposition'):
+                'composition',
+            AppCopy.of(context).text('analysis.totalOutput'): 'total',
+            AppCopy.of(context).text('analysis.reasoning'): 'reasoning',
+          },
+          onResponseView,
+        ),
       ],
       footnotes: [
         legend,
-        if (completedIdentity != null) '最近完成 · $completedIdentity',
+        if (completedIdentity != null)
+          AppCopy.of(
+            context,
+          ).text('analysis.recentlyCompleted', args: {'p0': completedIdentity}),
         data.usageMatchesTurn == true
-            ? '用量一致 · 最近最多 12 条'
+            ? AppCopy.of(context)
+                  .text('analysis.usageMatchedUpToRecentResponses')
             : data.usageMatchesTurn == false
-            ? '用量不一致 · 日志报告事实'
-            : '不可核对 · 日志报告事实',
+            ? AppCopy.of(context)
+                  .text('analysis.usageMismatchedLogReportedFacts')
+            : AppCopy.of(context)
+                  .text('analysis.notVerifiableLogReportedFacts'),
       ],
       child: data.responses.isEmpty
           ? _empty()
@@ -333,7 +423,10 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
                   ChartBar(
                     identity: data.responses[i].id,
                     label: '${i + 1}',
-                    detail: '响应 ${data.responses[i].id}',
+                    detail: AppCopy.of(context).text(
+                      'analysis.response',
+                      args: {'p0': data.responses[i].id},
+                    ),
                     value: composition
                         ? (data.responses[i].nonReasoningTokens != null &&
                                   data.responses[i].reasoningTokens != null
@@ -354,9 +447,11 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
               unit: 'tokens',
               integers: true,
               stacked: composition,
-              xLabel: '响应顺序',
-              primaryLabel: composition ? '非推理输出' : legend,
-              secondaryLabel: '推理',
+              xLabel: AppCopy.of(context).text('analysis.responseOrder'),
+              primaryLabel: composition
+                  ? AppCopy.of(context).text('analysis.nonReasoningOutput')
+                  : legend,
+              secondaryLabel: AppCopy.of(context).text('analysis.reasoning'),
             ),
     );
   }

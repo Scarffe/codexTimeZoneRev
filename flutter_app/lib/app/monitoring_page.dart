@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'dart:async';
 
 import '../state/session_rhythm_controller.dart';
@@ -107,7 +109,9 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       ? FButtonVariant.primary
                       : FButtonVariant.outline,
                   onPress: () => setState(() => _rhythmView = false),
-                  child: const Text('当前会话'),
+                  child: Text(
+                    AppCopy.of(context).text('analysis.currentSession'),
+                  ),
                 ),
                 FButton(
                   mainAxisSize: MainAxisSize.min,
@@ -115,7 +119,9 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       ? FButtonVariant.primary
                       : FButtonVariant.outline,
                   onPress: () => setState(() => _rhythmView = true),
-                  child: const Text('会话节奏'),
+                  child: Text(
+                    AppCopy.of(context).text('analysis.sessionRhythm'),
+                  ),
                 ),
               ],
             ),
@@ -139,25 +145,45 @@ class _MonitoringPageState extends State<MonitoringPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('历史来源分析 · 缓存回合上下文'),
                       Text(
-                        '${history.source.title} · 会话 ${history.source.sessionId} · 原回合 ${history.turn.turnId}',
+                        AppCopy.of(context).text(
+                          'analysis.historicalSourceAnalysisCachedTurnContext',
+                        ),
+                      ),
+                      Text(
+                        AppCopy.of(context).text(
+                          'analysis.sessionOriginalTurn',
+                          args: {
+                            'p0': history.source.title,
+                            'p1': history.source.sessionId,
+                            'p2': history.turn.turnId,
+                          },
+                        ),
                       ),
                       Text(history.source.path),
                       Text(
                         widget.metrics.selected != history.source.path ||
                                 widget.metrics.sourceInfo?['id'] !=
                                     history.source.sessionId
-                            ? '原来源尚未通过身份核验；不会替换为其他会话。'
+                            ? AppCopy.of(context).text(
+                                'analysis.originalSourceIdentityHasNotBeenVerified',
+                              )
                             : widget.metrics.last?['turnId'] ==
                                   history.turn.turnId
-                            ? '最近样本与历史回合一致。'
-                            : '历史回合五图不可回放；下方显示此来源当前可用的观测。',
+                            ? AppCopy.of(context).text(
+                                'analysis.theLatestSampleMatchesTheHistoricalTurn',
+                              )
+                            : AppCopy.of(context).text(
+                                'analysis.theHistoricalTurnChartsCannotBeReplayed',
+                              ),
                       ),
                       FButton(
                         variant: FButtonVariant.ghost,
                         onPress: widget.onDismissHistory,
-                        child: const Text('关闭历史上下文'),
+                        child: Text(
+                          AppCopy.of(context)
+                              .text('analysis.closeHistoricalContext'),
+                        ),
                       ),
                     ],
                   ),
@@ -175,21 +201,40 @@ class _MonitoringPageState extends State<MonitoringPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('原提醒：${notice.title}'),
-                        Text('会话 ${notice.sessionId} · 原回合 ${notice.turnId}'),
+                        Text(
+                          AppCopy.of(context).text(
+                            'analysis.originalReminder',
+                            args: {'p0': notice.title},
+                          ),
+                        ),
+                        Text(
+                          AppCopy.of(context).text(
+                            'analysis.sessionOriginalTurn2',
+                            args: {'p0': notice.sessionId, 'p1': notice.turnId},
+                          ),
+                        ),
                         Text(notice.path),
                         Text(
                           !matchesNotice
-                              ? '原来源尚未通过身份核验；不会替换为其他会话。'
+                              ? AppCopy.of(context).text(
+                                  'analysis.originalSourceIdentityHasNotBeenVerified',
+                                )
                               : widget.metrics.last?['turnId'] == notice.turnId
-                              ? '最近样本与原提醒回合一致。'
-                              : '原提醒回合的完整样本不可用或已更新；下方显示此来源当前可用的观测。',
+                              ? AppCopy.of(context).text(
+                                  'analysis.theLatestSampleMatchesTheOriginalReminder',
+                                )
+                              : AppCopy.of(context).text(
+                                  'analysis.theOriginalReminderTurnSampleIsUnavailable',
+                                ),
                         ),
                         FButton(
                           variant: FButtonVariant.ghost,
                           mainAxisSize: MainAxisSize.min,
                           onPress: widget.onDismissNotice,
-                          child: const Text('关闭提醒上下文'),
+                          child: Text(
+                            AppCopy.of(context)
+                                .text('analysis.closeReminderContext'),
+                          ),
                         ),
                       ],
                     ),
@@ -214,19 +259,25 @@ class _MonitoringPageState extends State<MonitoringPage> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            '账号额度 · 独立来源',
+                            AppCopy.of(context)
+                                .text('analysis.accountQuotaIndependentSource'),
                             style: context.theme.typography.display.lg,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text('各窗口分别计量 · 不从会话日志推断账号', style: secondary),
+                    Text(
+                      AppCopy.of(context).text(
+                        'analysis.eachWindowIsMeasuredSeparatelyAccountsAre',
+                      ),
+                      style: secondary,
+                    ),
                     const SizedBox(height: 20),
                     if (owner != null && owner.selected != null) ...[
                       MonitorChoice(
                         key: const ValueKey('analysis-account-source'),
-                        label: '额度来源',
+                        label: AppCopy.of(context).text('analysis.quotaSource'),
                         value: owner.selectedId,
                         items: {
                           for (final state in owner.states.where(
@@ -239,7 +290,10 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       const SizedBox(height: 12),
                     ],
                     if (owner != null && owner.selected == null)
-                      const Text('请在账号额度页添加账号'),
+                      Text(
+                        AppCopy.of(context)
+                            .text('analysis.addAnAccountOnTheAccountQuota'),
+                      ),
                     Wrap(
                       spacing: 12,
                       runSpacing: 12,
@@ -247,7 +301,8 @@ class _MonitoringPageState extends State<MonitoringPage> {
                         if (bucket != null)
                           MonitorChoice(
                             key: const ValueKey('analysis-quota-bucket'),
-                            label: '额度类型',
+                            label: AppCopy.of(context)
+                                .text('analysis.quotaType'),
                             value: bucket.id,
                             items: {for (final b in buckets) b.label: b.id},
                             onChanged: (value) =>
@@ -255,26 +310,48 @@ class _MonitoringPageState extends State<MonitoringPage> {
                           ),
                         MonitorChoice(
                           key: const ValueKey('analysis-quota-view'),
-                          label: '额度视图',
+                          label: AppCopy.of(context).text('analysis.quotaView'),
                           value: _view,
-                          items: const {
-                            '剩余': 'remaining',
-                            '已用': 'used',
-                            '距重置': 'reset',
+                          items: {
+                            AppCopy.of(context).text('analysis.remaining'):
+                                'remaining',
+                            AppCopy.of(context).text('analysis.used'): 'used',
+                            AppCopy.of(context).text('analysis.untilReset'):
+                                'reset',
                           },
                           onChanged: (value) => setState(() => _view = value),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (usage.error != null) Text('额度来源：${usage.error}'),
+                    if (usage.error != null)
+                      Text(
+                        AppCopy.of(context).text(
+                          'analysis.quotaSource2',
+                          args: {'p0': usage.error},
+                        ),
+                      ),
                     if (usage.data != null)
                       Text(
-                        '最近额度观测：${usage.data!.fetchedAt.toLocal()}',
+                        AppCopy.of(context).text(
+                          'analysis.latestQuotaObservation',
+                          args: {
+                            'p0': AppCopy.of(context).isEnglish
+                                ? AppCopy.of(context).dateTime(
+                                    usage.data!.fetchedAt,
+                                    includeSeconds: true,
+                                  )
+                                : usage.data!.fetchedAt.toLocal(),
+                          },
+                        ),
                         style: secondary,
                       ),
                     if (bucket == null)
-                      const Text('额度信息暂不可用 · 可在账号额度工作区查询')
+                      Text(
+                        AppCopy.of(context).text(
+                          'analysis.quotaUnavailableQueryInTheAccountQuota',
+                        ),
+                      )
                     else
                       AccountQuotaPresentation(
                         key: const ValueKey('account-quota-chart'),
@@ -294,7 +371,11 @@ class _MonitoringPageState extends State<MonitoringPage> {
               ),
             ),
             const SizedBox(height: 24),
-            Text('本地会话日志 · 独立于账号额度与 API 测速', style: secondary),
+            Text(
+              AppCopy.of(context)
+                  .text('analysis.localSessionLogsIndependentOfAccountQuota'),
+              style: secondary,
+            ),
             const SizedBox(height: 8),
             SessionMetricsPanel(
               key: widget.sessionPanelKey,

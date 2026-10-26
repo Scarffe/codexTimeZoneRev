@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'dart:async';
 
 import 'package:flutter/services.dart';
@@ -74,7 +76,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: '关闭账号用量详情',
+      barrierLabel: AppCopy.of(context).text('accounts.usage.closeInfo'),
       pageBuilder: (_, _, _) =>
           _AccountUsageInformation(controller: widget.controller),
     );
@@ -118,7 +120,7 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                 const Icon(FLucideIcons.gauge, size: 18),
                 const SizedBox(width: 6),
                 Text(
-                  '账户额度',
+                  AppCopy.of(context).text('accounts.usage.title'),
                   style: context.theme.typography.body.md.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -131,16 +133,20 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
               MonitorChoice(
                 key: const ValueKey('account-quota-view'),
                 inline: true,
-                label: '额度视图',
+                label: AppCopy.of(context).text('accounts.usage.view'),
                 value: _view,
-                items: const {'剩余': 'remaining', '已用': 'used', '距重置': 'reset'},
+                items: {
+                  AppCopy.of(context).text('accounts.remaining'): 'remaining',
+                  AppCopy.of(context).text('accounts.used'): 'used',
+                  AppCopy.of(context).text('accounts.untilReset'): 'reset',
+                },
                 onChanged: (value) => setState(() => _view = value),
               ),
               if (data.buckets.length > 1)
                 MonitorChoice(
                   key: const ValueKey('account-quota-bucket'),
                   inline: true,
-                  label: '额度组',
+                  label: AppCopy.of(context).text('accounts.usage.bucket'),
                   value: bucket!.id,
                   items: {
                     for (final item in data.buckets)
@@ -157,21 +163,26 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
               MonitorChoice(
                 key: const ValueKey('usage-time-basis'),
                 inline: true,
-                label: '重置时间基准',
+                label: AppCopy.of(context).text('accounts.usage.timeBasis'),
                 value: controller.useLocalTime ? 'local' : 'node',
-                items: const {'节点时间': 'node', '本地时间': 'local'},
+                items: {
+                  AppCopy.of(context).text('accounts.usage.nodeTime'): 'node',
+                  AppCopy.of(context).text('accounts.usage.localTime'): 'local',
+                },
                 onChanged: (value) => controller.setLocalTime(value == 'local'),
               ),
             ],
             MonitorIconAction(
               key: const ValueKey('account-usage-info'),
-              label: '账号用量详情',
+              label: AppCopy.of(context).text('accounts.usage.details'),
               icon: FLucideIcons.info,
               onPress: _showInformation,
             ),
             FButton.icon(
               key: const ValueKey('query-account-usage'),
-              semanticsLabel: controller.busy ? '正在查询用量…' : '查询账号用量',
+              semanticsLabel: controller.busy
+                  ? AppCopy.of(context).text('accounts.usage.querying')
+                  : AppCopy.of(context).text('accounts.usage.query'),
               variant: FButtonVariant.ghost,
               onPress:
                   controller.busy ||
@@ -206,40 +217,81 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
                         );
                       }
                     },
-              child: Text(controller.monitoring ? '暂停自动刷新' : '开启自动刷新'),
+              child: Text(
+                controller.monitoring
+                    ? AppCopy.of(context).text('accounts.usage.pause')
+                    : AppCopy.of(context).text('accounts.usage.start'),
+              ),
             ),
           ],
         ),
         if (controller.busy) ...[
           const SizedBox(height: 5),
           const FProgress(),
-          Text('正在查询用量…', style: muted),
+          Text(
+            AppCopy.of(context).text('accounts.usage.querying'),
+            style: muted,
+          ),
         ],
         Wrap(
           spacing: 12,
           runSpacing: 4,
           children: [
             if (controller.error != null)
-              Text(data == null ? '查询失败' : '查询失败 · 上次观测', style: muted),
+              Text(
+                data == null
+                    ? AppCopy.of(context).text('accounts.usage.queryFailed')
+                    : AppCopy.of(context)
+                          .text('accounts.usage.queryFailedPrevious'),
+                style: muted,
+              ),
             if (controller.preferencesError != null)
-              Text('监控设置保存失败 · 查看详情', style: muted),
+              Text(
+                AppCopy.of(context).text('accounts.usage.preferenceError'),
+                style: muted,
+              ),
             if (controller.failures > 0 && controller.nextRefreshAt != null)
               Text(
-                '失败退避中，最早重试：${ClockReading.fromDate(controller.nextRefreshAt!.toLocal()).time}',
+                AppCopy.of(context).text(
+                  'accounts.usage.backoff',
+                  args: {
+                    'time': ClockReading.fromDate(
+                      controller.nextRefreshAt!.toLocal(),
+                    ).time,
+                  },
+                ),
                 style: muted,
               ),
             if (data != null && controller.stale)
-              Text('上次观测 · 数据已过期', style: muted),
-            if (data?.limitsError != null) Text('额度更新失败 · 查看详情', style: muted),
+              Text(
+                AppCopy.of(context).text('accounts.usage.stale'),
+                style: muted,
+              ),
+            if (data?.limitsError != null)
+              Text(
+                AppCopy.of(context).text('accounts.usage.limitsError'),
+                style: muted,
+              ),
             if (data?.tokensError != null)
-              Text('token 更新失败 · 查看详情', style: muted),
+              Text(
+                AppCopy.of(context).text('accounts.usage.tokensError'),
+                style: muted,
+              ),
           ],
         ),
         const SizedBox(height: 6),
         if (data == null)
-          Text(controller.busy ? '正在读取额度' : '尚无额度数据', style: muted)
+          Text(
+            controller.busy
+                ? AppCopy.of(context).text('accounts.usage.reading')
+                : AppCopy.of(context).text('accounts.usage.empty'),
+            style: muted,
+          )
         else if (windows.isEmpty)
-          Text('额度信息暂不可用', style: muted)
+          Text(
+            AppCopy.of(context).text('accounts.usage.unavailable'),
+            style: muted,
+          )
         else
           AccountQuotaPresentation(
             key: const ValueKey('account-quota-chart'),
@@ -257,10 +309,10 @@ class _AccountUsagePanelState extends State<AccountUsagePanel> {
         if (data == null && !controller.busy)
           Text(
             noManagedAccount
-                ? '添加并登录账号后查看额度。'
+                ? AppCopy.of(context).text('accounts.usage.addFirst')
                 : controller.monitoring
-                ? '正在自动监控当前账号额度。'
-                : '点击按钮查询，或开启自动监控。',
+                ? AppCopy.of(context).text('accounts.usage.monitoring')
+                : AppCopy.of(context).text('accounts.usage.prompt'),
             style: muted,
           ),
       ],
@@ -333,16 +385,18 @@ class AccountQuotaPresentation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (bucket.windows.isEmpty) return const Text('额度信息暂不可用');
+    if (bucket.windows.isEmpty) {
+      return Text(AppCopy.of(context).text('accounts.usage.unavailable'));
+    }
     final identity = (inspectionIdentity, bucket.id, view);
     final bars = [
       for (final window in bucket.windows)
         ChartBar(
           identity: (window.durationMinutes, window.label),
-          label: window.label,
+          label: quotaWindowLabel(AppCopy.of(context), window),
           value: _value(window),
           detail:
-              '${_resetTime(window, settings, useLocalTime)} · ${_resetState(window, now)}',
+              '${_resetTime(AppCopy.of(context), window, settings, useLocalTime)} · ${_resetState(AppCopy.of(context), window, now)}',
         ),
     ];
     return view == 'reset'
@@ -353,7 +407,7 @@ class AccountQuotaPresentation extends StatelessWidget {
             horizontal: true,
             compactMeters: true,
             hoverDetails: false,
-            unit: '小时',
+            unit: AppCopy.of(context).text('accounts.hours'),
           )
         : MonitorRingChart(
             showInspection: false,
@@ -364,19 +418,24 @@ class AccountQuotaPresentation extends StatelessWidget {
   }
 }
 
-String _resetTime(UsageWindow window, LauncherSettings settings, bool local) {
-  if (window.resetsAt == null) return '重置时间暂不可用';
+String _resetTime(
+  AppCopy copy,
+  UsageWindow window,
+  LauncherSettings settings,
+  bool local,
+) {
+  if (window.resetsAt == null) return copy.text('accounts.resetUnavailable');
   try {
     return usageResetTime(settings, window.resetsAt!, local: local);
   } catch (_) {
-    return '请选择有效的显示时区';
+    return copy.text('accounts.invalidTimeZone');
   }
 }
 
-String _resetState(UsageWindow window, DateTime now) =>
+String _resetState(AppCopy copy, UsageWindow window, DateTime now) =>
     window.resetsAt != null && !window.resetsAt!.isAfter(now)
-    ? '到期 · 待查询'
-    : resetCountdown(window.resetsAt, now);
+    ? copy.text('accounts.expired')
+    : _quotaCountdown(copy, window.resetsAt, now);
 
 class _AccountUsageInformation extends StatelessWidget {
   const _AccountUsageInformation({required this.controller});
@@ -409,52 +468,142 @@ class _AccountUsageInformation extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text('账号用量详情'),
+                        Text(
+                          AppCopy.of(context).text('accounts.usage.details'),
+                        ),
                         const SizedBox(height: 12),
                         if (data != null) ...[
-                          Text(data.email ?? '已登录 ChatGPT 账号'),
+                          Text(
+                            data.email ??
+                                AppCopy.of(context)
+                                    .text('accounts.usage.signedIn'),
+                          ),
                           if (data.plan != null) Text(data.plan!.toUpperCase()),
                           _TokenMetric(
-                            label: '累计 token',
+                            label: AppCopy.of(context)
+                                .text('accounts.usage.lifetime'),
                             value: data.lifetimeTokens,
                           ),
                           _TokenMetric(
                             label: data.latestDate == null
-                                ? '最近一天 · 日期未知'
-                                : '最近一天 · ${data.latestDate}',
+                                ? AppCopy.of(context)
+                                      .text('accounts.usage.latestUnknown')
+                                : AppCopy.of(context).text(
+                                    'accounts.usage.latestDay',
+                                    args: {'date': data.latestDate},
+                                  ),
                             value: data.latestDailyTokens,
                           ),
                           if (data.tokensFetchedAt == null)
-                            const Text('token 更新时间未知'),
-                          if (!data.detailsIncluded) const Text('token 数据来自缓存'),
+                            Text(
+                              AppCopy.of(context)
+                                  .text('accounts.usage.tokensTimeUnknown'),
+                            ),
+                          if (!data.detailsIncluded)
+                            Text(
+                              AppCopy.of(context)
+                                  .text('accounts.usage.cachedTokens'),
+                            ),
                           Text(
-                            '额度更新时间：${data.fetchedAt.toLocal().toIso8601String()}',
+                            AppCopy.of(context).text(
+                              'accounts.usage.limitsUpdated',
+                              args: {
+                                'time': AppCopy.of(context).dateTime(
+                                  data.fetchedAt,
+                                  includeSeconds: true,
+                                ),
+                              },
+                            ),
                           ),
                           if (data.tokensFetchedAt != null)
                             Text(
-                              'token 更新时间：${data.tokensFetchedAt!.toLocal().toIso8601String()}',
+                              AppCopy.of(context).text(
+                                'accounts.usage.tokensUpdated',
+                                args: {
+                                  'time': AppCopy.of(context).dateTime(
+                                    data.tokensFetchedAt,
+                                    includeSeconds: true,
+                                  ),
+                                },
+                              ),
                             ),
                           if (data.limitsError != null)
-                            Text('额度：${data.limitsError}'),
+                            Text(
+                              AppCopy.of(context).text(
+                                'accounts.usage.limitsDetails',
+                                args: {
+                                  'error': _usageDetailsError(
+                                    context,
+                                    data.limitsError,
+                                    data.limitsErrorKind,
+                                  ),
+                                },
+                              ),
+                            ),
                           if (data.tokensError != null)
-                            Text('token：${data.tokensError}'),
+                            Text(
+                              AppCopy.of(context).text(
+                                'accounts.usage.tokenDetails',
+                                args: {
+                                  'error': _usageDetailsError(
+                                    context,
+                                    data.tokensError,
+                                    data.tokensErrorKind,
+                                  ),
+                                },
+                              ),
+                            ),
                           for (final bucket in data.buckets)
                             for (final window in bucket.windows)
                               if (window.resetsAt != null)
                                 Text(
-                                  '${bucket.label} · ${window.label}重置：${window.resetsAt!.toUtc().toIso8601String()}',
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.windowReset',
+                                    args: {
+                                      'bucket': bucket.label,
+                                      'window': quotaWindowLabel(
+                                        AppCopy.of(context),
+                                        window,
+                                      ),
+                                      'time': window.resetsAt!
+                                          .toUtc()
+                                          .toIso8601String(),
+                                    },
+                                  ),
                                 ),
                         ],
-                        if (controller.error != null) Text(controller.error!),
+                        if (controller.error != null)
+                          Text(_controllerUsageError(context, controller)),
                         if (controller.preferencesError != null)
-                          Text(controller.preferencesError!),
+                          Text(
+                            _preferenceError(
+                              context,
+                              controller.preferencesError!,
+                            ),
+                          ),
                         if (controller.lastAttempt != null)
                           Text(
-                            '最近尝试：${controller.lastAttempt!.toLocal().toIso8601String()}',
+                            AppCopy.of(context).text(
+                              'accounts.usage.lastAttempt',
+                              args: {
+                                'time': AppCopy.of(context).dateTime(
+                                  controller.lastAttempt,
+                                  includeSeconds: true,
+                                ),
+                              },
+                            ),
                           ),
                         if (controller.nextRefreshAt != null)
                           Text(
-                            '下次尝试：${controller.nextRefreshAt!.toLocal().toIso8601String()}',
+                            AppCopy.of(context).text(
+                              'accounts.usage.nextAttempt',
+                              args: {
+                                'time': AppCopy.of(context).dateTime(
+                                  controller.nextRefreshAt,
+                                  includeSeconds: true,
+                                ),
+                              },
+                            ),
                           ),
                         const SizedBox(height: 12),
                         FButton(
@@ -464,30 +613,96 @@ class _AccountUsageInformation extends StatelessWidget {
                               text: [
                                 if (data?.email != null) data!.email!,
                                 if (data != null) ...[
-                                  data.plan ?? '套餐未知',
-                                  '累计 token：${tokenCount(data.lifetimeTokens)}',
-                                  '最近一天：${data.latestDate ?? '日期未知'} · ${tokenCount(data.latestDailyTokens)}',
+                                  data.plan ??
+                                      AppCopy.of(context)
+                                          .text('accounts.usage.unknownPlan'),
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.lifetimeValue',
+                                    args: {
+                                      'value': _tokenCount(
+                                        context,
+                                        data.lifetimeTokens,
+                                      ),
+                                    },
+                                  ),
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.latestValue',
+                                    args: {
+                                      'date':
+                                          data.latestDate ??
+                                          AppCopy.of(
+                                            context,
+                                          ).text('accounts.usage.unknownDate'),
+                                      'value': _tokenCount(
+                                        context,
+                                        data.latestDailyTokens,
+                                      ),
+                                    },
+                                  ),
                                 ],
                                 if (data != null)
-                                  '额度更新时间：${data.fetchedAt.toLocal().toIso8601String()}',
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.limitsUpdated',
+                                    args: {
+                                      'time': AppCopy.of(context).dateTime(
+                                        data.fetchedAt,
+                                        includeSeconds: true,
+                                      ),
+                                    },
+                                  ),
                                 if (data?.tokensFetchedAt != null)
-                                  'token 更新时间：${data!.tokensFetchedAt!.toLocal().toIso8601String()}',
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.tokensUpdated',
+                                    args: {
+                                      'time': AppCopy.of(context).dateTime(
+                                        data!.tokensFetchedAt,
+                                        includeSeconds: true,
+                                      ),
+                                    },
+                                  ),
                                 if (data?.limitsError != null)
-                                  '额度：${data!.limitsError}',
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.limitsDetails',
+                                    args: {
+                                      'error': _usageDetailsError(
+                                        context,
+                                        data!.limitsError,
+                                        data.limitsErrorKind,
+                                      ),
+                                    },
+                                  ),
                                 if (data?.tokensError != null)
-                                  'token：${data!.tokensError}',
-                                if (controller.error != null) controller.error!,
+                                  AppCopy.of(context).text(
+                                    'accounts.usage.tokenDetails',
+                                    args: {
+                                      'error': _usageDetailsError(
+                                        context,
+                                        data!.tokensError,
+                                        data.tokensErrorKind,
+                                      ),
+                                    },
+                                  ),
+                                if (controller.error != null)
+                                  _controllerUsageError(context, controller),
                                 if (controller.preferencesError != null)
-                                  controller.preferencesError!,
+                                  _preferenceError(
+                                    context,
+                                    controller.preferencesError!,
+                                  ),
                               ].join('\n'),
                             ),
                           ),
-                          child: const Text('复制详情'),
+                          child: Text(
+                            AppCopy.of(context)
+                                .text('accounts.usage.copyDetails'),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         FButton(
                           onPress: () => Navigator.of(context).pop(),
-                          child: const Text('关闭'),
+                          child: Text(
+                            AppCopy.of(context).text('accounts.close'),
+                          ),
                         ),
                       ],
                     ),
@@ -518,7 +733,7 @@ class _TokenMetric extends StatelessWidget {
         ),
       ),
       Text(
-        tokenCount(value),
+        _tokenCount(context, value),
         style: context.theme.typography.body.md.copyWith(
           fontWeight: FontWeight.w600,
           fontFeatures: const [FontFeature.tabularFigures()],
@@ -527,3 +742,80 @@ class _TokenMetric extends StatelessWidget {
     ],
   );
 }
+
+/// Duration labels are generated by this UI; bucket and model names stay raw.
+String quotaWindowLabel(AppCopy copy, UsageWindow window) {
+  if (!copy.isEnglish) return window.label;
+  final minutes = window.durationMinutes;
+  if (minutes == null || minutes <= 0) {
+    return copy.text('accounts.window.quota');
+  }
+  if (minutes == 10080) return copy.text('accounts.window.weekly');
+  final (count, unit) = minutes % 1440 == 0
+      ? (minutes ~/ 1440, 'days')
+      : minutes % 60 == 0
+      ? (minutes ~/ 60, 'hours')
+      : (minutes, 'minutes');
+  return copy.text('accounts.window.$unit', args: {'count': count});
+}
+
+String _quotaCountdown(AppCopy copy, DateTime? reset, DateTime now) {
+  if (!copy.isEnglish) return resetCountdown(reset, now);
+  if (reset == null) return copy.text('accounts.resetUnavailable');
+  final seconds = reset.difference(now).inSeconds;
+  if (seconds <= 0) return copy.text('accounts.expired');
+  final minutes = (seconds / 60).ceil().clamp(1, 2147483647);
+  final duration = minutes >= 1440
+      ? '${minutes ~/ 1440} d ${minutes % 1440 ~/ 60} h'
+      : minutes >= 60
+      ? '${minutes ~/ 60} h ${minutes % 60} min'
+      : '$minutes min';
+  return copy.text('accounts.resetsIn', args: {'duration': duration});
+}
+
+String _tokenCount(BuildContext context, int? value) => value == null
+    ? AppCopy.of(context).text('accounts.usage.noData')
+    : AppCopy.of(context).integer(value);
+
+String _usageDetailsError(BuildContext context, String? raw, String? kind) {
+  final copy = AppCopy.of(context);
+  // Cache-unavailable placeholders are application copy. Actual backend error
+  // details, including their source language, remain available verbatim.
+  if (raw == '额度暂不可用') {
+    return copy.text('accounts.usage.cachedLimitsUnavailable');
+  }
+  if (raw == '用量暂不可用') {
+    return copy.text('accounts.usage.cachedTokensUnavailable');
+  }
+  return raw ?? kind ?? copy.text('common.unknown');
+}
+
+String _controllerUsageError(
+  BuildContext context,
+  AccountUsageController controller,
+) {
+  final source = controller.sources?.selected;
+  if (source?.errorKind != null) {
+    return AppCopy.of(context).text(switch (source!.errorKind) {
+      'auth_required' || 'auth_failed' => 'accounts.sourceError.auth',
+      'network' => 'accounts.sourceError.network',
+      'rate_limited' => 'accounts.sourceError.rate',
+      'timeout' => 'accounts.sourceError.timeout',
+      'unsupported' || 'isolation_failed' => 'accounts.sourceError.unsupported',
+      'cancelled' => 'accounts.sourceError.cancelled',
+      'busy' => 'accounts.sourceError.busy',
+      _ => 'accounts.sourceError.unavailable',
+    });
+  }
+  return controller.error ?? '';
+}
+
+String _preferenceError(BuildContext context, String raw) => switch (raw) {
+  '监控设置读取失败，已使用默认值；原文件未改动。' => AppCopy.of(
+    context,
+  ).text('accounts.usage.preferencesRead'),
+  '监控偏好已生效，但保存失败；请检查文件夹写入权限。' => AppCopy.of(
+    context,
+  ).text('accounts.usage.preferencesWrite'),
+  _ => raw,
+};

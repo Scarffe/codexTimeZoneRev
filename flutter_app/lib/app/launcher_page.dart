@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
+import 'package:timezone/timezone.dart' as tz;
+
+import '../l10n/app_copy.dart';
+import '../l10n/copy_launcher.dart';
 
 import 'dashboard_motion.dart';
 import 'dashboard_style.dart';
@@ -59,63 +63,75 @@ class LauncherPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     final settings = launcher.settings;
-    final settingCard = _section(context, '启动设置', '新进程使用此时区，系统时区保持不变。', [
-      FSelect<String>(
-        label: const Text('设置方式'),
-        items: const {'地区时区': 'zone', '固定 UTC 偏移': 'offset'},
-        enabled: launcher.editable,
-        control: FSelectControl.lifted(
-          value: settings.mode,
-          onChange: (value) {
-            if (value != null) launcher.update(settings.copyWith(mode: value));
-          },
-        ),
-      ),
-      const SizedBox(height: 12),
-      if (settings.mode == 'zone')
-        FSelect<String>.search(
-          label: const Text('地区时区'),
-          description: const Text('搜索城市或时区；自动遵循当地夏令时。'),
+    final settingCard = _section(
+      context,
+      copy.text('launcher.settings'),
+      copy.text('launcher.settingsDescription'),
+      [
+        FSelect<String>(
+          label: Text(copy.text('launcher.mode')),
           items: {
-            for (final zone in launcher.zones)
-              '${zone.label} · ${zone.id}': zone.id,
+            copy.text('launcher.zone'): 'zone',
+            copy.text('launcher.offset'): 'offset',
           },
-          enabled: launcher.editable && launcher.zones.isNotEmpty,
-          control: FSelectControl.lifted(
-            value: launcher.zones.any((zone) => zone.id == settings.zoneId)
-                ? settings.zoneId
-                : null,
-            onChange: (value) {
-              if (value != null) {
-                launcher.update(settings.copyWith(zoneId: value));
-              }
-            },
-          ),
-        )
-      else
-        FSelect<int>(
-          label: const Text('固定 UTC 偏移'),
-          description: const Text('不随夏令时变化；半小时地区请使用地区时区。'),
           enabled: launcher.editable,
-          items: {for (var i = -12; i <= 14; i++) offsetLabel(i * 60): i},
           control: FSelectControl.lifted(
-            value: settings.offset,
+            value: settings.mode,
             onChange: (value) {
               if (value != null) {
-                launcher.update(settings.copyWith(offset: value));
+                launcher.update(settings.copyWith(mode: value));
               }
             },
           ),
         ),
-      if (launcher.editable && launcher.validationError != null) ...[
         const SizedBox(height: 12),
-        FAlert(
-          variant: FAlertVariant.destructive,
-          title: Text(launcher.validationError!),
-        ),
+        if (settings.mode == 'zone')
+          FSelect<String>.search(
+            label: Text(copy.text('launcher.zone')),
+            description: Text(copy.text('launcher.zoneDescription')),
+            items: {
+              for (final zone in launcher.zones)
+                (copy.isEnglish ? zone.id : '${zone.label} · ${zone.id}'):
+                    zone.id,
+            },
+            enabled: launcher.editable && launcher.zones.isNotEmpty,
+            control: FSelectControl.lifted(
+              value: launcher.zones.any((zone) => zone.id == settings.zoneId)
+                  ? settings.zoneId
+                  : null,
+              onChange: (value) {
+                if (value != null) {
+                  launcher.update(settings.copyWith(zoneId: value));
+                }
+              },
+            ),
+          )
+        else
+          FSelect<int>(
+            label: Text(copy.text('launcher.offset')),
+            description: Text(copy.text('launcher.offsetDescription')),
+            enabled: launcher.editable,
+            items: {for (var i = -12; i <= 14; i++) offsetLabel(i * 60): i},
+            control: FSelectControl.lifted(
+              value: settings.offset,
+              onChange: (value) {
+                if (value != null) {
+                  launcher.update(settings.copyWith(offset: value));
+                }
+              },
+            ),
+          ),
+        if (launcher.editable && launcher.validationError != null) ...[
+          const SizedBox(height: 12),
+          FAlert(
+            variant: FAlertVariant.destructive,
+            title: Text(_launcherStatus(copy, launcher.validationError!)),
+          ),
+        ],
       ],
-    ]);
+    );
     final clientPath = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -134,15 +150,18 @@ class LauncherPage extends StatelessWidget {
                   ? _browse
                   : null,
               prefix: const Icon(FLucideIcons.folderOpen),
-              child: const Text('选择客户端'),
+              child: _buttonText(copy.text('launcher.chooseClient')),
             ),
           ),
         ),
         const SizedBox(height: 12),
         Text(
           launcher.effectivePath.isEmpty
-              ? '未找到客户端，请选择 Codex 程序。'
-              : '当前路径：${launcher.effectivePath}',
+              ? copy.text('launcher.noClient')
+              : copy.text(
+                  'launcher.currentPath',
+                  args: {'path': launcher.effectivePath},
+                ),
           style: context.theme.typography.body.sm.copyWith(
             color: context.theme.colors.mutedForeground,
           ),
@@ -153,8 +172,8 @@ class LauncherPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FSwitch(
-          label: const Text('Dream Skin 兼容启动'),
-          description: const Text('保存后，在下次启动时应用皮肤。'),
+          label: Text(copy.text('launcher.skinCompatible')),
+          description: Text(copy.text('launcher.skinDescription')),
           value: settings.dreamSkinCompatible,
           enabled: launcher.editable,
           onChange: (value) =>
@@ -175,7 +194,7 @@ class LauncherPage extends StatelessWidget {
                         !launcher.offlineTrial
                     ? () => launcher.action('launch_dream_skin')
                     : null,
-                child: const Flexible(child: Text('打开 Dream Skin')),
+                child: _buttonText(copy.text('launcher.openSkin')),
               ),
             ),
             _motionButton(
@@ -188,47 +207,52 @@ class LauncherPage extends StatelessWidget {
                         !launcher.offlineTrial
                     ? () => launcher.action('reapply_dream_skin')
                     : null,
-                child: const Flexible(child: Text('重新注入皮肤')),
+                child: _buttonText(copy.text('launcher.reapplySkin')),
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
         Text(
-          '重新注入仅适用于兼容启动的客户端；保持当前进程与时区。',
+          copy.text('launcher.reapplyDescription'),
           style: context.theme.typography.body.sm.copyWith(
             color: context.theme.colors.mutedForeground,
           ),
         ),
       ],
     );
-    final clientCard = _section(context, '客户端与皮肤', '选择程序并配置下次启动。', [
-      LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 720) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    final clientCard = _section(
+      context,
+      copy.text('launcher.client'),
+      copy.text('launcher.clientDescription'),
+      [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 720) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  clientPath,
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: FDivider(),
+                  ),
+                  skinControls,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                clientPath,
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: FDivider(),
-                ),
-                skinControls,
+                Expanded(flex: 6, child: clientPath),
+                const SizedBox(width: 32),
+                Expanded(flex: 5, child: skinControls),
               ],
             );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 6, child: clientPath),
-              const SizedBox(width: 32),
-              Expanded(flex: 5, child: skinControls),
-            ],
-          );
-        },
-      ),
-    ]);
+          },
+        ),
+      ],
+    );
 
     return FScaffold(
       childPad: false,
@@ -245,19 +269,25 @@ class LauncherPage extends StatelessWidget {
             Semantics(
               liveRegion: true,
               child: Text(
-                launcher.message,
+                _launcherStatus(copy, launcher.message),
                 style: context.theme.typography.body.sm,
               ),
             ),
             const SizedBox(height: 12),
             if (launcher.repairPackage != null) ...[
               Text(
-                '待修复版本：${launcher.repairPackage}\n仅修复当前版本的启动权限，保留原权限备份；完成后自动重试启动。需要 Windows 管理员确认。',
+                copy.text(
+                  'launcher.repairDescription',
+                  args: {'package': launcher.repairPackage},
+                ),
                 style: context.theme.typography.body.sm,
               ),
               if (launcher.repairLogPath != null)
                 Text(
-                  '启动日志：${launcher.repairLogPath}',
+                  copy.text(
+                    'launcher.launchLog',
+                    args: {'path': launcher.repairLogPath},
+                  ),
                   style: context.theme.typography.body.sm,
                 ),
               const SizedBox(height: 12),
@@ -274,10 +304,10 @@ class LauncherPage extends StatelessWidget {
                       onPress: launcher.canSave
                           ? () => launcher.action('repair_launch')
                           : null,
-                      child: Text(
+                      child: _buttonText(
                         launcher.busyCommand == 'repair_launch'
-                            ? '正在修复…'
-                            : '一键修复并重试',
+                            ? copy.text('launcher.repairing')
+                            : copy.text('launcher.repair'),
                       ),
                     ),
                   ),
@@ -288,8 +318,10 @@ class LauncherPage extends StatelessWidget {
                         ? () => launcher.action('launch')
                         : null,
                     prefix: const Icon(FLucideIcons.play),
-                    child: Text(
-                      launcher.busyCommand == 'launch' ? '正在启动…' : '保存并启动',
+                    child: _buttonText(
+                      launcher.busyCommand == 'launch'
+                          ? copy.text('launcher.launching')
+                          : copy.text('launcher.launch'),
                     ),
                   ),
                 ),
@@ -300,7 +332,7 @@ class LauncherPage extends StatelessWidget {
                     onPress: launcher.canSave
                         ? () => launcher.action('save')
                         : null,
-                    child: const Text('保存设置'),
+                    child: _buttonText(copy.text('launcher.save')),
                   ),
                 ),
                 _motionButton(
@@ -310,11 +342,13 @@ class LauncherPage extends StatelessWidget {
                     onPress: launcher.editable && !launcher.preview
                         ? () => launcher.action('create_shortcut')
                         : null,
-                    child: const Text('创建快捷方式'),
+                    child: _buttonText(copy.text('launcher.shortcut')),
                   ),
                 ),
-                if (launcher.dirty) FBadge(child: const Text('未保存修改')),
-                if (launcher.preview) FBadge(child: const Text('演示模式')),
+                if (launcher.dirty)
+                  FBadge(child: Text(copy.text('launcher.dirty'))),
+                if (launcher.preview)
+                  FBadge(child: Text(copy.text('launcher.preview'))),
               ],
             ),
           ],
@@ -335,7 +369,7 @@ class LauncherPage extends StatelessWidget {
                 if (launcher.error != null) ...[
                   FAlert(
                     variant: FAlertVariant.destructive,
-                    title: Text(launcher.message),
+                    title: Text(_launcherStatus(copy, launcher.message)),
                     subtitle: Text(launcher.error!),
                   ),
                   const SizedBox(height: 12),
@@ -345,7 +379,7 @@ class LauncherPage extends StatelessWidget {
                     FButton(
                       mainAxisSize: MainAxisSize.min,
                       onPress: launcher.initialize,
-                      child: const Text('重新读取设置'),
+                      child: _buttonText(copy.text('launcher.reload')),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -381,8 +415,10 @@ class LauncherPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 _section(
                   context,
-                  '网络位置参考',
-                  network.cached ? '上次查询结果 · 更新中' : '国内 / 国际独立查询 · 应用时区仅写入草稿',
+                  copy.text('launcher.network'),
+                  network.cached
+                      ? copy.text('launcher.networkCached')
+                      : copy.text('launcher.networkDescription'),
                   [
                     Align(
                       alignment: Alignment.centerLeft,
@@ -398,7 +434,11 @@ class LauncherPage extends StatelessWidget {
                               ? null
                               : network.refresh,
                           prefix: const Icon(FLucideIcons.refreshCw),
-                          child: Text(network.busy ? '正在查询…' : '刷新网络信息'),
+                          child: _buttonText(
+                            network.busy
+                                ? copy.text('launcher.querying')
+                                : copy.text('launcher.refreshNetwork'),
+                          ),
                         ),
                       ),
                     ),
@@ -407,7 +447,7 @@ class LauncherPage extends StatelessWidget {
                       builder: (context, constraints) {
                         final domestic = _NetworkRegion(
                           desktop: desktop,
-                          title: '国内线路',
+                          title: copy.text('launcher.domestic'),
                           info: network.domestic,
                           error: network.errors['domestic'],
                           busy: network.busy,
@@ -415,7 +455,7 @@ class LauncherPage extends StatelessWidget {
                         );
                         final international = _NetworkRegion(
                           desktop: desktop,
-                          title: '国际线路',
+                          title: copy.text('launcher.international'),
                           info: network.international,
                           error: network.errors['international'],
                           busy: network.busy,
@@ -442,12 +482,12 @@ class LauncherPage extends StatelessWidget {
                       },
                     ),
                     if (network.errors['cache'] != null)
-                      Text(network.errors['cache']!),
+                      Text(_launcherStatus(copy, network.errors['cache']!)),
                   ],
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '启动前请完全退出正在运行的 Codex。本工具不会更改系统全局时区。',
+                  copy.text('launcher.exitFirst'),
                   style: context.theme.typography.body.sm.copyWith(
                     color: context.theme.colors.mutedForeground,
                   ),
@@ -487,8 +527,8 @@ class _PathFieldState extends State<_PathField> {
 
   @override
   Widget build(BuildContext context) => FTextField(
-    label: const Text('客户端路径'),
-    hint: '留空时自动查找 Codex',
+    label: Text(AppCopy.of(context).text('launcher.path')),
+    hint: AppCopy.of(context).text('launcher.pathHint'),
     control: FTextFieldControl.managed(
       controller: controller,
       onChange: (value) {
@@ -569,15 +609,23 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     ClockReading? target;
+    DateTime? targetDate;
     try {
       target = targetClock(widget.settings, _now);
+      targetDate = widget.settings.mode == 'offset'
+          ? _now.toUtc().add(Duration(hours: widget.settings.offset))
+          : tz.TZDateTime.from(_now, tz.getLocation(widget.settings.zoneId));
     } catch (_) {
       /* Unsupported zone remains visibly invalid. */
     }
     final local = widget.preview
         ? targetClock(const LauncherSettings(), _now)
         : ClockReading.fromDate(_now.toLocal());
+    final localDate = widget.preview
+        ? tz.TZDateTime.from(_now, tz.getLocation('Asia/Shanghai'))
+        : _now.toLocal();
     final palette = DashboardPalette.of(context);
     final muted = context.theme.typography.body.sm.copyWith(
       color: palette.muted,
@@ -597,12 +645,17 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
                   color: palette.controlAccent,
                 ),
                 const SizedBox(width: 8),
-                Text('时间预览', style: context.theme.typography.display.lg),
+                Text(
+                  copy.text('launcher.clock'),
+                  style: context.theme.typography.display.lg,
+                ),
               ],
             ),
             const SizedBox(height: 24),
             Text(
-              widget.settings.mode == 'zone' ? widget.settings.zoneId : '固定偏移',
+              widget.settings.mode == 'zone'
+                  ? widget.settings.zoneId
+                  : copy.text('launcher.fixedOffset'),
               style: muted,
             ),
             const SizedBox(height: 8),
@@ -621,11 +674,22 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(height: 12),
-            Text(target?.date ?? '请选择有效时区', style: muted),
+            Text(
+              target == null
+                  ? copy.text('launcher.validZone')
+                  : copy.isEnglish
+                  ? _clockDate(copy, targetDate!)
+                  : target.date,
+              style: muted,
+            ),
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
-              child: FBadge(child: Text(target?.offset ?? '无效时区')),
+              child: FBadge(
+                child: Text(
+                  target?.offset ?? copy.text('launcher.invalidZone'),
+                ),
+              ),
             ),
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
@@ -641,11 +705,21 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '本地时间 · ${widget.preview ? 'Asia/Shanghai' : _now.toLocal().timeZoneName}',
+                      copy.text(
+                        'launcher.localClock',
+                        args: {
+                          'zone': widget.preview
+                              ? 'Asia/Shanghai'
+                              : _now.toLocal().timeZoneName,
+                        },
+                      ),
                       style: muted,
                     ),
                     const SizedBox(height: 4),
-                    Text(local.date, style: muted),
+                    Text(
+                      copy.isEnglish ? _clockDate(copy, localDate) : local.date,
+                      style: muted,
+                    ),
                   ],
                 ),
                 Column(
@@ -697,29 +771,30 @@ class _NetworkRegion extends StatefulWidget {
 }
 
 class _NetworkRegionState extends State<_NetworkRegion> {
-  String copyLabel = '复制 IP';
+  String copyLabelKey = 'launcher.copyIp';
   Timer? _timer;
   Future<void> _copy() async {
     final ip = widget.info!.ip;
     try {
       await widget.desktop.copyVerified(ip);
-      if (mounted) setState(() => copyLabel = '已复制');
+      if (mounted) setState(() => copyLabelKey = 'launcher.copied');
     } catch (e) {
       if (mounted) {
-        setState(() => copyLabel = '复制失败');
+        setState(() => copyLabelKey = 'launcher.copyFailed');
         widget.launcher.report('无法复制 IP。', detail: e.toString());
       }
     }
     _timer?.cancel();
     if (mounted) {
       _timer = Timer(const Duration(milliseconds: 1500), () {
-        if (mounted) setState(() => copyLabel = '复制 IP');
+        if (mounted) setState(() => copyLabelKey = 'launcher.copyIp');
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     final info = widget.info;
     final supported =
         info != null &&
@@ -736,7 +811,9 @@ class _NetworkRegionState extends State<_NetworkRegion> {
         const SizedBox(height: 10),
         if (info == null)
           Text(
-            widget.busy ? '正在查询公网 IP 与位置…' : widget.error ?? '暂无网络信息',
+            widget.busy
+                ? copy.text('launcher.queryLocation')
+                : widget.error ?? copy.text('launcher.noNetwork'),
             style: context.theme.typography.body.sm,
           )
         else ...[
@@ -763,7 +840,7 @@ class _NetworkRegionState extends State<_NetworkRegion> {
                   onPress: widget.launcher.preview || widget.launcher.busy
                       ? null
                       : _copy,
-                  child: Text(copyLabel),
+                  child: _buttonText(copy.text(copyLabelKey)),
                 ),
               ),
               _motionButton(
@@ -783,7 +860,11 @@ class _NetworkRegionState extends State<_NetworkRegion> {
                           );
                         }
                       : null,
-                  child: Text(supported ? '应用识别时区' : '暂不支持此时区'),
+                  child: _buttonText(
+                    supported
+                        ? copy.text('launcher.applyZone')
+                        : copy.text('launcher.unsupportedZone'),
+                  ),
                 ),
               ),
             ],
@@ -800,5 +881,60 @@ class _NetworkRegionState extends State<_NetworkRegion> {
   }
 }
 
+Widget _buttonText(String text) => Flexible(child: Text(text));
+
 Widget _motionButton(FButton button) =>
     DashboardMotionFeedback(enabled: button.onPress != null, child: button);
+
+String _clockDate(AppCopy copy, DateTime date) {
+  // The target date has already been converted to the selected zone. A local
+  // conversion here would incorrectly shift its calendar across midnight.
+  final formatted = copy.dateTime(date, local: false);
+  return '${formatted.substring(0, formatted.lastIndexOf(' '))} · ${copy.weekday(date)}';
+}
+
+/// Translate only recognized application summaries at this presentation edge.
+/// Native error bodies, unknown messages and interpolated paths remain intact.
+String _launcherStatus(AppCopy copy, String value) {
+  if (!copy.isEnglish) return value;
+  for (final entry in launcherMessages.entries) {
+    if (entry.key.startsWith('launcher.status.') && entry.value.zh == value) {
+      return copy.text(entry.key);
+    }
+  }
+  const savedPrefix = '设置已保存到 ';
+  if (value.startsWith(savedPrefix)) {
+    return copy.text(
+      'launcher.status.savedPath',
+      args: {'path': value.substring(savedPrefix.length)},
+    );
+  }
+  const zonePrefix = '已选择 ', zoneSuffix = '，保存并启动后生效。';
+  if (value.startsWith(zonePrefix) && value.endsWith(zoneSuffix)) {
+    return copy.text(
+      'launcher.status.zoneApplied',
+      args: {
+        'zone': value.substring(
+          zonePrefix.length,
+          value.length - zoneSuffix.length,
+        ),
+      },
+    );
+  }
+  const warning = '\n进程保持运行；日志记录不完整：';
+  final warningIndex = value.indexOf(warning);
+  if (warningIndex > 0) {
+    final summary = value.substring(0, warningIndex);
+    if (summary == launcherMessages['launcher.status.processStarted']!.zh ||
+        summary == launcherMessages['launcher.status.processSkinStarted']!.zh) {
+      return copy.text(
+        'launcher.status.logWarning',
+        args: {
+          'summary': _launcherStatus(copy, summary),
+          'details': value.substring(warningIndex + warning.length),
+        },
+      );
+    }
+  }
+  return value;
+}

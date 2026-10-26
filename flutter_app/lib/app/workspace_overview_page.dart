@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -6,6 +8,7 @@ import '../services/session_attention.dart';
 import '../state/session_metrics_controller.dart';
 import '../state/session_attention_controller.dart';
 import 'workspace_shell.dart';
+import 'account_usage_panel.dart' show quotaWindowLabel;
 import 'monitor_information.dart';
 import 'dashboard_style.dart';
 import '../services/monitoring_guide.dart';
@@ -33,46 +36,74 @@ class WorkspaceOverviewPage extends StatelessWidget {
         destination: WorkspaceDestination.accounts,
         headline:
             '${usage.sources?.states.length ?? (usage.data == null ? 0 : 1)}',
-        unit: '个独立来源',
+        unit: AppCopy.of(context).text('overview.sourcesUnit'),
         caption: usage.sources?.selected == null
-            ? '尚未选择账号'
-            : '已选 · ${usage.sources!.selected!.alias}',
+            ? AppCopy.of(context).text('overview.noAccount')
+            : AppCopy.of(context).text(
+                'overview.selected',
+                args: {'alias': usage.sources!.selected!.alias},
+              ),
         onOpen: onSelect,
         details: [
           if (usage.data == null)
-            const Text('额度未知 · 尚无可用观测')
+            Text(AppCopy.of(context).text('overview.quotaUnknown'))
           else ...[
             for (final bucket in usage.data!.buckets)
               for (final window in bucket.windows)
                 Text(
-                  '${bucket.label} · ${window.label} · 剩余 ${_remaining(window.usedPercent)}',
+                  AppCopy.of(context).text(
+                    'overview.windowRemaining',
+                    args: {
+                      'bucket': bucket.label,
+                      'window': quotaWindowLabel(AppCopy.of(context), window),
+                      'value': _remaining(
+                        AppCopy.of(context),
+                        window.usedPercent,
+                      ),
+                    },
+                  ),
                 ),
             Text(
               '${usage.busy
-                  ? '刷新中'
+                  ? AppCopy.of(context).text('overview.refreshing')
                   : usage.stale
-                  ? '上次观测'
-                  : '最近观测'} · ${_observedAt(usage.data!.fetchedAt)}',
+                  ? AppCopy.of(context).text('overview.previousObservation')
+                  : AppCopy.of(context).text('overview.latestObservation')} · ${_observedAt(AppCopy.of(context), usage.data!.fetchedAt)}',
               style: context.theme.typography.body.xs.copyWith(
                 color: palette.muted,
               ),
             ),
-            if (usage.error != null) const Text('刷新失败 · 数据未更新'),
+            if (usage.error != null)
+              Text(AppCopy.of(context).text('overview.refreshFailed')),
           ],
         ],
       ),
       _OverviewCard(
         destination: WorkspaceDestination.sessions,
         headline: '${attention.unreadCount}',
-        unit: '条未读事项',
-        caption: '关注 ${attention.watches.length}/8 个会话',
+        unit: AppCopy.of(context).text('overview.unreadUnit'),
+        caption: AppCopy.of(
+          context,
+        ).text('overview.watching', args: {'count': attention.watches.length}),
         onOpen: onSelect,
         details: [
           Text(
-            '进行中 ${_count(SessionAttentionStatus.running)} · 已完成 ${_count(SessionAttentionStatus.completed)}',
+            AppCopy.of(context).text(
+              'overview.runningCompleted',
+              args: {
+                'running': _count(SessionAttentionStatus.running),
+                'completed': _count(SessionAttentionStatus.completed),
+              },
+            ),
           ),
           Text(
-            '已取消 ${_count(SessionAttentionStatus.cancelled)} · 未知 ${_count(SessionAttentionStatus.unknown)}',
+            AppCopy.of(context).text(
+              'overview.cancelledUnknown',
+              args: {
+                'cancelled': _count(SessionAttentionStatus.cancelled),
+                'unknown': _count(SessionAttentionStatus.unknown),
+              },
+            ),
             style: context.theme.typography.body.sm.copyWith(
               color: palette.muted,
             ),
@@ -81,14 +112,20 @@ class WorkspaceOverviewPage extends StatelessWidget {
       ),
       _OverviewCard(
         destination: WorkspaceDestination.analysis,
-        headline: rate?.toStringAsFixed(2) ?? '—',
-        unit: rate == null ? '暂无已核验样本' : 'tokens/s',
-        caption: '最近完成回合 · 平均吞吐',
+        headline: AppCopy.of(context).number(rate),
+        unit: rate == null
+            ? AppCopy.of(context).text('overview.noVerified')
+            : 'tokens/s',
+        caption: AppCopy.of(context).text('overview.average'),
         onOpen: onSelect,
         details: [
-          Text(metrics.selected == null ? '尚未选择本地日志' : metrics.stateLabel),
           Text(
-            '额度、回合、配置、活动与响应',
+            metrics.selected == null
+                ? AppCopy.of(context).text('overview.noLog')
+                : _metricsState(AppCopy.of(context)),
+          ),
+          Text(
+            AppCopy.of(context).text('overview.charts'),
             style: context.theme.typography.body.sm.copyWith(
               color: palette.muted,
             ),
@@ -97,14 +134,14 @@ class WorkspaceOverviewPage extends StatelessWidget {
       ),
       _OverviewCard(
         destination: WorkspaceDestination.benchmark,
-        headline: '离线回放',
-        unit: '独立来源',
+        headline: AppCopy.of(context).text('overview.offline'),
+        unit: AppCopy.of(context).text('overview.independent'),
         caption: 'Chat Completions / Responses',
         onOpen: onSelect,
         details: [
-          const Text('用合成场景观察延迟与流式指标'),
+          Text(AppCopy.of(context).text('overview.synthetic')),
           Text(
-            '与当前会话统计分别记录',
+            AppCopy.of(context).text('overview.separate'),
             style: context.theme.typography.body.sm.copyWith(
               color: palette.muted,
             ),
@@ -120,7 +157,7 @@ class WorkspaceOverviewPage extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 20),
             child: Text(
-              '从额度到回合，查看你关心的进展。',
+              AppCopy.of(context).text('overview.intro'),
               style: context.theme.typography.body.md.copyWith(
                 color: palette.muted,
               ),
@@ -170,11 +207,15 @@ class WorkspaceOverviewPage extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 onPress: () => showMonitorInformation(
                   context,
-                  title: '系统提醒记录',
-                  builder: (_) =>
-                      Text(recentNotice.isEmpty ? '暂无提醒。' : recentNotice),
+                  titleKey: 'overview.notices',
+                  title: AppCopy.of(context).text('overview.notices'),
+                  builder: (_) => Text(
+                    recentNotice.isEmpty
+                        ? AppCopy.of(context).text('overview.noNotices')
+                        : recentNotice,
+                  ),
                 ),
-                child: const Text('系统提醒记录'),
+                child: Text(AppCopy.of(context).text('overview.notices')),
               ),
               FButton(
                 key: const ValueKey('monitor-local-guide'),
@@ -187,13 +228,18 @@ class WorkspaceOverviewPage extends StatelessWidget {
                     if (context.mounted) {
                       await showMonitorInformation(
                         context,
-                        title: '本地监控说明',
-                        builder: (_) => Text('无法打开本地说明：$error'),
+                        titleKey: 'overview.guideTitle',
+                        title: AppCopy.of(context).text('overview.guideTitle'),
+                        builder: (_) => Text(
+                          AppCopy.of(
+                            context,
+                          ).text('overview.guideError', args: {'error': error}),
+                        ),
                       );
                     }
                   }
                 },
-                child: const Text('监控说明'),
+                child: Text(AppCopy.of(context).text('overview.guide')),
               ),
             ],
           ),
@@ -203,15 +249,29 @@ class WorkspaceOverviewPage extends StatelessWidget {
     );
   }
 
+  String _metricsState(AppCopy copy) {
+    if (metrics.error != null) return copy.text('overview.state.readFailed');
+    if (metrics.data?['catchingUp'] == true) {
+      return copy.text('overview.state.history');
+    }
+    return copy.text(switch (metrics.data?['current']?['status']) {
+      'running' => 'overview.state.running',
+      'completed' => 'overview.state.completed',
+      'cancelled' => 'overview.state.cancelled',
+      _ => 'overview.state.unknown',
+    });
+  }
+
   int _count(SessionAttentionStatus status) => attention.items
       .where((item) => item.watch.enabled && item.status == status)
       .length;
-  String _remaining(double? used) =>
+  String _remaining(AppCopy copy, double? used) =>
       used == null || !used.isFinite || used < 0 || used > 100
-      ? '未知'
+      ? copy.text('common.unknown')
       : '${(100 - used).toStringAsFixed(2)}%';
 
-  String _observedAt(DateTime time) {
+  String _observedAt(AppCopy copy, DateTime time) {
+    if (copy.isEnglish) return copy.dateTime(time, compact: true);
     final local = time.toLocal();
     return '${local.month}/${local.day} '
         '${local.hour.toString().padLeft(2, '0')}:'
@@ -260,7 +320,7 @@ class _OverviewCard extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    destination.label,
+                    AppCopy.of(context).text('nav.${destination.name}'),
                     style: context.theme.typography.body.lg.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -268,12 +328,18 @@ class _OverviewCard extends StatelessWidget {
                 ),
                 FButton(
                   key: ValueKey('overview-${destination.name}'),
-                  semanticsLabel: '打开${destination.label}',
+                  semanticsLabel: AppCopy.of(context).text(
+                    'overview.openDestination',
+                    args: {
+                      'name': AppCopy.of(context)
+                          .text('nav.${destination.name}'),
+                    },
+                  ),
                   variant: FButtonVariant.ghost,
                   mainAxisSize: MainAxisSize.min,
                   onPress: () => onOpen(destination),
                   suffix: const Icon(FLucideIcons.arrowUpRight, size: 16),
-                  child: const Text('打开'),
+                  child: Text(AppCopy.of(context).text('overview.open')),
                 ),
               ],
             ),

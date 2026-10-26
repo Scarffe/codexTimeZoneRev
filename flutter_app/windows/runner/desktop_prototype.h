@@ -17,6 +17,8 @@ bool AttachMonitor(HWND main_window, std::function<void(const std::string&)> act
 int ForwardWorkspaceTestAction(const std::vector<std::wstring>& arguments);
 void ConfigureWorkspace(bool keep_alive, const std::string& workspace);
 void ConfigureTrayAppearance(const production_tray::Appearance& appearance);
+// Presentation only: never publishes, queries, restores or replays notices.
+void ConfigureUiLanguage(HWND main_window, const std::string& language);
 void RecordCloseRequest();
 void HideMonitorMain();
 void ReportMonitorState();

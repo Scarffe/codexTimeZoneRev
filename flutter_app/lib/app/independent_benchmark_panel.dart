@@ -7,41 +7,40 @@ import 'package:forui/forui.dart';
 
 import '../services/benchmark.dart';
 import '../state/benchmark_controller.dart';
+import '../l10n/app_copy.dart';
+import '../l10n/copy_benchmark.dart';
 import 'dashboard_style.dart';
 import 'monitor_information.dart';
 import 'monitor_presentation.dart';
 
-const _labels = {
-  'ttftMs': 'TTFT · 首段响应',
-  'ttfoMs': 'TTFO · 首段可见输出',
-  'streamTokensPerSecond': '流式输出速率',
-  'e2eTokensPerSecond': '端到端速率',
-  'fullResponseTokensPerSecond': '完整响应速率',
-};
-const _formulas = {
-  'ttftMs': '首段内容时间 − 请求开始',
-  'ttfoMs': '首段可见文本时间 − 请求开始',
-  'streamTokensPerSecond': '(输出 token − 首块 token) / (末段内容 − 首段内容)',
-  'e2eTokensPerSecond': '最终输出 token / (HTTP EOF − 请求开始)',
-  'fullResponseTokensPerSecond': '(输出 token − 首块 token) / (HTTP EOF − 首段内容)',
-};
-String _quality(String quality) => switch (quality) {
-  'measured' => '实测延迟',
-  'reported' => '报告计数',
-  'estimated' => '估计',
-  _ => '不可用',
-};
-String _state(String state) => switch (state) {
-  'starting' => '正在保存开始意图',
-  'queued' => '排队',
-  'connecting' => '连接中',
-  'streaming' => '回放中',
-  'completed' => '已完成',
-  'cancelled' => '已取消',
-  'interrupted' => '已中断',
-  'failed' => '失败',
-  _ => '等待开始',
-};
+String _label(BuildContext context, String key) =>
+    AppCopy.of(context).text('benchmark.metric.$key');
+String _quality(
+  BuildContext context,
+  String quality,
+) => AppCopy.of(context).text(
+  'benchmark.quality.${const {'measured', 'reported', 'estimated'}.contains(quality) ? quality : 'unavailable'}',
+);
+String _state(BuildContext context, String state) => AppCopy.of(
+  context,
+).text('benchmark.state.${benchmarkStates.contains(state) ? state : 'idle'}');
+String _scenario(BuildContext context, BenchmarkScenario scenario) {
+  final copy = AppCopy.of(context);
+  if (!copy.isEnglish) return scenario.label;
+  final name = scenario.id.replaceFirst(RegExp(r'^(chat|responses)_'), '');
+  final key = 'benchmark.scenario.$name';
+  return benchmarkMessages.containsKey(key) ? copy.text(key) : scenario.label;
+}
+
+String _error(BuildContext context, String raw) {
+  final copy = AppCopy.of(context);
+  for (final entry in benchmarkMessages.entries) {
+    if (entry.key.startsWith('benchmark.error.') && entry.value.zh == raw) {
+      return copy.text(entry.key);
+    }
+  }
+  return raw;
+}
 
 class IndependentBenchmarkPanel extends StatelessWidget {
   const IndependentBenchmarkPanel({super.key, required this.controller});
@@ -50,31 +49,55 @@ class IndependentBenchmarkPanel extends StatelessWidget {
     unawaited(
       showMonitorInformation(
         context,
-        title: _labels[key]!,
-        builder: (_) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(_formulas[key]!),
-            const SizedBox(height: 12),
-            Text(
-              metric == null
-                  ? '尚无观测事实'
-                  : key.endsWith('Ms')
-                  ? '${metric.denominatorNs ?? '—'} / 10^6 ms'
-                  : '${metric.numeratorTokens ?? '—'} × 10^9 / ${metric.denominatorNs ?? '—'} tokens/s',
-            ),
-            const SizedBox(height: 8),
-            Text('计数来源：${metric?.countSource ?? '—'}'),
-            Text('质量：${_quality(metric?.quality ?? 'unavailable')}'),
-            Text(
-              '原因：${metric == null || metric.reasons.isEmpty ? '无' : metric.reasons.join(' · ')}',
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Rust 计算；延迟使用客户端单调时钟。推理计入 output 的子集；协议终态与 HTTP EOF 分开。',
-            ),
-          ],
-        ),
+        title: _label(context, key),
+        titleKey: 'benchmark.metric.$key',
+        builder: (context) {
+          final copy = AppCopy.of(context);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(copy.text('benchmark.formula.$key')),
+              const SizedBox(height: 12),
+              Text(
+                metric == null
+                    ? copy.text('benchmark.noFacts')
+                    : key.endsWith('Ms')
+                    ? '${metric.denominatorNs ?? '—'} / 10^6 ms'
+                    : '${metric.numeratorTokens ?? '—'} × 10^9 / ${metric.denominatorNs ?? '—'} tokens/s',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                copy.text(
+                  'benchmark.countSource',
+                  args: {'value': metric?.countSource ?? '—'},
+                ),
+              ),
+              Text(
+                copy.text(
+                  'benchmark.quality',
+                  args: {
+                    'value': _quality(
+                      context,
+                      metric?.quality ?? 'unavailable',
+                    ),
+                  },
+                ),
+              ),
+              Text(
+                copy.text(
+                  'benchmark.reasons',
+                  args: {
+                    'value': metric == null || metric.reasons.isEmpty
+                        ? copy.text('common.none')
+                        : metric.reasons.join(' · '),
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(copy.text('benchmark.method')),
+            ],
+          );
+        },
       ),
     );
   }
@@ -83,6 +106,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller,
     builder: (context, _) {
+      final copy = AppCopy.of(context);
       final snapshot = controller.snapshot;
       final palette = DashboardPalette.of(context);
       final muted = context.theme.typography.body.sm.copyWith(
@@ -121,10 +145,10 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(
-                              '独立 API 测速',
+                              copy.text('benchmark.title'),
                               style: context.theme.typography.body.lg,
                             ),
-                            Text('离线回放 · 合成数据 · 客户端观测', style: muted),
+                            Text(copy.text('benchmark.subtitle'), style: muted),
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -136,7 +160,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(
-                              '${controller.starting ? _state('starting') : _state(snapshot?.state ?? '')}${snapshot?.restored == true ? ' · 已恢复的最后观察' : ''}',
+                              '${controller.starting ? _state(context, 'starting') : _state(context, snapshot?.state ?? '')}${snapshot?.restored == true ? copy.text('benchmark.restoredSuffix') : ''}',
                               style: context.theme.typography.body.md.copyWith(
                                 fontWeight: FontWeight.w600,
                                 color: snapshot?.state == 'failed'
@@ -145,15 +169,22 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              '耗时：${snapshot?.elapsedNs == null ? '—' : '${(snapshot!.elapsedNs! / 1e9).toStringAsFixed(3)} s'}${snapshot != null && !snapshot.restored && snapshot.cleanupPending ? ' · 自有任务清理中' : ''}',
+                              '${copy.text('benchmark.elapsed', args: {'value': snapshot?.elapsedNs == null ? '—' : '${(snapshot!.elapsedNs! / 1e9).toStringAsFixed(2)} s'})}${snapshot != null && !snapshot.restored && snapshot.cleanupPending ? copy.text('benchmark.cleanupSuffix') : ''}',
                               style: muted,
                             ),
                             Text(
-                              '样本质量：${snapshot == null
-                                  ? '尚无测试结果'
-                                  : snapshot.successfulSample
-                                  ? '样本有效'
-                                  : '不可作为成功测速样本'}',
+                              copy.text(
+                                'benchmark.sampleQuality',
+                                args: {
+                                  'value': copy.text(
+                                    snapshot == null
+                                        ? 'benchmark.noResult'
+                                        : snapshot.successfulSample
+                                        ? 'benchmark.valid'
+                                        : 'benchmark.invalid',
+                                  ),
+                                },
+                              ),
                               style: muted,
                             ),
                           ],
@@ -161,12 +192,21 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                         if (snapshot != null) ...[
                           const SizedBox(height: 4),
                           Text(
-                            '结果来源：${snapshot.protocol} · ${snapshot.scenarioId}',
+                            copy.text(
+                              'benchmark.resultSource',
+                              args: {
+                                'value':
+                                    '${snapshot.protocol} · ${snapshot.scenarioId}',
+                              },
+                            ),
                             style: muted,
                           ),
                           if (snapshot.reasons.isNotEmpty)
                             Text(
-                              '原因：${snapshot.reasons.join(' · ')}',
+                              copy.text(
+                                'benchmark.reasons',
+                                args: {'value': snapshot.reasons.join(' · ')},
+                              ),
                               style: muted,
                             ),
                         ],
@@ -174,7 +214,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                           Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              controller.lastError!,
+                              _error(context, controller.lastError!),
                               style: TextStyle(color: palette.danger),
                             ),
                           ),
@@ -220,7 +260,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                                       children: [
                                         Expanded(
                                           child: Text(
-                                            _labels[key]!,
+                                            _label(context, key),
                                             style: context
                                                 .theme
                                                 .typography
@@ -232,7 +272,12 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                                           key: ValueKey(
                                             'benchmark-inspect-$key',
                                           ),
-                                          label: '查看${_labels[key]}公式与原因',
+                                          label: copy.text(
+                                            'benchmark.inspect',
+                                            args: {
+                                              'name': _label(context, key),
+                                            },
+                                          ),
                                           icon: FLucideIcons.info,
                                           onPress: () => _inspect(
                                             context,
@@ -251,7 +296,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      '${key.endsWith('Ms') ? 'ms' : 'tokens/s'} · ${_quality(snapshot?.metrics[key]?.quality ?? 'unavailable')}',
+                                      '${key.endsWith('Ms') ? 'ms' : 'tokens/s'} · ${_quality(context, snapshot?.metrics[key]?.quality ?? 'unavailable')}',
                                       style: muted,
                                     ),
                                   ],
@@ -271,8 +316,8 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text('真实 API 测试尚未启用。Ctrl+Enter 开始 · Esc 取消。', style: muted),
-                Text('记录是最后保存的观察，恢复后不会自动补发请求。', style: muted),
+                Text(copy.text('benchmark.offlineOnly'), style: muted),
+                Text(copy.text('benchmark.restorePolicy'), style: muted),
                 const SizedBox(height: 12),
               ],
             ),
@@ -300,7 +345,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                 width: selectWidth,
                 child: FSelect<String>(
                   key: const ValueKey('benchmark-protocol'),
-                  label: const Text('协议'),
+                  label: Text(AppCopy.of(context).text('benchmark.protocol')),
                   items: const {
                     'Chat Completions': 'chat_completions',
                     'Responses': 'responses',
@@ -318,8 +363,10 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                 width: selectWidth,
                 child: FSelect<String>(
                   key: const ValueKey('benchmark-scenario'),
-                  label: const Text('合成场景'),
-                  items: {for (final s in scenarios) s.label: s.id},
+                  label: Text(AppCopy.of(context).text('benchmark.scenario')),
+                  items: {
+                    for (final s in scenarios) _scenario(context, s): s.id,
+                  },
                   enabled: !controller.busy && scenarios.isNotEmpty,
                   control: FSelectControl.lifted(
                     value: scenarios.any((s) => s.id == controller.scenarioId)
@@ -338,7 +385,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                     ? () => unawaited(controller.start())
                     : null,
                 prefix: const Icon(FLucideIcons.play, size: 16),
-                child: const Text('开始回放'),
+                child: Text(AppCopy.of(context).text('benchmark.start')),
               ),
               FButton(
                 key: const ValueKey('benchmark-cancel'),
@@ -347,7 +394,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                 onPress: controller.canCancel
                     ? () => unawaited(controller.cancel())
                     : null,
-                child: const Text('取消'),
+                child: Text(AppCopy.of(context).text('common.cancel')),
               ),
               FButton(
                 key: const ValueKey('benchmark-clear'),
@@ -356,24 +403,13 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                 onPress: controller.canClear && controller.snapshot != null
                     ? () => unawaited(controller.clear())
                     : null,
-                child: const Text('清除结果'),
+                child: Text(AppCopy.of(context).text('benchmark.clear')),
               ),
             ],
           );
         },
       );
 }
-
-const _timingLabels = {
-  'start': '请求开始',
-  'firstContent': '首段内容',
-  'lastContent': '末段内容',
-  'firstVisible': '首段可见文本',
-  'lastVisible': '末段可见文本',
-  'usage': 'usage',
-  'done': '协议终态',
-  'httpEnd': 'HTTP EOF',
-};
 
 class _TimingMarkers extends StatelessWidget {
   const _TimingMarkers({this.snapshot});
@@ -385,7 +421,10 @@ class _TimingMarkers extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('请求事件时间点 · 沿客户端实测耗时定位', style: context.theme.typography.body.lg),
+        Text(
+          AppCopy.of(context).text('benchmark.timeline'),
+          style: context.theme.typography.body.lg,
+        ),
         SizedBox(
           height: 32,
           child: CustomPaint(
@@ -401,9 +440,9 @@ class _TimingMarkers extends StatelessWidget {
           spacing: 14,
           runSpacing: 6,
           children: [
-            for (final entry in _timingLabels.entries)
+            for (final key in benchmarkTimingKeys)
               Text(
-                '${entry.value} ${times[entry.key] == null ? '—' : '${(times[entry.key]! / 1e6).toStringAsFixed(1)} ms'}',
+                '${AppCopy.of(context).text('benchmark.timing.$key')} ${times[key] == null ? '—' : '${(times[key]! / 1e6).toStringAsFixed(2)} ms'}',
                 style: context.theme.typography.body.sm.copyWith(
                   color: palette.muted,
                 ),

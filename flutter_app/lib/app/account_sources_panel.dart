@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -8,6 +10,7 @@ import '../services/account_sources.dart';
 import '../services/account_usage.dart';
 import '../state/account_sources_controller.dart';
 import 'monitor_charts.dart';
+import 'account_usage_panel.dart' show quotaWindowLabel;
 import 'monitor_information.dart';
 import 'monitor_presentation.dart';
 
@@ -94,31 +97,71 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
 
   Future<void> _login([String? id]) => showMonitorInformation(
     context,
-    title: id == null ? '添加监控来源' : '官方登录',
+    titleKey: id == null
+        ? 'accounts.sources.addTitle'
+        : 'accounts.sources.loginTitle',
+    title: id == null
+        ? AppCopy.of(context).text('accounts.sources.addTitle')
+        : AppCopy.of(context).text('accounts.sources.loginTitle'),
     builder: (_) => _SourceLoginEditor(owner: owner, sourceId: id),
   );
 
   Future<void> _details(String id) => showMonitorInformation(
     context,
-    title: '来源详情',
+    titleKey: 'accounts.sources.details',
+    title: AppCopy.of(context).text('accounts.sources.details'),
     builder: (_) => ListenableBuilder(
       listenable: owner,
       builder: (context, _) {
         final source = owner.states.where((s) => s.id == id).firstOrNull;
-        if (source == null) return const Text('来源已移除。');
+        if (source == null) {
+          return Text(AppCopy.of(context).text('accounts.sources.removed'));
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(source.alias),
-            const Text('来源选择仅改变额度监控；本地会话仍独立采集。'),
-            Text('登录状态：${_loginLabel(source.loginState)}'),
+            Text(AppCopy.of(context).text('accounts.sources.separateDetails')),
+            Text(
+              AppCopy.of(context).text(
+                'accounts.sources.loginState',
+                args: {'state': _loginLabel(context, source.loginState)},
+              ),
+            ),
             if (source.usage != null) ...[
-              Text('账号：${source.usage!.email ?? '未知'}'),
-              Text('方案：${source.usage!.plan ?? '未知'}'),
-              Text('观测时间：${source.usage!.fetchedAt.toLocal()}'),
+              Text(
+                AppCopy.of(context).text(
+                  'accounts.sources.account',
+                  args: {
+                    'value':
+                        source.usage!.email ??
+                        AppCopy.of(context).text('common.unknown'),
+                  },
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'accounts.sources.plan',
+                  args: {
+                    'value':
+                        source.usage!.plan ??
+                        AppCopy.of(context).text('common.unknown'),
+                  },
+                ),
+              ),
+              Text(
+                AppCopy.of(context).text(
+                  'accounts.sources.observedAt',
+                  args: {
+                    'value': AppCopy.of(
+                      context,
+                    ).dateTime(source.usage!.fetchedAt, includeSeconds: true),
+                  },
+                ),
+              ),
             ],
             if (source.errorKind != null)
-              Text(sourceErrorMessage(source.errorKind)),
+              Text(_sourceErrorLabel(context, source.errorKind)),
           ],
         );
       },
@@ -127,17 +170,24 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
 
   Future<void> _rename(AccountSourceState source) => showMonitorInformation(
     context,
-    title: '重命名来源',
+    titleKey: 'accounts.sources.renameTitle',
+    title: AppCopy.of(context).text('accounts.sources.renameTitle'),
     builder: (_) => _SourceRename(owner: owner, source: source),
   );
 
   Future<void> _remove(AccountSourceState source) => showMonitorInformation(
     context,
-    title: '移除监控来源',
+    titleKey: 'accounts.sources.removeTitle',
+    title: AppCopy.of(context).text('accounts.sources.removeTitle'),
     builder: (context) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('移除“${source.alias}”及其由本应用管理的登录目录。'),
+        Text(
+          AppCopy.of(context).text(
+            'accounts.sources.removePrompt',
+            args: {'alias': source.alias},
+          ),
+        ),
         const SizedBox(height: 12),
         FButton(
           key: const ValueKey('source-remove-confirm'),
@@ -147,7 +197,9 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                   await owner.remove(source.id);
                   if (context.mounted) Navigator.of(context).pop();
                 },
-          child: const Text('确认移除'),
+          child: Text(
+            AppCopy.of(context).text('accounts.sources.confirmRemove'),
+          ),
         ),
       ],
     ),
@@ -182,7 +234,10 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('额度来源', style: context.theme.typography.body.sm),
+          Text(
+            AppCopy.of(context).text('accounts.sources.title'),
+            style: context.theme.typography.body.sm,
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -194,7 +249,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                   width: 192,
                   child: MonitorChoice(
                     key: const ValueKey('account-source-selector'),
-                    label: '额度来源',
+                    label: AppCopy.of(context).text('accounts.sources.title'),
                     showLabel: false,
                     value: owner.selectedId,
                     items: choices,
@@ -214,7 +269,12 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                     size: 16,
                   ),
                   onPress: _toggleOverview,
-                  child: Text('总览 (${owner.states.length})'),
+                  child: Text(
+                    AppCopy.of(context).text(
+                      'accounts.sources.overviewCount',
+                      args: {'count': owner.states.length},
+                    ),
+                  ),
                 ),
               FButton(
                 key: const ValueKey('add-account-source'),
@@ -222,14 +282,16 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 variant: FButtonVariant.ghost,
                 prefix: const Icon(FLucideIcons.plus, size: 16),
                 onPress: canEdit ? () => _login() : null,
-                child: const Text('添加'),
+                child: Text(AppCopy.of(context).text('accounts.sources.add')),
               ),
               if (selected != null)
                 MonitorIconAction(
                   key: const ValueKey('pin-selected-source'),
                   label: selected.id == owner.pinnedId
-                      ? '此来源已固定到托盘'
-                      : '将此来源固定到托盘',
+                      ? AppCopy.of(context)
+                            .text('accounts.sources.pinnedSelected')
+                      : AppCopy.of(context)
+                            .text('accounts.sources.pinSelected'),
                   icon: FLucideIcons.pin,
                   onPress: owner.canOperate && !selected.pendingRemoval
                       ? () => owner.pin(selected.id)
@@ -237,7 +299,10 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 ),
               if (owner.pinned != null)
                 Text(
-                  '托盘：${owner.pinned!.alias}',
+                  AppCopy.of(context).text(
+                    'accounts.sources.trayAlias',
+                    args: {'alias': owner.pinned!.alias},
+                  ),
                   style: context.theme.typography.body.sm,
                 ),
               if (selected != null)
@@ -249,7 +314,10 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                       children: [
                         FItem(
                           key: const ValueKey('source-details'),
-                          title: const Text('来源详情'),
+                          title: Text(
+                            AppCopy.of(context)
+                                .text('accounts.sources.details'),
+                          ),
                           onPress: () {
                             popover.hide();
                             _details(selected.id);
@@ -257,7 +325,9 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                         ),
                         FItem(
                           key: const ValueKey('source-rename'),
-                          title: const Text('重命名'),
+                          title: Text(
+                            AppCopy.of(context).text('accounts.sources.rename'),
+                          ),
                           onPress: canEdit
                               ? () {
                                   popover.hide();
@@ -269,7 +339,11 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                           FItem(
                             key: const ValueKey('source-login'),
                             title: Text(
-                              selected.loggingIn ? '查看登录进度' : '官方登录 / 重试',
+                              selected.loggingIn
+                                  ? AppCopy.of(context)
+                                        .text('accounts.sources.loginProgress')
+                                  : AppCopy.of(context)
+                                        .text('accounts.sources.loginRetry'),
                             ),
                             onPress: canEdit
                                 ? () {
@@ -280,7 +354,10 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                           ),
                           FItem(
                             key: const ValueKey('source-remove'),
-                            title: const Text('移除来源'),
+                            title: Text(
+                              AppCopy.of(context)
+                                  .text('accounts.sources.remove'),
+                            ),
                             onPress: canEdit
                                 ? () {
                                     popover.hide();
@@ -294,7 +371,7 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                   ],
                   builder: (_, popover, _) => MonitorIconAction(
                     key: const ValueKey('source-management'),
-                    label: '管理当前监控来源',
+                    label: AppCopy.of(context).text('accounts.sources.manage'),
                     icon: FLucideIcons.ellipsis,
                     onPress: popover.toggle,
                   ),
@@ -302,9 +379,9 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
             ],
           ),
           if (choices.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 12),
-              child: Text('暂无可用账号'),
+              child: Text(AppCopy.of(context).text('accounts.sources.empty')),
             ),
           if (owner.states.any((s) => s.loggingIn)) ...[
             const SizedBox(height: 4),
@@ -314,11 +391,19 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
                 variant: FButtonVariant.ghost,
                 onPress: () => _login(source.id),
                 child: Text(
-                  '${source.alias} · ${switch (source.loginState) {
-                    'cancelling' => '取消登录确认中',
-                    'cancel_failed' => '取消登录待确认',
-                    _ => '官方登录进行中',
-                  }} · 查看进度',
+                  AppCopy.of(context).text(
+                    'accounts.sources.progressLine',
+                    args: {
+                      'alias': source.alias,
+                      'state': AppCopy.of(context)
+                          .text(switch (source.loginState) {
+                            'cancelling' => 'accounts.sources.cancellingShort',
+                            'cancel_failed' =>
+                              'accounts.sources.cancelUnknownShort',
+                            _ => 'accounts.sources.loginShort',
+                          }),
+                    },
+                  ),
                 ),
               ),
           ],
@@ -328,14 +413,21 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
               mainAxisSize: MainAxisSize.min,
               variant: FButtonVariant.ghost,
               onPress: owner.canOperate ? () => owner.remove(source.id) : null,
-              child: Text('${source.alias} · 清理未确认 · 重试移除'),
+              child: Text(
+                AppCopy.of(context).text(
+                  'accounts.sources.retryRemoval',
+                  args: {'alias': source.alias},
+                ),
+              ),
             ),
           if (owner.catalogError != null)
-            const Text('来源目录不可用，原文件已保留；添加与登录已停用。'),
-          if (owner.operationError != null) const Text('来源操作未完成，请检查环境后重试。'),
-          if (owner.shutdownState == 'pending') const Text('正在等待退出清理确认…'),
+            Text(AppCopy.of(context).text('accounts.sources.catalogError')),
+          if (owner.operationError != null)
+            Text(AppCopy.of(context).text('accounts.sources.operationError')),
+          if (owner.shutdownState == 'pending')
+            Text(AppCopy.of(context).text('accounts.sources.shutdownPending')),
           if (owner.shutdownState == 'failed')
-            const Text('退出清理未完成，监控已停止；请再次选择退出以重试。'),
+            Text(AppCopy.of(context).text('accounts.sources.shutdownFailed')),
           if (expanded && owner.states.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
@@ -343,13 +435,17 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const Text('来源选择仅改变额度监控；本地会话独立采集。'),
+                Text(AppCopy.of(context).text('accounts.sources.separate')),
                 MonitorChoice(
                   key: const ValueKey('source-overview-sort'),
                   inline: true,
-                  label: '排序',
+                  label: AppCopy.of(context).text('accounts.sources.sort'),
                   value: sort,
-                  items: const {'剩余额度': 'remaining', '下次重置': 'reset'},
+                  items: {
+                    AppCopy.of(context).text('accounts.remainingQuota'):
+                        'remaining',
+                    AppCopy.of(context).text('accounts.nextReset'): 'reset',
+                  },
                   onChanged: (value) => setState(() => sort = value),
                 ),
               ],
@@ -386,17 +482,17 @@ class _AccountSourcesPanelState extends State<AccountSourcesPanel> {
   );
 }
 
-String _loginLabel(String state) => switch (state) {
-  'starting' => '正在准备官方登录…',
-  'waiting' => '等待官方浏览器登录；完成后此处会自动更新。',
-  'cancelling' => '正在等待取消登录确认…',
-  'cancel_failed' => '取消登录未确认，请重试取消。',
-  'removing' => '来源清理未确认，可重试移除。',
-  'succeeded' => '登录已完成。',
-  'cancelled' => '登录已取消。',
-  'timed_out' => '登录超时，请重试。',
-  'failed' => '登录未完成，请重试。',
-  _ => '尚未开始登录。',
+String _loginLabel(BuildContext context, String state) => switch (state) {
+  'starting' => AppCopy.of(context).text('accounts.login.starting'),
+  'waiting' => AppCopy.of(context).text('accounts.login.waiting'),
+  'cancelling' => AppCopy.of(context).text('accounts.login.cancelling'),
+  'cancel_failed' => AppCopy.of(context).text('accounts.login.cancel_failed'),
+  'removing' => AppCopy.of(context).text('accounts.login.removing'),
+  'succeeded' => AppCopy.of(context).text('accounts.login.succeeded'),
+  'cancelled' => AppCopy.of(context).text('accounts.login.cancelled'),
+  'timed_out' => AppCopy.of(context).text('accounts.login.timed_out'),
+  'failed' => AppCopy.of(context).text('accounts.login.failed'),
+  _ => AppCopy.of(context).text('accounts.login.idle'),
 };
 
 class _SourceCard extends StatelessWidget {
@@ -438,14 +534,17 @@ class _SourceCard extends StatelessWidget {
                 ),
                 MonitorIconAction(
                   key: ValueKey('source-pin-${source.id}'),
-                  label: source.id == owner.pinnedId ? '已固定到托盘' : '固定到托盘',
+                  label: source.id == owner.pinnedId
+                      ? AppCopy.of(context).text('accounts.sources.pinned')
+                      : AppCopy.of(context).text('accounts.sources.pin'),
                   icon: FLucideIcons.pin,
                   onPress: source.pendingRemoval
                       ? null
                       : () => owner.pin(source.id),
                 ),
                 MonitorIconAction(
-                  label: '查看来源详情',
+                  label: AppCopy.of(context)
+                      .text('accounts.sources.viewDetails'),
                   icon: FLucideIcons.info,
                   onPress: onDetails,
                 ),
@@ -453,18 +552,26 @@ class _SourceCard extends StatelessWidget {
             ),
             Text(
               source.pendingRemoval
-                  ? '来源清理未确认 · 额度已停止展示'
+                  ? AppCopy.of(context).text('accounts.sources.removalUnknown')
                   : age == null
-                  ? '尚无观测 · 额度未知'
-                  : '观测于 $age 分钟前${owner.isStale(source) ? ' · 数据已过期' : ''}',
+                  ? AppCopy.of(context).text('accounts.sources.unobserved')
+                  : AppCopy.of(context).text(
+                      'accounts.sources.age',
+                      args: {
+                        'minutes': age,
+                        'stale': owner.isStale(source)
+                            ? AppCopy.of(context).text('accounts.sources.stale')
+                            : '',
+                      },
+                    ),
               style: context.theme.typography.body.sm,
             ),
             if (source.errorKind != null)
               Text(
-                sourceErrorMessage(source.errorKind),
+                _sourceErrorLabel(context, source.errorKind),
                 style: context.theme.typography.body.sm,
               ),
-            if (source.loggingIn) Text(_loginLabel(source.loginState)),
+            if (source.loggingIn) Text(_loginLabel(context, source.loginState)),
             if (source.pendingRemoval)
               FButton(
                 mainAxisSize: MainAxisSize.min,
@@ -472,10 +579,12 @@ class _SourceCard extends StatelessWidget {
                 onPress: owner.canOperate
                     ? () => owner.remove(source.id)
                     : null,
-                child: const Text('重试清理来源'),
+                child: Text(
+                  AppCopy.of(context).text('accounts.sources.retryCleanup'),
+                ),
               ),
             const SizedBox(height: 6),
-            const Text('剩余额度'),
+            Text(AppCopy.of(context).text('accounts.remainingQuota')),
             MonitorRingChart(
               inspectionIdentity: (source.id, source.generation, 'remaining'),
               bars: [
@@ -483,8 +592,8 @@ class _SourceCard extends StatelessWidget {
                   for (final w in bucket.windows)
                     ChartBar(
                       label: buckets.length > 1
-                          ? '${bucket.label} · ${w.label}'
-                          : w.label,
+                          ? '${bucket.label} · ${quotaWindowLabel(AppCopy.of(context), w)}'
+                          : quotaWindowLabel(AppCopy.of(context), w),
                       value:
                           w.usedPercent == null ||
                               !w.usedPercent!.isFinite ||
@@ -499,7 +608,7 @@ class _SourceCard extends StatelessWidget {
               showInspection: false,
             ),
             const SizedBox(height: 8),
-            const Text('距重置 · 小时'),
+            Text(AppCopy.of(context).text('accounts.sources.resetHours')),
             MonitorBarChart(
               inspectionIdentity: (source.id, source.generation, 'reset'),
               bars: [
@@ -507,16 +616,22 @@ class _SourceCard extends StatelessWidget {
                   for (final w in bucket.windows)
                     ChartBar(
                       label: buckets.length > 1
-                          ? '${bucket.label} · ${w.label}'
-                          : w.label,
+                          ? '${bucket.label} · ${quotaWindowLabel(AppCopy.of(context), w)}'
+                          : quotaWindowLabel(AppCopy.of(context), w),
                       value: w.resetsAt == null || !w.resetsAt!.isAfter(now)
                           ? null
                           : w.resetsAt!.difference(now).inMinutes / 60,
                       detail: w.resetsAt == null
-                          ? '重置时间未知'
+                          ? AppCopy.of(context).text('accounts.resetUnknown')
                           : !w.resetsAt!.isAfter(now)
-                          ? '到期 · 待查询'
-                          : '本地重置时间：${w.resetsAt!.toLocal()}',
+                          ? AppCopy.of(context).text('accounts.expired')
+                          : AppCopy.of(context).text(
+                              'accounts.sources.localReset',
+                              args: {
+                                'time': AppCopy.of(context)
+                                    .dateTime(w.resetsAt, includeSeconds: true),
+                              },
+                            ),
                       identity: (bucket.id, w.durationMinutes, w.label),
                     ),
               ],
@@ -524,7 +639,7 @@ class _SourceCard extends StatelessWidget {
               compactMeters: true,
               hoverDetails: false,
               showInspection: false,
-              unit: '小时',
+              unit: AppCopy.of(context).text('accounts.hours'),
             ),
           ],
         ),
@@ -568,38 +683,45 @@ class _SourceLoginEditorState extends State<_SourceLoginEditor> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('使用官方浏览器登录独立监控来源。此操作不会切换正在运行的 Codex 账号。'),
+          Text(AppCopy.of(context).text('accounts.sources.loginExplanation')),
           const SizedBox(height: 12),
           if (id == null)
             FTextField(
               key: const ValueKey('source-alias-input'),
-              label: const Text('来源别名'),
+              label: Text(AppCopy.of(context).text('accounts.sources.alias')),
               control: FTextFieldControl.managed(
                 onChange: (value) => setState(() => alias = value.text),
               ),
             )
           else
-            Text(source?.alias ?? '来源已移除'),
+            Text(
+              source?.alias ??
+                  AppCopy.of(context).text('accounts.sources.removedShort'),
+            ),
           const SizedBox(height: 12),
           if (working || source?.loggingIn == true) const FProgress(),
           Text(
             working && source == null
-                ? '正在检查安全登录环境并创建来源…'
-                : _loginLabel(source?.loginState ?? 'idle'),
+                ? AppCopy.of(context).text('accounts.sources.creating')
+                : _loginLabel(context, source?.loginState ?? 'idle'),
           ),
           if (widget.owner.capability?.managedLogin == false)
-            const Text('当前环境不支持安全添加来源。'),
+            Text(AppCopy.of(context).text('accounts.sources.unsupported')),
           if (source?.errorKind != null)
-            Text(sourceErrorMessage(source!.errorKind)),
+            Text(_sourceErrorLabel(context, source!.errorKind)),
           if (widget.owner.operationError != null)
-            const Text('无法完成来源操作，请检查环境后重试。'),
+            Text(
+              AppCopy.of(context).text('accounts.sources.operationUnavailable'),
+            ),
           const SizedBox(height: 12),
           if (source?.loggingIn == true)
             FButton(
               key: const ValueKey('source-login-cancel'),
               onPress: () => widget.owner.cancelLogin(id!),
               child: Text(
-                source?.loginState == 'cancel_failed' ? '重试取消登录' : '取消登录',
+                source?.loginState == 'cancel_failed'
+                    ? AppCopy.of(context).text('accounts.sources.retryCancel')
+                    : AppCopy.of(context).text('accounts.sources.cancelLogin'),
               ),
             )
           else
@@ -616,10 +738,14 @@ class _SourceLoginEditorState extends State<_SourceLoginEditor> {
                       source?.pendingRemoval == true
                   ? null
                   : _start,
-              child: Text(id == null ? '创建来源并打开官方登录' : '重新打开官方登录'),
+              child: Text(
+                id == null
+                    ? AppCopy.of(context).text('accounts.sources.createLogin')
+                    : AppCopy.of(context).text('accounts.sources.reopenLogin'),
+              ),
             ),
           if (source?.loginState == 'succeeded') ...[
-            const Text('官方登录流程已报告完成；额度观测独立更新，别名仅用于区分来源。'),
+            Text(AppCopy.of(context).text('accounts.sources.loginComplete')),
             const SizedBox(height: 8),
             FButton(
               key: const ValueKey('source-login-name'),
@@ -627,11 +753,15 @@ class _SourceLoginEditorState extends State<_SourceLoginEditor> {
                   ? null
                   : () => showMonitorInformation(
                       context,
-                      title: '命名监控来源',
+                      titleKey: 'accounts.sources.nameTitle',
+                      title: AppCopy.of(context)
+                          .text('accounts.sources.nameTitle'),
                       builder: (_) =>
                           _SourceRename(owner: widget.owner, source: source!),
                     ),
-              child: const Text('确认并命名来源'),
+              child: Text(
+                AppCopy.of(context).text('accounts.sources.confirmName'),
+              ),
             ),
           ],
         ],
@@ -654,10 +784,15 @@ class _SourceRenameState extends State<_SourceRename> {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Text('当前别名：${widget.source.alias}'),
+      Text(
+        AppCopy.of(context).text(
+          'accounts.sources.currentAlias',
+          args: {'alias': widget.source.alias},
+        ),
+      ),
       FTextField(
         key: const ValueKey('source-rename-input'),
-        label: const Text('新的来源别名'),
+        label: Text(AppCopy.of(context).text('accounts.sources.newAlias')),
         control: FTextFieldControl.managed(
           onChange: (value) => setState(() => alias = value.text),
         ),
@@ -671,8 +806,21 @@ class _SourceRenameState extends State<_SourceRename> {
                 widget.owner.rename(widget.source.id, alias);
                 Navigator.of(context).pop();
               },
-        child: const Text('保存别名'),
+        child: Text(AppCopy.of(context).text('accounts.sources.saveAlias')),
       ),
     ],
   );
 }
+
+// Public source failure kinds are presentation state, not translated transport data.
+String _sourceErrorLabel(BuildContext context, String? kind) =>
+    AppCopy.of(context).text(switch (kind) {
+      'auth_required' || 'auth_failed' => 'accounts.sourceError.auth',
+      'network' => 'accounts.sourceError.network',
+      'rate_limited' => 'accounts.sourceError.rate',
+      'timeout' => 'accounts.sourceError.timeout',
+      'unsupported' || 'isolation_failed' => 'accounts.sourceError.unsupported',
+      'cancelled' => 'accounts.sourceError.cancelled',
+      'busy' => 'accounts.sourceError.busy',
+      _ => 'accounts.sourceError.unavailable',
+    });

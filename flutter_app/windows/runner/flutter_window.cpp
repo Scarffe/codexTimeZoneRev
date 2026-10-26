@@ -53,6 +53,11 @@ bool FlutterWindow::OnCreate() {
     };
     const auto* dark_value=field("dark");
     const auto* dark=dark_value?std::get_if<bool>(dark_value):nullptr;
+    const auto* language_value=field("uiLanguage");
+    const auto* language=language_value?std::get_if<std::string>(language_value):nullptr;
+    if(language_value && (!language || (*language!="zh" && *language!="en"))) {
+      result->Error("invalid_appearance","Expected optional uiLanguage zh or en"); return;
+    }
     const auto caption=argb("captionArgb"),text=argb("textArgb"),border=argb("borderArgb");
     const auto surface=argb("menuSurfaceArgb"),selected=argb("menuSelectedArgb"),
         accent=argb("menuAccentArgb"),danger=argb("menuDangerArgb");
@@ -69,6 +74,7 @@ bool FlutterWindow::OnCreate() {
     tray.surface=surface.value_or(*caption); tray.selected=selected.value_or(tray.selected);
     tray.accent=accent.value_or(tray.accent); tray.danger=danger.value_or(tray.danger);
     tray.text=*text; tray.border=*border;
+    desktop_prototype::ConfigureUiLanguage(GetHandle(),language?*language:"zh");
     desktop_prototype::ConfigureTrayAppearance(tray);
     const auto applied=window_chrome::ApplyAppearance(GetHandle(),{*dark,*caption,*text,*border});
     flutter::EncodableMap reply;

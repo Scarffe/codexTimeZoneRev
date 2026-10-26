@@ -22,8 +22,9 @@ bool IsArgb(std::int64_t value) { return value >= 0 && value <= 0xffffffffLL; }
 int StyledMenu::Scale(int logical) const { return MulDiv(logical, static_cast<int>(dpi_), 96); }
 
 StyledMenu::StyledMenu(const Commands& commands, bool paused,
-                       const Appearance& appearance, UINT dpi, bool use_system_menu)
-    : appearance_(appearance), dpi_(dpi ? dpi : 96) {
+                       const Appearance& appearance, UINT dpi, bool use_system_menu,
+                       ui_copy::Language language)
+    : appearance_(appearance), dpi_(dpi ? dpi : 96), language_(language) {
   static_assert(std::is_standard_layout_v<Item>);
   static_assert(offsetof(Item, accessibility) == 0);
   bool ready = !use_system_menu && !HighContrast();
@@ -70,7 +71,8 @@ bool StyledMenu::Create(const Commands& commands, bool paused, bool styled) {
   menu_ = CreatePopupMenu();
   if (!menu_) return false;
   const UINT ids[] = {commands.open, commands.refresh, commands.pause, 0, commands.exit};
-  const wchar_t* labels[] = {L"打开主窗口", L"立即刷新额度", L"自动刷新", L"", L"退出程序"};
+  const auto& copy = ui_copy::For(language_);
+  const wchar_t* labels[] = {copy.menu_open, copy.menu_refresh, copy.menu_automatic, L"", copy.menu_exit};
   int widest = 0;
   if (styled) {
     HDC dc = CreateCompatibleDC(nullptr);

@@ -1,3 +1,6 @@
+import '../l10n/copy_analysis.dart';
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -35,25 +38,41 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
     super.dispose();
   }
 
-  String _time(int? value) =>
-      value == null ? '未知' : '${(value / 1000).toStringAsFixed(3)} s';
+  String _time(int? value) => value == null
+      ? AppCopy.of(context).text('analysis.unknown')
+      : '${(value / 1000).toStringAsFixed(3)} s';
 
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    if (!data.available) return Text(data.reasonText);
+    if (!data.available) {
+      return Text(AppCopy.of(context).timelineDescription(data));
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 8),
-        const Text('最近完成的所选回合 · 日志区间 · 约 1 s 精度'),
-        const Text('四类可重叠 · 阴影为近似边界'),
-        if (data.sourcePartial) const Text('来源不完整：仅展示已记录事实'),
+        Text(
+          AppCopy.of(context)
+              .text('analysis.lastCompletedSelectedTurnLoggedIntervalsAbout'),
+        ),
+        Text(
+          AppCopy.of(context)
+              .text('analysis.fourCategoriesMayOverlapShadingMarksApproximate'),
+        ),
+        if (data.sourcePartial)
+          Text(
+            AppCopy.of(context)
+                .text('analysis.partialSourceOnlyRecordedFactsAreShown'),
+          ),
         if (data.spanMs != null) ...[
           const SizedBox(height: 8),
           _TimelineBands(data: data),
         ] else
-          const Text('缺少可核验回合边界，仅列出文字事实，不绘制位置。'),
+          Text(
+            AppCopy.of(context)
+                .text('analysis.turnBoundariesAreUnverifiableTextFactsAre'),
+          ),
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
@@ -69,7 +88,9 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
                     ? FLucideIcons.chevronDown
                     : FLucideIcons.chevronRight,
               ),
-              child: const Text('原始活动记录'),
+              child: Text(
+                AppCopy.of(context).text('analysis.rawActivityRecords'),
+              ),
             ),
           ),
         ),
@@ -78,17 +99,34 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(data.reasonText),
-              const Text('四类可重叠，不能相加为回合阶段；空白不代表等待或网络耗时。'),
+              Text(AppCopy.of(context).timelineDescription(data)),
+              Text(
+                AppCopy.of(context)
+                    .text('analysis.theFourCategoriesCanOverlapAndCannot'),
+              ),
               if (data.omittedItems > 0)
                 Text(
-                  '按时间先后展示 ${data.rows.length} 项，省略 ${data.omittedItems} 项；汇总仍使用全部有效项。',
+                  AppCopy.of(context).text(
+                    'analysis.showingItemsChronologicallyOmittedAggregatesStillUse',
+                    args: {'p0': data.rows.length, 'p1': data.omittedItems},
+                  ),
                 ),
               if (data.coverageInterpretation == 'unavailable')
-                const Text('覆盖范围无法解释：不计算空白占比，也不推断未显示区间的活动。'),
+                Text(
+                  AppCopy.of(context)
+                      .text('analysis.coverageCannotBeInterpretedNoBlankSpace'),
+                ),
               if (data.spanMs != null)
-                const Text('近似窗口与实际回合耗时不同；首尾阴影为边界不确定区（各至多 1.000 s）。'),
-              const Text('对应文字记录（可滚动）：记录起止为 Unix epoch 毫秒；偏移相对于近似窗口；未绘制项保留原因。'),
+                Text(
+                  AppCopy.of(
+                    context,
+                  ).text('analysis.theApproximateWindowDiffersFromActualTurn'),
+                ),
+              Text(
+                AppCopy.of(
+                  context,
+                ).text('analysis.textRecordsScrollableBoundariesAreUnixEpoch'),
+              ),
               SizedBox(
                 height: 210,
                 child: ListView.builder(
@@ -97,15 +135,39 @@ class _SessionActivityTimelineState extends State<SessionActivityTimeline> {
                   itemCount: data.rows.length,
                   itemBuilder: (context, i) {
                     final row = data.rows[i];
-                    final offset =
-                        '偏移 ${_time(row.offsetStartMs)} → ${_time(row.offsetEndMs)}';
+                    final offset = AppCopy.of(context).text(
+                      'analysis.offset',
+                      args: {
+                        'p0': _time(row.offsetStartMs),
+                        'p1': _time(row.offsetEndMs),
+                      },
+                    );
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 5),
                       child: Text(
-                        '${row.label} · 记录开始：${row.startedAtMs ?? '未知'} · 记录结束：${row.completedAtMs ?? '未知'} · Unix epoch 毫秒\n'
-                        '$offset · 项时长 ${_time(row.durationMs)}'
-                        '${row.drawable ? '' : ' · 未绘制'}'
-                        '${row.reasonText.isEmpty ? '' : ' · ${row.reasonText}'}',
+                        AppCopy.of(context).text(
+                          'analysis.recordedStartRecordedEndUnixEpochMilliseconds',
+                          args: {
+                            'p0': AppCopy.of(context).timelineRowLabel(row),
+                            'p1':
+                                row.startedAtMs ??
+                                AppCopy.of(context).text('analysis.unknown'),
+                            'p2':
+                                row.completedAtMs ??
+                                AppCopy.of(context).text('analysis.unknown'),
+                            'p3': offset,
+                            'p4': _time(row.durationMs),
+                            'p5': row.drawable
+                                ? ''
+                                : AppCopy.of(context).text('analysis.notDrawn'),
+                            'p6':
+                                AppCopy.of(context)
+                                    .timelineRowReasons(row)
+                                    .isEmpty
+                                ? ''
+                                : ' · ${AppCopy.of(context).timelineRowReasons(row)}',
+                          },
+                        ),
                       ),
                     );
                   },
@@ -129,7 +191,12 @@ class _TimelineBands extends StatelessWidget {
     final span = data.spanMs!;
     final uncertainty = (data.boundsResolutionMs / span).clamp(0.0, 1.0);
     const categories = ['message', 'reasoning', 'tool', 'other'];
-    const labels = ['消息', '推理', '工具', '其他'];
+    final labels = [
+      AppCopy.of(context).text('analysis.message'),
+      AppCopy.of(context).text('analysis.reasoning'),
+      AppCopy.of(context).text('analysis.tool'),
+      AppCopy.of(context).text('analysis.other'),
+    ];
     // Labels and equivalent text records carry meaning independently of color.
     const accents = [
       Color(0xff3b82f6),
@@ -138,7 +205,8 @@ class _TimelineBands extends StatelessWidget {
       Color(0xfff59e0b),
     ];
     return Semantics(
-      label: '四类日志项近似时间轴，活动可重叠；详见下方对应文字记录',
+      label: AppCopy.of(context)
+          .text('analysis.approximateTimelineOfFourLogCategoriesActivity'),
       child: Column(
         key: const ValueKey('session-timeline-chart'),
         children: [
@@ -147,7 +215,13 @@ class _TimelineBands extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 7),
               child: Row(
                 children: [
-                  SizedBox(width: 66, child: Text('${labels[c]} 项')),
+                  SizedBox(
+                    width: 66,
+                    child: Text(
+                      AppCopy.of(context)
+                          .text('analysis.items', args: {'p0': labels[c]}),
+                    ),
+                  ),
                   Expanded(
                     child: LayoutBuilder(
                       builder: (context, constraints) {
@@ -200,7 +274,8 @@ class _TimelineBands extends StatelessWidget {
                                       top: 4 + (row.ordinal % 3) * 6,
                                       height: 8,
                                       child: Semantics(
-                                        label: row.label,
+                                        label: AppCopy.of(context)
+                                            .timelineRowLabel(row),
                                         child: DecoratedBox(
                                           decoration: BoxDecoration(
                                             color: accents[c].withValues(
@@ -231,7 +306,12 @@ class _TimelineBands extends StatelessWidget {
               runSpacing: 4,
               children: [
                 const Text('0.000 s'),
-                Text('${(span / 1000).toStringAsFixed(3)} s · 近似窗口'),
+                Text(
+                  AppCopy.of(context).text(
+                    'analysis.sApproximateWindow',
+                    args: {'p0': (span / 1000).toStringAsFixed(3)},
+                  ),
+                ),
               ],
             ),
           ),

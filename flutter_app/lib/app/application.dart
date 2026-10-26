@@ -244,7 +244,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
   final windowChrome = WindowChrome();
-  (DashboardThemeStyle, bool)? chromeAppearance;
+  (DashboardThemeStyle, bool, AppLanguage)? chromeAppearance;
   DesktopMonitor? monitor;
   WorkspaceDestination selected = WorkspaceDestination.launcher;
   SessionAttentionNotice? openedNotice;
@@ -270,7 +270,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   }
 
   void _syncChrome(bool dark) {
-    final resolved = (themeStyle.value, dark);
+    final resolved = (themeStyle.value, dark, language.value);
     if (chromeAppearance == resolved) return;
     chromeAppearance = resolved;
     final palette = DashboardPalette.forBrightness(
@@ -288,6 +288,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         menuSelectedArgb: palette.selected.toARGB32(),
         menuAccentArgb: palette.controlAccent.toARGB32(),
         menuDangerArgb: palette.danger.toARGB32(),
+        uiLanguage: resolved.$3.code,
       );
     });
   }
@@ -406,6 +407,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           onMonitor: _showAccountDetails,
           backgroundStart: widget.monitorEnabled,
           workspace: () => selected.name,
+          language: () => language.value,
           onNotice: (text) {
             if (mounted) setState(() => recentNotice = text);
           },
@@ -465,6 +467,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   Future<void> _setLanguage(AppLanguage value) async {
     _languageRevision++;
     setState(() => language.value = value);
+    monitor?.refreshPresentation();
     if (!widget.preview && !widget.offlineTrial) {
       try {
         if (!await (await SharedPreferences.getInstance()).setString(
@@ -474,11 +477,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           throw StateError('Language preference was not saved');
         }
       } catch (error) {
-        if (mounted)
+        if (mounted) {
           launcher.report(
             AppCopy(value).text('app.languageSaveFailure'),
             detail: error.toString(),
           );
+        }
       }
     }
   }
@@ -495,7 +499,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           throw StateError('Appearance preference was not saved');
         }
       } catch (e) {
-        if (mounted) launcher.report('主题已切换，但无法保存偏好。', detail: e.toString());
+        if (mounted) {
+          launcher.report(
+            AppCopy(language.value).text('app.themeSaveFailure'),
+            detail: e.toString(),
+          );
+        }
       }
     }
   }
@@ -510,7 +519,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           value,
         );
       } catch (e) {
-        if (mounted) launcher.report('风格已切换，但无法保存偏好。', detail: e.toString());
+        if (mounted) {
+          launcher.report(
+            AppCopy(language.value).text('app.styleSaveFailure'),
+            detail: e.toString(),
+          );
+        }
       }
     }
   }

@@ -39,6 +39,7 @@ class SessionAttentionController extends ChangeNotifier {
   String? _error;
   int _alertSerial = 0;
   String _alert = '';
+  SessionAttentionNotice? _activeNotice;
   DateTime? _alertUntil;
   bool _remindersEnabled = false;
   DateTime? _mutedUntil;
@@ -55,6 +56,8 @@ class SessionAttentionController extends ChangeNotifier {
   int get unreadCount => _notices.where((n) => !n.read).length;
   int get alertSerial => _alertSerial;
   String get alert => _alertUntil?.isAfter(_now()) == true ? _alert : '';
+  SessionAttentionNotice? get activeNotice =>
+      alert.isEmpty ? null : _activeNotice;
   String? get error => _error;
   bool get busy => _polling != null;
   bool get remindersEnabled => _remindersEnabled;
@@ -319,6 +322,7 @@ class SessionAttentionController extends ChangeNotifier {
               _remindersEnabled &&
               _mutedUntil?.isAfter(_now()) != true) {
             _alert = '${notice.title} · 回合已结束';
+            _activeNotice = notice;
             _alertUntil = _now().add(const Duration(seconds: 10));
             _alertSerial++;
             _notify();

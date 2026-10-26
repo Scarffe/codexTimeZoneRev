@@ -271,6 +271,7 @@ void main() {
           'menuSelectedArgb': palette.selected.toARGB32(),
           'menuAccentArgb': palette.accent.toARGB32(),
           'menuDangerArgb': palette.danger.toARGB32(),
+          'uiLanguage': 'zh',
         });
         await tester.pump();
         expect(calls, hasLength(1));

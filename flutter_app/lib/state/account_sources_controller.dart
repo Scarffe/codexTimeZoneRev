@@ -67,6 +67,7 @@ class AccountSourcesController extends ChangeNotifier {
   bool monitoring = false, alertsEnabled = true;
   int alertThreshold = 20, alertSerial = 0;
   String alert = '';
+  String? alertSourceId;
   Duration interval = const Duration(seconds: 120);
   String selectedId = '', pinnedId = '';
   List<AccountSourceState> get states => List.unmodifiable(_states.values);
@@ -523,6 +524,7 @@ class AccountSourcesController extends ChangeNotifier {
                 message != null &&
                 alertsEnabled) {
               alert = '${state.alias} · 额度偏低，请查看剩余额度。';
+              alertSourceId = state.id;
               alertSerial++;
             }
             _observed.add('$id:$generation');

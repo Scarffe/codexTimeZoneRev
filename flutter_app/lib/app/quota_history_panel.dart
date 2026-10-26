@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -126,10 +128,12 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
 
   String _windowLabel(QuotaHistorySeries s) {
     final duration = switch (s.durationMinutes) {
-      300 => '5 小时',
-      10080 => '周额度',
-      null => '时长未知',
-      final n => '$n 分钟',
+      300 => AppCopy.of(context).text('history.fiveHours'),
+      10080 => AppCopy.of(context).text('history.weekly'),
+      null => AppCopy.of(context).text('history.unknownDuration'),
+      final n => AppCopy.of(
+        context,
+      ).text('history.minutes', args: {'count': n}),
     };
     return '$duration · ${s.role.name}';
   }
@@ -138,7 +142,9 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
-      if (_source == null) return const Text('添加来源后可查看额度历史');
+      if (_source == null) {
+        return Text(AppCopy.of(context).text('history.addFirst'));
+      }
       final c = widget.controller, p = c.projection;
       final series = _series.where((s) => s.segmentId == _segment).toList();
       final buckets = series.map((s) => s.bucketId).toSet();
@@ -171,7 +177,7 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
             children: [
               choice(
                 'history-bucket',
-                '额度类型',
+                AppCopy.of(context).text('history.bucket'),
                 _bucket ?? '',
                 {for (final b in buckets) b: b},
                 (v) => _change(() {
@@ -183,7 +189,7 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
               ),
               choice(
                 'history-window',
-                '窗口',
+                AppCopy.of(context).text('history.window'),
                 '${_role?.name}:$_duration',
                 {
                   for (final s in windows)
@@ -197,20 +203,30 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
                   _duration = s.durationMinutes;
                 }),
               ),
-              choice('history-range', '时间', '$_days', const {
-                '24 小时': '1',
-                '7 天': '7',
-                '30 天': '30',
-              }, (v) => _change(() => _days = int.parse(v))),
+              choice(
+                'history-range',
+                AppCopy.of(context).text('history.time'),
+                '$_days',
+                {
+                  AppCopy.of(context).text('history.day'): '1',
+                  AppCopy.of(context).text('history.week'): '7',
+                  AppCopy.of(context).text('history.month'): '30',
+                },
+                (v) => _change(() => _days = int.parse(v)),
+              ),
               choice(
                 'history-segment',
-                '登录分段',
+                AppCopy.of(context).text('history.segment'),
                 _segment ?? '__current__',
                 {
-                  '当前登录段': _current ?? '__current__',
+                  AppCopy.of(context).text('history.currentSegment'):
+                      _current ?? '__current__',
                   for (var i = 0; i < _segments.length; i++)
                     if (_segments[i] != _current)
-                      '旧段 ${i + 1} · 检索范围 $range': _segments[i],
+                      AppCopy.of(context).text(
+                        'history.oldSegment',
+                        args: {'index': i + 1, 'range': range},
+                      ): _segments[i],
                 },
                 (v) => _change(() {
                   _segment = v == '__current__' ? null : v;
@@ -227,68 +243,119 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Text('本地观测 · $range'),
+              Text(
+                AppCopy.of(context)
+                    .text('history.localRange', args: {'range': range}),
+              ),
               FButton(
                 key: const ValueKey('history-reload'),
                 mainAxisSize: MainAxisSize.min,
                 variant: FButtonVariant.outline,
                 onPress: _load,
-                child: const Text('重读本地历史'),
+                child: Text(AppCopy.of(context).text('history.reload')),
               ),
             ],
           ),
           if (widget.owner?.historyError != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(widget.owner!.historyError!),
+              child: Text(
+                _historyStorageError(context, widget.owner!.historyError!),
+              ),
             ),
           if (c.hasStorageGaps)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 8),
-              child: Text('历史文件有缺失 · 已保留可读观测'),
+              child: Text(AppCopy.of(context).text('history.storageGaps')),
             ),
           const SizedBox(height: 16),
           if (c.isLoading)
-            const Text('读取本地历史…')
+            Text(AppCopy.of(context).text('history.loading'))
           else if (c.error != null)
-            Text(c.error!)
+            Text(AppCopy.of(context).text('history.readError'))
           else if (p != null && p.requiresSelection && p.events.isNotEmpty)
-            const Text('尚无已知窗口')
+            Text(AppCopy.of(context).text('history.noWindow'))
           else if (p == null || p.sampleCount == 0)
-            Text(_segment == _current ? '当前登录段暂无观测' : '所选范围暂无有效观测'),
+            Text(
+              _segment == _current
+                  ? AppCopy.of(context).text('history.emptyCurrent')
+                  : AppCopy.of(context).text('history.emptyRange'),
+            ),
           if (p != null && !c.isLoading) ...[
             const SizedBox(height: 12),
             Wrap(
               spacing: 32,
               runSpacing: 12,
               children: [
-                _stat('范围内最新余量', _percent(p.latestPoint?.remainingPercent)),
                 _stat(
-                  '观测余量范围',
+                  AppCopy.of(context).text('history.latestRemaining'),
+                  _percent(p.latestPoint?.remainingPercent),
+                ),
+                _stat(
+                  AppCopy.of(context).text('history.remainingRange'),
                   '${_percent(p.minimumRemaining)} – ${_percent(p.maximumRemaining)}',
                 ),
-                _stat('有效采样数', '${p.sampleCount}'),
-                _stat('最近成功时间', historyTime(p.lastObservedUtc)),
+                _stat(
+                  AppCopy.of(context).text('history.sampleCount'),
+                  '${p.sampleCount}',
+                ),
+                _stat(
+                  AppCopy.of(context).text('history.lastSuccess'),
+                  historyTime(p.lastObservedUtc, copy: AppCopy.of(context)),
+                ),
               ],
             ),
             const SizedBox(height: 16),
             MonitorChartFrame(
               key: const ValueKey('quota-history-trend'),
-              title: '额度趋势 · ${_used ? '已用' : '剩余'}',
+              title: AppCopy.of(context).text(
+                'history.trendTitle',
+                args: {
+                  'view': AppCopy.of(context)
+                      .text(_used ? 'accounts.used' : 'accounts.remaining'),
+                },
+              ),
               icon: FLucideIcons.chartLine,
               controls: [
                 MonitorChoice(
-                  label: '读数',
+                  label: AppCopy.of(context).text('history.readout'),
                   value: _used ? 'used' : 'remaining',
-                  items: const {'剩余': 'remaining', '已用': 'used'},
+                  items: {
+                    AppCopy.of(context).text('accounts.remaining'): 'remaining',
+                    AppCopy.of(context).text('accounts.used'): 'used',
+                  },
                   onChanged: (v) => setState(() => _used = v == 'used'),
                 ),
               ],
               footnotes: [
-                '所选段有效采样：${historyTime(p.firstObservedUtc)} – ${historyTime(p.lastObservedUtc)}',
+                AppCopy.of(context).text(
+                  'history.segmentSamples',
+                  args: {
+                    'first': historyTime(
+                      p.firstObservedUtc,
+                      copy: AppCopy.of(context),
+                    ),
+                    'last': historyTime(
+                      p.lastObservedUtc,
+                      copy: AppCopy.of(context),
+                    ),
+                  },
+                ),
                 if (p.actualFromUtc != p.firstObservedUtc ||
                     p.actualToUtc != p.lastObservedUtc)
-                  '来源可读记录：${historyTime(p.actualFromUtc)} – ${historyTime(p.actualToUtc)}',
+                  AppCopy.of(context).text(
+                    'history.readableRecords',
+                    args: {
+                      'first': historyTime(
+                        p.actualFromUtc,
+                        copy: AppCopy.of(context),
+                      ),
+                      'last': historyTime(
+                        p.actualToUtc,
+                        copy: AppCopy.of(context),
+                      ),
+                    },
+                  ),
               ],
               child: QuotaHistoryTrendChart(
                 projection: p,
@@ -302,15 +369,17 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
               builder: (context, constraints) {
                 final heatmap = MonitorChartFrame(
                   key: const ValueKey('quota-history-heatmap'),
-                  title: '日 × 小时 · 观测余量',
+                  title: AppCopy.of(context).text('history.heatmapTitle'),
                   icon: FLucideIcons.grid2X2,
                   controls: [
                     MonitorChoice(
-                      label: '小时指标',
+                      label: AppCopy.of(context).text('history.hourMetric'),
                       value: _metric.name,
-                      items: const {
-                        '观测最低剩余': 'minimumRemaining',
-                        '最后观测剩余': 'lastRemaining',
+                      items: {
+                        AppCopy.of(context).text('history.minimumRemaining'):
+                            'minimumRemaining',
+                        AppCopy.of(context).text('history.lastRemaining'):
+                            'lastRemaining',
                       },
                       onChanged: (v) => _change(
                         () => _metric = QuotaHistoryHeatmapMetric.values.byName(
@@ -319,15 +388,15 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
                       ),
                     ),
                   ],
-                  footnotes: const [
-                    '灰斜线：未知 · 红边 ×：失败 · 上沿虚线：缺口',
-                    '仅总结已观测数据，非完整小时最低值',
+                  footnotes: [
+                    AppCopy.of(context).text('history.heatmapLegend'),
+                    AppCopy.of(context).text('history.heatmapBoundary'),
                   ],
                   child: QuotaHistoryHeatmap(cells: p.hourCells),
                 );
                 final events = MonitorChartFrame(
                   key: const ValueKey('quota-history-events'),
-                  title: '变化与查询异常',
+                  title: AppCopy.of(context).text('history.eventsTitle'),
                   icon: FLucideIcons.list,
                   child: QuotaHistoryTimeline(
                     projection: p,
@@ -356,8 +425,9 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
       );
     },
   );
-  String _percent(double? value) =>
-      value == null ? '未知' : '${inspectionNumber(value)}%';
+  String _percent(double? value) => value == null
+      ? AppCopy.of(context).text('common.unknown')
+      : '${inspectionNumber(value)}%';
   Widget _stat(String label, String value) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -367,3 +437,9 @@ class _QuotaHistoryPanelState extends State<QuotaHistoryPanel> {
     ],
   );
 }
+
+String _historyStorageError(BuildContext context, String raw) => switch (raw) {
+  '历史保存失败。' => AppCopy.of(context).text('history.writeError'),
+  '历史本地清理失败。' => AppCopy.of(context).text('history.cleanupError'),
+  _ => raw,
+};

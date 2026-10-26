@@ -2,15 +2,18 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
+import '../l10n/app_copy.dart';
+
 /// One same-window, scrollable destination for permitted dynamic facts only.
 Future<void> showMonitorInformation(
   BuildContext context, {
   required String title,
+  String? titleKey,
   required WidgetBuilder builder,
 }) => showGeneralDialog<void>(
   context: context,
   barrierDismissible: true,
-  barrierLabel: '关闭详情',
+  barrierLabel: AppCopy.of(context).text('monitor.info.closeDetails'),
   pageBuilder: (context, _, _) => Padding(
     padding: const EdgeInsets.all(16),
     child: Center(
@@ -31,7 +34,10 @@ Future<void> showMonitorInformation(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(title, style: context.theme.typography.body.lg),
+                Text(
+                  titleKey == null ? title : AppCopy.of(context).text(titleKey),
+                  style: context.theme.typography.body.lg,
+                ),
                 const SizedBox(height: 12),
                 Flexible(child: SingleChildScrollView(child: builder(context))),
                 const SizedBox(height: 12),
@@ -39,7 +45,7 @@ Future<void> showMonitorInformation(
                   key: const ValueKey('monitor-information-close'),
                   variant: FButtonVariant.outline,
                   onPress: () => Navigator.of(context).pop(),
-                  child: const Text('关闭'),
+                  child: Text(AppCopy.of(context).text('monitor.info.close')),
                 ),
               ],
             ),
@@ -65,14 +71,23 @@ class MonitorInformationFact extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('$label：$value'),
+        Text(
+          AppCopy.of(
+            context,
+          ).text('monitor.info.fact', args: {'label': label, 'value': value}),
+        ),
         if (copyable)
           FButton(
             mainAxisSize: MainAxisSize.min,
             variant: FButtonVariant.ghost,
             prefix: const Icon(FLucideIcons.copy, size: 14),
             onPress: () => Clipboard.setData(ClipboardData(text: value)),
-            child: Text('复制$label'),
+            child: Flexible(
+              child: Text(
+                AppCopy.of(context)
+                    .text('monitor.info.copy', args: {'label': label}),
+              ),
+            ),
           ),
       ],
     ),

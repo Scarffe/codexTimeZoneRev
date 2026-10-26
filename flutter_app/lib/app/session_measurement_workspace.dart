@@ -1,3 +1,5 @@
+import '../l10n/app_copy.dart';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -50,7 +52,8 @@ class _SessionMeasurementWorkspaceState
                       child: _motionButton(
                         FButton(
                           key: const ValueKey('measurement-current-session'),
-                          semanticsLabel: '当前会话',
+                          semanticsLabel: AppCopy.of(context)
+                              .text('analysis.currentSession'),
                           mainAxisSize: MainAxisSize.min,
                           selected: !api,
                           variant: FButtonVariant.ghost,
@@ -58,7 +61,9 @@ class _SessionMeasurementWorkspaceState
                               (widget.independentApiSelected ?? _localSelection)
                                       .value =
                                   false,
-                          child: const Text('当前会话'),
+                          child: Text(
+                            AppCopy.of(context).text('analysis.currentSession'),
+                          ),
                         ),
                       ),
                     ),
@@ -69,7 +74,8 @@ class _SessionMeasurementWorkspaceState
                       child: _motionButton(
                         FButton(
                           key: const ValueKey('measurement-independent-api'),
-                          semanticsLabel: '独立 API',
+                          semanticsLabel: AppCopy.of(context)
+                              .text('analysis.independentAPI'),
                           mainAxisSize: MainAxisSize.min,
                           selected: api,
                           variant: FButtonVariant.ghost,
@@ -77,7 +83,9 @@ class _SessionMeasurementWorkspaceState
                               (widget.independentApiSelected ?? _localSelection)
                                       .value =
                                   true,
-                          child: const Text('独立 API'),
+                          child: Text(
+                            AppCopy.of(context).text('analysis.independentAPI'),
+                          ),
                         ),
                       ),
                     ),
@@ -113,15 +121,29 @@ class _SessionMeasurementWorkspaceState
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 Text(
-                                  '独立 API 测速',
+                                  AppCopy.of(context)
+                                      .text('analysis.independentAPIBenchmark'),
                                   style: context.theme.typography.display.lg,
                                 ),
                                 const SizedBox(height: 8),
-                                const Text('独立来源 · 客户端观测'),
-                                const Text('待实现'),
-                                const Text('M2 离线内核已验收；真实接口与测速界面待实现'),
-                                const Text(
-                                  '这里将使用单独的测试请求与结果，不使用当前会话日志作为 API 结果。',
+                                Text(
+                                  AppCopy.of(context).text(
+                                    'analysis.independentSourceClientObservations',
+                                  ),
+                                ),
+                                Text(
+                                  AppCopy.of(context)
+                                      .text('analysis.notYetImplemented'),
+                                ),
+                                Text(
+                                  AppCopy.of(context).text(
+                                    'analysis.m2OfflineEngineVerifiedLiveAPIAnd',
+                                  ),
+                                ),
+                                Text(
+                                  AppCopy.of(context).text(
+                                    'analysis.thisViewUsesSeparateTestRequestsAnd',
+                                  ),
                                 ),
                               ],
                             ),

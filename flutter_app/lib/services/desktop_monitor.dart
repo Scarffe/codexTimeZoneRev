@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import '../l10n/app_copy.dart';
+import '../l10n/app_language.dart';
+
 import '../state/session_rhythm_controller.dart';
 
 import 'package:flutter/services.dart';
@@ -27,6 +30,7 @@ class DesktopMonitor {
     this.metrics,
     this.benchmark,
     this.interval = const Duration(minutes: 2),
+    this.language,
   });
   final SessionRhythmController? rhythm;
   final AccountUsageController usage;
@@ -36,6 +40,9 @@ class DesktopMonitor {
   final BenchmarkController? benchmark;
   final String Function() path;
   final Duration interval;
+  final AppLanguage Function()? language;
+  AppCopy get _copy => AppCopy(language?.call() ?? AppLanguage.zh);
+  void refreshPresentation() => _publish();
   final VoidCallback? onRoles, onSessionDetails, onMonitor;
   final bool backgroundStart;
   final String Function()? workspace;
@@ -137,7 +144,7 @@ class DesktopMonitor {
   Future<void> _exit() =>
       _exitRequest ??= _gracefulExit().catchError((Object _) {
         _exitRequest = null;
-        onNotice?.call('退出清理未完成，监控已停止；请再次选择退出以重试。');
+        onNotice?.call(_copy.text('notice.exitIncomplete'));
       });
 
   Future<void> _gracefulExit() async {
@@ -192,6 +199,99 @@ class DesktopMonitor {
     snapshot['sessionAlertSerial'] = metrics?.alertSerial ?? 0;
     snapshot['attentionAlert'] = attention?.alert ?? '';
     snapshot['attentionAlertSerial'] = attention?.alertSerial ?? 0;
+    final copy = _copy;
+    if (copy.isEnglish) {
+      final label = usage.sources?.pinned?.alias ?? 'Codex';
+      final remaining = snapshot['remaining'] as num;
+      final status = copy.text(
+        snapshot['busy'] == true
+            ? 'notice.refreshing'
+            : snapshot['stale'] == true
+            ? 'notice.stale'
+            : snapshot['animationState'] == 3
+            ? 'notice.unavailable'
+            : snapshot['paused'] == true
+            ? 'notice.paused'
+            : 'notice.monitoring',
+      );
+      snapshot['text'] = copy.text(
+        'notice.quotaSummary',
+        args: {
+          'name': label,
+          'value': remaining < 0 ? '—' : '${copy.number(remaining)}%',
+          'status': status,
+        },
+      );
+      final data = usage.sources == null
+          ? usage.data
+          : usage.sources?.pinned?.usage;
+      final bucket =
+          data?.buckets.where((b) => b.id == 'codex').firstOrNull ??
+          data?.buckets.firstOrNull;
+      final now = DateTime.now();
+      snapshot['detail'] =
+          bucket?.windows
+              .map((window) {
+                final minutes = window.durationMinutes;
+                final key = minutes == null || minutes <= 0
+                    ? 'notice.window'
+                    : minutes == 10080
+                    ? 'notice.windowWeek'
+                    : minutes % 1440 == 0
+                    ? 'notice.windowDays'
+                    : minutes % 60 == 0
+                    ? 'notice.windowHours'
+                    : 'notice.windowMinutes';
+                final count = minutes == null
+                    ? 0
+                    : minutes % 1440 == 0
+                    ? minutes ~/ 1440
+                    : minutes % 60 == 0
+                    ? minutes ~/ 60
+                    : minutes;
+                final reset = window.resetsAt;
+                final countdown = reset == null
+                    ? copy.text('notice.resetUnknown')
+                    : !reset.isAfter(now)
+                    ? copy.text('notice.resetAwaiting')
+                    : copy.text(
+                        'notice.reset',
+                        args: {
+                          'time': copy.dateTime(reset),
+                          'relative': copy.relative(reset, now: now),
+                        },
+                      );
+                final left = window.usedPercent == null
+                    ? '—'
+                    : '${copy.number(100 - window.usedPercent!)}%';
+                return '${copy.text('notice.quotaSummary', args: {
+                  'name': copy.text(key, args: {'count': count}),
+                  'value': left,
+                  'status': status,
+                })}\n$countdown';
+              })
+              .join('\n\n') ??
+          snapshot['text'];
+      if ((snapshot['alert'] as String).isNotEmpty) {
+        final id = usage.sources?.alertSourceId;
+        final source = usage.sources?.states
+            .where((s) => s.id == id)
+            .firstOrNull;
+        snapshot['alert'] = copy.text(
+          'notice.lowQuota',
+          args: {'name': source?.alias ?? 'Codex'},
+        );
+      }
+      if ((snapshot['sessionAlert'] as String).isNotEmpty) {
+        snapshot['sessionAlert'] = copy.text('notice.selectedCompleted');
+      }
+      if ((snapshot['attentionAlert'] as String).isNotEmpty) {
+        final notice = attention?.activeNotice;
+        snapshot['attentionAlert'] = notice == null
+            ? copy.text('notice.selectedCompleted')
+            : copy.text('notice.completed', args: {'name': notice.title});
+      }
+    }
     // Durable completed notices have a separate status, never selected log status.
     snapshot['attentionAlertStatus'] = attention?.alert.isNotEmpty == true
         ? 2
@@ -219,13 +319,35 @@ class DesktopMonitor {
             _ => 4,
           };
     snapshot['sessionRate'] = metrics?.verifiedTokensPerSecond ?? -1.0;
-    snapshot['sessionSummary'] = metrics?.petSummary ?? '';
-    final summary = metrics?.summary ?? '';
+    final state = copy.isEnglish
+        ? copy.text(
+            'notice.session.${metrics?.selected == null
+                ? 'none'
+                : metrics?.error != null
+                ? 'unavailable'
+                : metrics?.data?['catchingUp'] == true
+                ? 'history'
+                : const {'running', 'completed', 'cancelled'}.contains(metrics?.data?['current']?['status'])
+                ? metrics!.data!['current']['status']
+                : 'unknown'}',
+          )
+        : metrics?.stateLabel ?? '';
+    final summary = copy.isEnglish && metrics?.selected != null
+        ? copy.text(
+            'notice.turnRate',
+            args: {
+              'value': metrics?.verifiedTokensPerSecond == null
+                  ? '—'
+                  : '${copy.number(metrics!.verifiedTokensPerSecond)} tokens/s',
+            },
+          )
+        : metrics?.summary ?? '';
+    snapshot['sessionSummary'] = copy.isEnglish
+        ? '$state\n$summary'
+        : metrics?.petSummary ?? '';
     if (summary.isNotEmpty) {
-      snapshot['text'] =
-          '${metrics?.stateLabel} · ${snapshot['text']} · $summary';
-      snapshot['detail'] =
-          '${metrics?.stateLabel}\n$summary\n${snapshot['detail']}';
+      snapshot['text'] = '$state · ${snapshot['text']} · $summary';
+      snapshot['detail'] = '$state\n$summary\n${snapshot['detail']}';
     }
     if (mapEquals(snapshot, _lastSnapshot)) return;
     _lastSnapshot = snapshot;

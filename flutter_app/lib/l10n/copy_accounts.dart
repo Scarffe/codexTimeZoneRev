@@ -1,3 +1,597 @@
 import 'copy_types.dart';
 
-const accountMessages = <String, AppMessage>{};
+const accountMessages = <String, AppMessage>{
+  "accounts.intro": (
+    zh: "账号额度来源 · 与本机会话日志、独立 API 测速分别记录。",
+    en: "Account quota sources · Recorded separately from local session logs and independent API benchmarks.",
+  ),
+  "accounts.current": (zh: "当前额度", en: "Current quota"),
+  "accounts.history": (zh: "历史与节奏", en: "History and rhythm"),
+  "accounts.sources.addTitle": (zh: "添加监控来源", en: "Add monitoring source"),
+  "accounts.sources.loginTitle": (zh: "官方登录", en: "Official sign-in"),
+  "accounts.sources.details": (zh: "来源详情", en: "Source details"),
+  "accounts.sources.removed": (zh: "来源已移除。", en: "Source removed."),
+  "accounts.sources.separateDetails": (
+    zh: "来源选择仅改变额度监控；本地会话仍独立采集。",
+    en: "Source selection only changes quota monitoring; local sessions are collected separately.",
+  ),
+  "accounts.sources.renameTitle": (zh: "重命名来源", en: "Rename source"),
+  "accounts.sources.removeTitle": (
+    zh: "移除监控来源",
+    en: "Remove monitoring source",
+  ),
+  "accounts.sources.confirmRemove": (zh: "确认移除", en: "Confirm removal"),
+  "accounts.sources.title": (zh: "额度来源", en: "Quota sources"),
+  "accounts.sources.add": (zh: "添加", en: "Add"),
+  "accounts.sources.pinnedSelected": (
+    zh: "此来源已固定到托盘",
+    en: "This source is pinned to the tray",
+  ),
+  "accounts.sources.pinSelected": (
+    zh: "将此来源固定到托盘",
+    en: "Pin this source to the tray",
+  ),
+  "accounts.sources.rename": (zh: "重命名", en: "Rename"),
+  "accounts.sources.loginProgress": (zh: "查看登录进度", en: "View sign-in progress"),
+  "accounts.sources.loginRetry": (
+    zh: "官方登录 / 重试",
+    en: "Official sign-in / Retry",
+  ),
+  "accounts.sources.remove": (zh: "移除来源", en: "Remove source"),
+  "accounts.sources.manage": (
+    zh: "管理当前监控来源",
+    en: "Manage selected monitoring source",
+  ),
+  "accounts.sources.empty": (zh: "暂无可用账号", en: "No available accounts"),
+  "accounts.sources.catalogError": (
+    zh: "来源目录不可用，原文件已保留；添加与登录已停用。",
+    en: "Source catalog unavailable; the original file is preserved. Adding sources and sign-in are disabled.",
+  ),
+  "accounts.sources.operationError": (
+    zh: "来源操作未完成，请检查环境后重试。",
+    en: "Source operation incomplete. Check the environment and retry.",
+  ),
+  "accounts.sources.shutdownPending": (
+    zh: "正在等待退出清理确认…",
+    en: "Waiting for exit cleanup confirmation…",
+  ),
+  "accounts.sources.shutdownFailed": (
+    zh: "退出清理未完成，监控已停止；请再次选择退出以重试。",
+    en: "Exit cleanup incomplete; monitoring has stopped. Choose Exit again to retry.",
+  ),
+  "accounts.sources.separate": (
+    zh: "来源选择仅改变额度监控；本地会话独立采集。",
+    en: "Source selection only changes quota monitoring; local sessions are collected separately.",
+  ),
+  "accounts.sources.sort": (zh: "排序", en: "Sort"),
+  "accounts.remainingQuota": (zh: "剩余额度", en: "Remaining quota"),
+  "accounts.nextReset": (zh: "下次重置", en: "Next reset"),
+  "accounts.login.starting": (
+    zh: "正在准备官方登录…",
+    en: "Preparing official sign-in…",
+  ),
+  "accounts.login.waiting": (
+    zh: "等待官方浏览器登录；完成后此处会自动更新。",
+    en: "Waiting for official browser sign-in; this view updates automatically when it completes.",
+  ),
+  "accounts.login.cancelling": (
+    zh: "正在等待取消登录确认…",
+    en: "Waiting for sign-in cancellation confirmation…",
+  ),
+  "accounts.login.cancel_failed": (
+    zh: "取消登录未确认，请重试取消。",
+    en: "Sign-in cancellation not confirmed. Retry cancellation.",
+  ),
+  "accounts.login.removing": (
+    zh: "来源清理未确认，可重试移除。",
+    en: "Source cleanup not confirmed. You can retry removal.",
+  ),
+  "accounts.login.succeeded": (zh: "登录已完成。", en: "Sign-in complete."),
+  "accounts.login.cancelled": (zh: "登录已取消。", en: "Sign-in cancelled."),
+  "accounts.login.timed_out": (
+    zh: "登录超时，请重试。",
+    en: "Sign-in timed out. Please retry.",
+  ),
+  "accounts.login.failed": (
+    zh: "登录未完成，请重试。",
+    en: "Sign-in incomplete. Please retry.",
+  ),
+  "accounts.login.idle": (zh: "尚未开始登录。", en: "Sign-in has not started."),
+  "accounts.sources.pinned": (zh: "已固定到托盘", en: "Pinned to tray"),
+  "accounts.sources.pin": (zh: "固定到托盘", en: "Pin to tray"),
+  "accounts.sources.viewDetails": (zh: "查看来源详情", en: "View source details"),
+  "accounts.sources.removalUnknown": (
+    zh: "来源清理未确认 · 额度已停止展示",
+    en: "Source cleanup unconfirmed · Quota display stopped",
+  ),
+  "accounts.sources.unobserved": (
+    zh: "尚无观测 · 额度未知",
+    en: "No observations · Quota unknown",
+  ),
+  "accounts.sources.stale": (zh: " · 数据已过期", en: " · Data is stale"),
+  "accounts.sources.retryCleanup": (zh: "重试清理来源", en: "Retry source cleanup"),
+  "accounts.sources.resetHours": (zh: "距重置 · 小时", en: "Until reset · Hours"),
+  "accounts.resetUnknown": (zh: "重置时间未知", en: "Reset time unknown"),
+  "accounts.expired": (zh: "到期 · 待查询", en: "Expired · Refresh required"),
+  "accounts.hours": (zh: "小时", en: "hours"),
+  "accounts.sources.loginExplanation": (
+    zh: "使用官方浏览器登录独立监控来源。此操作不会切换正在运行的 Codex 账号。",
+    en: "Use the official browser to sign in to a separate monitoring source. This does not switch the account of the running Codex client.",
+  ),
+  "accounts.sources.alias": (zh: "来源别名", en: "Source alias"),
+  "accounts.sources.removedShort": (zh: "来源已移除", en: "Source removed"),
+  "accounts.sources.creating": (
+    zh: "正在检查安全登录环境并创建来源…",
+    en: "Checking the isolated sign-in environment and creating a source…",
+  ),
+  "accounts.sources.unsupported": (
+    zh: "当前环境不支持安全添加来源。",
+    en: "This environment cannot safely add a source.",
+  ),
+  "accounts.sources.operationUnavailable": (
+    zh: "无法完成来源操作，请检查环境后重试。",
+    en: "Unable to complete the source operation. Check the environment and retry.",
+  ),
+  "accounts.sources.retryCancel": (
+    zh: "重试取消登录",
+    en: "Retry sign-in cancellation",
+  ),
+  "accounts.sources.cancelLogin": (zh: "取消登录", en: "Cancel sign-in"),
+  "accounts.sources.createLogin": (
+    zh: "创建来源并打开官方登录",
+    en: "Create source and open official sign-in",
+  ),
+  "accounts.sources.reopenLogin": (
+    zh: "重新打开官方登录",
+    en: "Reopen official sign-in",
+  ),
+  "accounts.sources.loginComplete": (
+    zh: "官方登录流程已报告完成；额度观测独立更新，别名仅用于区分来源。",
+    en: "Official sign-in reported completion. Quota observations update separately; aliases only distinguish sources.",
+  ),
+  "accounts.sources.nameTitle": (zh: "命名监控来源", en: "Name monitoring source"),
+  "accounts.sources.confirmName": (
+    zh: "确认并命名来源",
+    en: "Confirm and name source",
+  ),
+  "accounts.sources.newAlias": (zh: "新的来源别名", en: "New source alias"),
+  "accounts.sources.saveAlias": (zh: "保存别名", en: "Save alias"),
+  "accounts.usage.closeInfo": (
+    zh: "关闭账号用量详情",
+    en: "Close account usage details",
+  ),
+  "accounts.usage.title": (zh: "账户额度", en: "Account quota"),
+  "accounts.usage.view": (zh: "额度视图", en: "Quota view"),
+  "accounts.remaining": (zh: "剩余", en: "Remaining"),
+  "accounts.used": (zh: "已用", en: "Used"),
+  "accounts.untilReset": (zh: "距重置", en: "Until reset"),
+  "accounts.usage.bucket": (zh: "额度组", en: "Quota group"),
+  "accounts.usage.timeBasis": (zh: "重置时间基准", en: "Reset time basis"),
+  "accounts.usage.nodeTime": (zh: "节点时间", en: "Target time"),
+  "accounts.usage.localTime": (zh: "本地时间", en: "Local time"),
+  "accounts.usage.details": (zh: "账号用量详情", en: "Account usage details"),
+  "accounts.usage.querying": (zh: "正在查询用量…", en: "Querying usage…"),
+  "accounts.usage.query": (zh: "查询账号用量", en: "Query account usage"),
+  "accounts.usage.pause": (zh: "暂停自动刷新", en: "Pause auto refresh"),
+  "accounts.usage.start": (zh: "开启自动刷新", en: "Start auto refresh"),
+  "accounts.usage.queryFailed": (zh: "查询失败", en: "Query failed"),
+  "accounts.usage.queryFailedPrevious": (
+    zh: "查询失败 · 上次观测",
+    en: "Query failed · Previous observation",
+  ),
+  "accounts.usage.preferenceError": (
+    zh: "监控设置保存失败 · 查看详情",
+    en: "Monitoring settings could not be saved · View details",
+  ),
+  "accounts.usage.stale": (
+    zh: "上次观测 · 数据已过期",
+    en: "Previous observation · Data is stale",
+  ),
+  "accounts.usage.limitsError": (
+    zh: "额度更新失败 · 查看详情",
+    en: "Quota update failed · View details",
+  ),
+  "accounts.usage.tokensError": (
+    zh: "token 更新失败 · 查看详情",
+    en: "Token update failed · View details",
+  ),
+  "accounts.usage.reading": (zh: "正在读取额度", en: "Reading quota"),
+  "accounts.usage.empty": (zh: "尚无额度数据", en: "No quota data yet"),
+  "accounts.usage.unavailable": (
+    zh: "额度信息暂不可用",
+    en: "Quota information unavailable",
+  ),
+  "accounts.usage.addFirst": (
+    zh: "添加并登录账号后查看额度。",
+    en: "Add an account and sign in to view quota.",
+  ),
+  "accounts.usage.monitoring": (
+    zh: "正在自动监控当前账号额度。",
+    en: "Automatically monitoring the selected account quota.",
+  ),
+  "accounts.usage.prompt": (
+    zh: "点击按钮查询，或开启自动监控。",
+    en: "Query usage or start automatic monitoring.",
+  ),
+  "accounts.resetUnavailable": (zh: "重置时间暂不可用", en: "Reset time unavailable"),
+  "accounts.invalidTimeZone": (
+    zh: "请选择有效的显示时区",
+    en: "Choose a valid display time zone",
+  ),
+  "accounts.usage.signedIn": (
+    zh: "已登录 ChatGPT 账号",
+    en: "Signed-in ChatGPT account",
+  ),
+  "accounts.usage.lifetime": (zh: "累计 token", en: "Lifetime tokens"),
+  "accounts.usage.latestUnknown": (
+    zh: "最近一天 · 日期未知",
+    en: "Latest day · Date unknown",
+  ),
+  "accounts.usage.tokensTimeUnknown": (
+    zh: "token 更新时间未知",
+    en: "Token update time unknown",
+  ),
+  "accounts.usage.cachedTokens": (
+    zh: "token 数据来自缓存",
+    en: "Token data from cache",
+  ),
+  "accounts.usage.unknownPlan": (zh: "套餐未知", en: "Plan unknown"),
+  "accounts.usage.unknownDate": (zh: "日期未知", en: "Date unknown"),
+  "accounts.usage.copyDetails": (zh: "复制详情", en: "Copy details"),
+  "accounts.close": (zh: "关闭", en: "Close"),
+  "overview.sourcesUnit": (zh: "个独立来源", en: "independent sources"),
+  "overview.noAccount": (zh: "尚未选择账号", en: "No account selected"),
+  "overview.quotaUnknown": (
+    zh: "额度未知 · 尚无可用观测",
+    en: "Quota unknown · No available observations",
+  ),
+  "overview.refreshing": (zh: "刷新中", en: "Refreshing"),
+  "overview.previousObservation": (zh: "上次观测", en: "Previous observation"),
+  "overview.latestObservation": (zh: "最近观测", en: "Latest observation"),
+  "overview.refreshFailed": (
+    zh: "刷新失败 · 数据未更新",
+    en: "Refresh failed · Data unchanged",
+  ),
+  "overview.unreadUnit": (zh: "条未读事项", en: "unread items"),
+  "overview.noVerified": (zh: "暂无已核验样本", en: "No verified samples yet"),
+  "overview.average": (
+    zh: "最近完成回合 · 平均吞吐",
+    en: "Latest completed turn · Average throughput",
+  ),
+  "overview.noLog": (zh: "尚未选择本地日志", en: "No local log selected"),
+  "overview.charts": (
+    zh: "额度、回合、配置、活动与响应",
+    en: "Quota, turns, configuration, activity and responses",
+  ),
+  "overview.offline": (zh: "离线回放", en: "Offline replay"),
+  "overview.independent": (zh: "独立来源", en: "Independent source"),
+  "overview.synthetic": (
+    zh: "用合成场景观察延迟与流式指标",
+    en: "Inspect latency and streaming metrics with synthetic scenarios",
+  ),
+  "overview.separate": (
+    zh: "与当前会话统计分别记录",
+    en: "Recorded separately from current session metrics",
+  ),
+  "overview.intro": (
+    zh: "从额度到回合，查看你关心的进展。",
+    en: "Track the progress you care about, from quota to turns.",
+  ),
+  "overview.notices": (zh: "系统提醒记录", en: "System alert history"),
+  "overview.noNotices": (zh: "暂无提醒。", en: "No alerts yet."),
+  "overview.guideTitle": (zh: "本地监控说明", en: "Local monitoring guide"),
+  "overview.guide": (zh: "监控说明", en: "Monitoring guide"),
+  "overview.open": (zh: "打开", en: "Open"),
+  "history.fiveHours": (zh: "5 小时", en: "5 hours"),
+  "history.weekly": (zh: "周额度", en: "Weekly quota"),
+  "history.unknownDuration": (zh: "时长未知", en: "Duration unknown"),
+  "history.addFirst": (
+    zh: "添加来源后可查看额度历史",
+    en: "Add a source to view quota history",
+  ),
+  "history.bucket": (zh: "额度类型", en: "Quota type"),
+  "history.window": (zh: "窗口", en: "Window"),
+  "history.time": (zh: "时间", en: "Time"),
+  "history.day": (zh: "24 小时", en: "24 hours"),
+  "history.week": (zh: "7 天", en: "7 days"),
+  "history.month": (zh: "30 天", en: "30 days"),
+  "history.segment": (zh: "登录分段", en: "Sign-in segment"),
+  "history.currentSegment": (zh: "当前登录段", en: "Current sign-in segment"),
+  "history.reload": (zh: "重读本地历史", en: "Reload local history"),
+  "history.storageGaps": (
+    zh: "历史文件有缺失 · 已保留可读观测",
+    en: "History files are missing · Readable observations preserved",
+  ),
+  "history.loading": (zh: "读取本地历史…", en: "Reading local history…"),
+  "history.noWindow": (zh: "尚无已知窗口", en: "No known window yet"),
+  "history.emptyCurrent": (
+    zh: "当前登录段暂无观测",
+    en: "No observations in the current sign-in segment",
+  ),
+  "history.emptyRange": (
+    zh: "所选范围暂无有效观测",
+    en: "No valid observations in the selected range",
+  ),
+  "history.latestRemaining": (
+    zh: "范围内最新余量",
+    en: "Latest remaining quota in range",
+  ),
+  "history.remainingRange": (zh: "观测余量范围", en: "Observed remaining range"),
+  "history.sampleCount": (zh: "有效采样数", en: "Valid samples"),
+  "history.lastSuccess": (zh: "最近成功时间", en: "Last successful observation"),
+  "history.readout": (zh: "读数", en: "Readout"),
+  "history.heatmapTitle": (
+    zh: "日 × 小时 · 观测余量",
+    en: "Day × Hour · Observed remaining quota",
+  ),
+  "history.hourMetric": (zh: "小时指标", en: "Hourly metric"),
+  "history.minimumRemaining": (zh: "观测最低剩余", en: "Minimum observed remaining"),
+  "history.lastRemaining": (zh: "最后观测剩余", en: "Last observed remaining"),
+  "history.heatmapLegend": (
+    zh: "灰斜线：未知 · 红边 ×：失败 · 上沿虚线：缺口",
+    en: "Gray hatch: unknown · Red border ×: failure · Dashed top: gap",
+  ),
+  "history.heatmapBoundary": (
+    zh: "仅总结已观测数据，非完整小时最低值",
+    en: "Summarizes observations only, not the minimum for the full hour",
+  ),
+  "history.eventsTitle": (zh: "变化与查询异常", en: "Changes and query issues"),
+  "accounts.sources.loginState": (
+    zh: "登录状态：{state}",
+    en: "Sign-in status: {state}",
+  ),
+  "accounts.sources.account": (zh: "账号：{value}", en: "Account: {value}"),
+  "accounts.sources.plan": (zh: "方案：{value}", en: "Plan: {value}"),
+  "accounts.sources.observedAt": (
+    zh: "观测时间：{value}",
+    en: "Observed at: {value}",
+  ),
+  "accounts.sources.removePrompt": (
+    zh: "移除“{alias}”及其由本应用管理的登录目录。",
+    en: "Remove “{alias}” and its sign-in directory managed by this app.",
+  ),
+  "accounts.sources.overviewCount": (
+    zh: "总览 ({count})",
+    en: "Overview ({count})",
+  ),
+  "accounts.sources.trayAlias": (zh: "托盘：{alias}", en: "Tray: {alias}"),
+  "accounts.sources.progressLine": (
+    zh: "{alias} · {state} · 查看进度",
+    en: "{alias} · {state} · View progress",
+  ),
+  "accounts.sources.retryRemoval": (
+    zh: "{alias} · 清理未确认 · 重试移除",
+    en: "{alias} · Cleanup unconfirmed · Retry removal",
+  ),
+  "accounts.sources.age": (
+    zh: "观测于 {minutes} 分钟前{stale}",
+    en: "Observed {minutes} min ago{stale}",
+  ),
+  "accounts.sources.localReset": (
+    zh: "本地重置时间：{time}",
+    en: "Local reset time: {time}",
+  ),
+  "accounts.sources.currentAlias": (
+    zh: "当前别名：{alias}",
+    en: "Current alias: {alias}",
+  ),
+  "accounts.sources.cancellingShort": (
+    zh: "取消登录确认中",
+    en: "Confirming sign-in cancellation",
+  ),
+  "accounts.sources.cancelUnknownShort": (
+    zh: "取消登录待确认",
+    en: "Sign-in cancellation unconfirmed",
+  ),
+  "accounts.sources.loginShort": (
+    zh: "官方登录进行中",
+    en: "Official sign-in in progress",
+  ),
+  "accounts.sourceError.auth": (
+    zh: "请重新登录此监控来源。",
+    en: "Please sign in to this monitoring source again.",
+  ),
+  "accounts.sourceError.network": (
+    zh: "网络暂不可用，保留上次观测。",
+    en: "Network unavailable; previous observation retained.",
+  ),
+  "accounts.sourceError.rate": (
+    zh: "请求过于频繁，请稍后重试。",
+    en: "Too many requests. Please retry later.",
+  ),
+  "accounts.sourceError.timeout": (
+    zh: "查询超时，请稍后重试。",
+    en: "Query timed out. Please retry later.",
+  ),
+  "accounts.sourceError.unsupported": (
+    zh: "当前环境不支持安全添加来源。",
+    en: "This environment cannot safely add a source.",
+  ),
+  "accounts.sourceError.cancelled": (zh: "操作已取消。", en: "Operation cancelled."),
+  "accounts.sourceError.busy": (
+    zh: "此来源正在处理其他操作。",
+    en: "This source is busy with another operation.",
+  ),
+  "accounts.sourceError.unavailable": (
+    zh: "来源暂不可用，请稍后重试。",
+    en: "Source unavailable. Please retry later.",
+  ),
+  "accounts.usage.backoff": (
+    zh: "失败退避中，最早重试：{time}",
+    en: "Backing off after failure. Earliest retry: {time}",
+  ),
+  "accounts.usage.latestDay": (zh: "最近一天 · {date}", en: "Latest day · {date}"),
+  "accounts.usage.limitsUpdated": (
+    zh: "额度更新时间：{time}",
+    en: "Quota updated: {time}",
+  ),
+  "accounts.usage.tokensUpdated": (
+    zh: "token 更新时间：{time}",
+    en: "Tokens updated: {time}",
+  ),
+  "accounts.usage.limitsDetails": (zh: "额度：{error}", en: "Quota: {error}"),
+  "accounts.usage.tokenDetails": (zh: "token：{error}", en: "Tokens: {error}"),
+  "accounts.usage.windowReset": (
+    zh: "{bucket} · {window}重置：{time}",
+    en: "{bucket} · {window} reset: {time}",
+  ),
+  "accounts.usage.lastAttempt": (zh: "最近尝试：{time}", en: "Last attempt: {time}"),
+  "accounts.usage.nextAttempt": (zh: "下次尝试：{time}", en: "Next attempt: {time}"),
+  "accounts.usage.lifetimeValue": (
+    zh: "累计 token：{value}",
+    en: "Lifetime tokens: {value}",
+  ),
+  "accounts.usage.latestValue": (
+    zh: "最近一天：{date} · {value}",
+    en: "Latest day: {date} · {value}",
+  ),
+  "accounts.window.quota": (zh: "额度", en: "Quota"),
+  "accounts.window.weekly": (zh: "周额度", en: "Weekly quota"),
+  "accounts.window.days": (zh: "{count} 天额度", en: "{count}-day quota"),
+  "accounts.window.hours": (zh: "{count} 小时额度", en: "{count}-hour quota"),
+  "accounts.window.minutes": (zh: "{count} 分钟额度", en: "{count}-minute quota"),
+  "accounts.resetsIn": (zh: "{duration}后重置", en: "Resets in {duration}"),
+  "accounts.usage.noData": (zh: "暂无数据", en: "No data"),
+  "accounts.usage.cachedLimitsUnavailable": (
+    zh: "额度暂不可用",
+    en: "Quota unavailable",
+  ),
+  "accounts.usage.cachedTokensUnavailable": (
+    zh: "用量暂不可用",
+    en: "Usage unavailable",
+  ),
+  "accounts.usage.preferencesRead": (
+    zh: "监控设置读取失败，已使用默认值；原文件未改动。",
+    en: "Monitoring settings could not be read. Defaults are in use; the original file is unchanged.",
+  ),
+  "accounts.usage.preferencesWrite": (
+    zh: "监控偏好已生效，但保存失败；请检查文件夹写入权限。",
+    en: "Monitoring preferences are active but could not be saved. Check folder write permissions.",
+  ),
+  "overview.selected": (zh: "已选 · {alias}", en: "Selected · {alias}"),
+  "overview.windowRemaining": (
+    zh: "{bucket} · {window} · 剩余 {value}",
+    en: "{bucket} · {window} · Remaining {value}",
+  ),
+  "overview.watching": (
+    zh: "关注 {count}/8 个会话",
+    en: "Watching {count}/8 sessions",
+  ),
+  "overview.runningCompleted": (
+    zh: "进行中 {running} · 已完成 {completed}",
+    en: "Running {running} · Completed {completed}",
+  ),
+  "overview.cancelledUnknown": (
+    zh: "已取消 {cancelled} · 未知 {unknown}",
+    en: "Cancelled {cancelled} · Unknown {unknown}",
+  ),
+  "overview.guideError": (
+    zh: "无法打开本地说明：{error}",
+    en: "Unable to open the local guide: {error}",
+  ),
+  "overview.openDestination": (zh: "打开{name}", en: "Open {name}"),
+  "overview.state.readFailed": (
+    zh: "状态未知 · 读取失败",
+    en: "Status unknown · Read failed",
+  ),
+  "overview.state.history": (
+    zh: "状态未知 · 正在读取历史",
+    en: "Status unknown · Reading history",
+  ),
+  "overview.state.running": (zh: "回合进行中", en: "Turn running"),
+  "overview.state.completed": (zh: "回合已结束", en: "Turn completed"),
+  "overview.state.cancelled": (zh: "已取消", en: "Cancelled"),
+  "overview.state.unknown": (zh: "状态未知", en: "Status unknown"),
+  "history.minutes": (zh: "{count} 分钟", en: "{count} minutes"),
+  "history.oldSegment": (
+    zh: "旧段 {index} · 检索范围 {range}",
+    en: "Previous segment {index} · Range {range}",
+  ),
+  "history.localRange": (
+    zh: "本地观测 · {range}",
+    en: "Local observations · {range}",
+  ),
+  "history.trendTitle": (zh: "额度趋势 · {view}", en: "Quota trend · {view}"),
+  "history.segmentSamples": (
+    zh: "所选段有效采样：{first} – {last}",
+    en: "Valid samples in selected segment: {first} – {last}",
+  ),
+  "history.readableRecords": (
+    zh: "来源可读记录：{first} – {last}",
+    en: "Readable source records: {first} – {last}",
+  ),
+  "history.readError": (zh: "历史读取失败", en: "History could not be read"),
+  "history.writeError": (zh: "历史保存失败。", en: "History could not be saved."),
+  "history.cleanupError": (
+    zh: "历史本地清理失败。",
+    en: "Local history cleanup failed.",
+  ),
+  "history.inspectionHint": (
+    zh: "悬停或聚焦后用方向键读取观测",
+    en: "Hover or focus, then use arrow keys to inspect observations",
+  ),
+  "history.trendRecord": (
+    zh: "{time} · 剩余 {remaining}% · 已用 {used}%\n{quality} · {distance} · 记录间隔 {interval} s\n报告重置：{reset}",
+    en: "{time} · Remaining {remaining}% · Used {used}%\n{quality} · {distance} · Recorded interval {interval} s\nReported reset: {reset}",
+  ),
+  "history.receiptFallback": (zh: "接收时间（回退）", en: "Receipt time (fallback)"),
+  "history.queryCompletion": (zh: "查询完成时间", en: "Query completion time"),
+  "history.firstDrawn": (zh: "首个绘制观测", en: "First plotted observation"),
+  "history.sincePrevious": (
+    zh: "距前绘制观测 {seconds} s",
+    en: "{seconds} s since previous plotted observation",
+  ),
+  "history.trend": (zh: "额度趋势", en: "Quota trend"),
+  "history.hourRecord": (
+    zh: "{date} {hour}:00 {offset} · 观测剩余 {remaining}\n{samples} · 查询失败 {failures} 次{gap}\n首 {first} · 末 {last}",
+    en: "{date} {hour}:00 {offset} · Observed remaining {remaining}\n{samples} · Query failures {failures}{gap}\nFirst {first} · Last {last}",
+  ),
+  "history.singleSample": (zh: "仅 1 次观测", en: "Only 1 observation"),
+  "history.samples": (zh: "{count} 次观测", en: "{count} observations"),
+  "history.hasGap": (zh: " · 有未观测缺口", en: " · Unobserved gap"),
+  "history.zeroRemaining": (zh: "剩余 0%", en: "Remaining 0%"),
+  "history.hourly": (zh: "小时观测", en: "Hourly observations"),
+  "history.event.usedIncrease": (
+    zh: "已用比例上升 {points} 个百分点",
+    en: "Used quota increased by {points} percentage points",
+  ),
+  "history.event.usedDecrease": (
+    zh: "已用比例回落 {points} 个百分点",
+    en: "Used quota decreased by {points} percentage points",
+  ),
+  "history.event.resetChanged": (
+    zh: "报告重置时间变化",
+    en: "Reported reset time changed",
+  ),
+  "history.event.crossedReset": (
+    zh: "跨过上次报告时点",
+    en: "Passed the previous reported reset time",
+  ),
+  "history.event.failure": (zh: "查询失败 · {kind}", en: "Query failed · {kind}"),
+  "history.event.noLimits": (zh: "未报告可用额度", en: "No available quota reported"),
+  "history.event.missingWindow": (
+    zh: "所选窗口暂缺",
+    en: "Selected window unavailable",
+  ),
+  "history.event.clockReversal": (
+    zh: "观测时钟倒退",
+    en: "Observation clock moved backward",
+  ),
+  "history.gap.unobserved": (zh: "未观测区间", en: "Unobserved interval"),
+  "history.gap.failure": (zh: "查询失败间隔", en: "Query failure interval"),
+  "history.gap.noLimits": (zh: "无可用额度间隔", en: "No-quota interval"),
+  "history.gap.missingWindow": (zh: "窗口暂缺间隔", en: "Missing-window interval"),
+  "history.gap.segmentChanged": (zh: "登录段变化", en: "Sign-in segment changed"),
+  "history.gap.clockReversal": (zh: "时钟倒退边界", en: "Clock reversal boundary"),
+  "history.gap.runChanged": (zh: "跨运行边界", en: "Run boundary"),
+  "history.gap.storage": (zh: "历史文件缺失边界", en: "Missing history file boundary"),
+  "history.resetReport": (
+    zh: "\n报告：{previous} → {current}",
+    en: "\nReported: {previous} → {current}",
+  ),
+  "history.noEvents": (
+    zh: "所选范围没有变化或异常记录",
+    en: "No changes or issues recorded in the selected range",
+  ),
+  "history.until": (zh: "至 {time}", en: "to {time}"),
+};
