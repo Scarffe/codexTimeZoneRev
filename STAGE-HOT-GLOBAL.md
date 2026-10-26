@@ -30,10 +30,18 @@
 
 最终自动化结果和独立候选路径在本轮验证报告记录；未运行项目保留上述状态，不修改旧候选验收结论。
 
-## 本机交付结果
+## rc28 历史交付结果
 
 发布源码 `6a50966`，独立试用目录 `environment/stage-hot-global-rc28/`。Flutter1043通过/analyze无问题；原生全量基线301通过/1既有诊断忽略，新增补齐6项、相关owner27项及同一V4生产链路另行通过。Clippy exit0，有非阻断提示。Rust/Flutter/CMake发布构建及便携包审计通过。
 
 正式helper已在原Desktop读到2个已加载会话（1运行、1空闲），退出后相同组件可再次接入，均无认证写入或测试模型请求。当前Codex及原app-server身份保持，2245旧不可变文件未变。真实不同账号切换、模型归属和人工面板体验仍按上表待验，目标未以这些只读结果冒充全部达成。
 
 详细证据见 `environment/hot-global-20261026-a/VALIDATION-REPORT.md`。候选主窗口保留等待反馈；已通知用户在新目录完成官方登录，未复制旧候选凭据。
+
+## rc29 离线修复收口
+
+修复源码 `d1b7bdb`，版本 `0.2.4-rc.29+33`，新目录 `environment/stage-hot-global-rc29/`。原生全量317通过/2项专用诊断忽略，其中生产链路替身项另行显式运行通过；正式投影/边界/bootstrap三项CPU合同通过；Clippy exit0但有非阻断提示；Flutter、Rust core/helper及C++发布构建通过。
+
+新候选未启动，未复制rc28凭据；原Codex、原app-server、rc28与其helper保持运行。2245旧不可变文件核对通过。真实helper仍为待核对状态，尚不能验收持续热切换。受控替换涉及当前Codex内自有观察器的Stop调用、认证helper终止和重新绑定；自动审批因认证服务中断/所有权丢失风险及缺少这些具体操作的明确授权而拒绝。未绕过。下一步需用户明确批准候选内 `REPAIR-APPROVAL.md` 所列范围。
+
+最新验证报告：`environment/hot-global-real-20261026-b/VALIDATION-REPORT.md`；不同真实账号往返、自然续期回调、模型计费归属仍未运行。
