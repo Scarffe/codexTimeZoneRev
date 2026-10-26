@@ -204,6 +204,69 @@ fn runtime_quota_bound_source_is_rechecked_after_pending_identity_confirmation()
 }
 
 #[test]
+fn runtime_quota_budget_allows_a_legitimate_slow_read() {
+    let (_root, s) = service("desktop_auth");
+    let (source, provider) = managed(&s, "A");
+    let (mut owner, control) = helper();
+    let attempt = owner.begin_switch(provider).unwrap();
+    confirm(&mut owner, &control, attempt, "A");
+    fs::write(
+        s.root.join(&source).join(".synthetic-quota-delay-ms"),
+        "2200",
+    )
+    .unwrap();
+    let usage = owner
+        .read_quota(false)
+        .expect("a healthy quota response taking over two seconds must remain readable");
+    assert_eq!(usage["limits"]["rateLimits"]["primary"]["usedPercent"], 20);
+    finish(&mut owner, &control);
+}
+
+#[test]
+fn runtime_background_quota_keeps_refresh_responsive() {
+    let (_root, s) = service("desktop_auth");
+    let (source, provider) = managed(&s, "A");
+    let (mut owner, control) = helper();
+    let attempt = owner.begin_switch(provider).unwrap();
+    confirm(&mut owner, &control, attempt, "A");
+    let home = s.root.join(&source);
+    fs::write(home.join(".synthetic-quota-delay-ms"), "2200").unwrap();
+    let started = Instant::now();
+    let mut read = owner
+        .begin_quota_for_source(&s.root.canonicalize().unwrap(), &source, false)
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_millis(500));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !home.join(".desktop-quota-waiting").exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(home.join(".desktop-quota-waiting").exists());
+    control.push(RuntimeEventKind::RefreshRequested {
+        id: RefreshRequestId::Number(9001),
+        previous_account_id: Some("synthetic-account-A".into()),
+    });
+    let started = Instant::now();
+    owner.poll_once().unwrap();
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "quota network wait blocked auth refresh"
+    );
+    assert_eq!(control.0.lock().unwrap().refreshes.len(), 1);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let result = loop {
+        if let Some(result) = read.poll() {
+            break result;
+        }
+        assert!(Instant::now() < deadline);
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(result.unwrap_err().kind(), "cancelled");
+    drop(read);
+    assert_eq!(owner.status().phase, Phase::Active);
+    finish(&mut owner, &control);
+}
+
+#[test]
 fn runtime_write_completion_is_only_pending_authentication() {
     let (_root, s) = service("desktop_auth");
     let (id, provider) = managed(&s, "A");

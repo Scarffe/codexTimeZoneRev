@@ -4,16 +4,62 @@ use crate::desktop_auth::{ManagedAccountProvider, ProviderError, RefreshMode};
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, TryRecvError},
+        Arc,
+    },
+    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 const SWITCH_BUDGET: Duration = Duration::from_secs(2);
-const QUOTA_BUDGET: Duration = Duration::from_secs(2);
+const QUOTA_BUDGET: Duration = Duration::from_secs(10);
 const REFRESH_BUDGET: Duration = Duration::from_secs(8);
 const CONFIRMATION_WINDOW: Duration = Duration::from_secs(10);
 const MAX_REFRESH_IDS: usize = 4;
 const MAX_RECONCILIATION_READS: u8 = 2;
+
+/// Quota waits off the transport loop. Its cancellation signal belongs to this
+/// read only; dropping a GUI request never cancels the retained auth provider.
+pub(crate) struct QuotaRead {
+    cancel: Arc<AtomicBool>,
+    output: Receiver<Result<Value, ProviderError>>,
+    worker: Option<JoinHandle<()>>,
+}
+impl QuotaRead {
+    fn start(provider: Arc<ManagedAccountProvider>, details: bool) -> Self {
+        let cancel = provider.prepare_quota();
+        let signal = cancel.clone();
+        let (sender, output) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let result = provider.read_quota_interruptible(details, QUOTA_BUDGET, signal);
+            let _ = sender.send(result);
+        });
+        Self {
+            cancel,
+            output,
+            worker: Some(worker),
+        }
+    }
+    pub(crate) fn poll(&mut self) -> Option<Result<Value, HelperError>> {
+        match self.output.try_recv() {
+            Ok(result) => Some(result.map_err(HelperError::Source)),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(Err(HelperError::Source(
+                crate::account_usage::RpcError::Failed.into(),
+            ))),
+        }
+    }
+}
+impl Drop for QuotaRead {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CorrelationId(pub u64);
@@ -734,6 +780,14 @@ impl RuntimeOwner {
         expected: Option<(&std::path::Path, &str)>,
         details: bool,
     ) -> Result<Value, HelperError> {
+        self.quota_provider(expected)?
+            .read_quota_with_budget(details, QUOTA_BUDGET)
+            .map_err(HelperError::Source)
+    }
+    fn quota_provider(
+        &mut self,
+        expected: Option<(&std::path::Path, &str)>,
+    ) -> Result<Arc<ManagedAccountProvider>, HelperError> {
         // Drain a finite metadata batch before a low-priority quota command.
         for _ in 0..MAX_REFRESH_IDS * 2 {
             if !self.transport.target_alive() {
@@ -761,11 +815,18 @@ impl RuntimeOwner {
         if self.pending.is_some() || self.phase != Phase::Active {
             return Err(HelperError::Busy);
         }
-        self.active
-            .as_ref()
-            .ok_or(HelperError::NoActiveSource)?
-            .read_quota_with_budget(details, QUOTA_BUDGET)
-            .map_err(HelperError::Source)
+        self.active.clone().ok_or(HelperError::NoActiveSource)
+    }
+    pub(crate) fn begin_quota_for_source(
+        &mut self,
+        root: &std::path::Path,
+        source: &str,
+        details: bool,
+    ) -> Result<QuotaRead, HelperError> {
+        Ok(QuotaRead::start(
+            self.quota_provider(Some((root, source)))?,
+            details,
+        ))
     }
     pub(crate) fn read_quota_for_source(
         &mut self,

@@ -26,6 +26,7 @@ struct Frame {
   Method method = Method::None;
   TypedId id{};
   bool hasId = false, hasMethod = false, result = false, error = false, errorCode = false, accountObject = false, accountNull = false;
+  bool idUnsupported = false, projectionLimited = false;
   Event fields{};
   AuthMode updateMode = AuthMode::Unknown;
   unsigned reason = 0, previousBytes = 0, updatePlanBytes = 0;
@@ -36,6 +37,7 @@ struct Frame {
 void OnReadFrame(const Frame&);
 void OnWriteFrame(const Frame&, std::uint64_t);
 void OnInvalidFrame(bool, bool);
+void OnProjectionLimited();
 struct Stats {
   unsigned lines = 0, valid = 0, duplicateRejected = 0, rejected = 0, immediate = 0, pending = 0, gorCompleted = 0, drops = 0;
   bool coalesced = false, fragmented = false, immutable = true;
@@ -49,12 +51,14 @@ struct Projection {
   enum class Mode : unsigned char { None, String, Number, Literal };
   enum class Capture : unsigned char { None, Key, Method, Id, IdNumber, Code, AuthMode, Reason, Previous, UpdatePlan, Type, Email, Plan, AccountId, ReplyType, ThreadId, TurnId, ThreadStatus, TurnStatus, ActiveFlag, ResolvedId, ResolvedNumber, Blocking, BootstrapId, BootstrapCursor, BootstrapThreadId, BootstrapStatus, BootstrapFlag };
   struct Context { Path path; State state; Key key; bool object; unsigned seen; } stack[32]{};
-  unsigned depth = 0, keyCount = 0, length = 0, unicodeLeft = 0, unicodeValue = 0, high = 0;
+  unsigned depth = 0, length = 0, unicodeLeft = 0, unicodeValue = 0, high = 0;
+  unsigned opaqueDepth = 0, opaqueUnicodeLeft = 0;
   unsigned numberState = 0, literalAt = 0, literalLength = 0;
   Mode mode = Mode::None; Capture capture = Capture::None;
   bool started = false, done = false, invalid = false, duplicate = false, spans = false;
   bool isKey = false, escape = false, tooLong = false, integral = true;
-  char token[320]{}, rootKeys[16][64]{};
+  bool opaqueString = false, opaqueEscape = false;
+  char token[320]{};
   const char* literal = nullptr;
   Frame frame;
   static bool space(char c) { return c==' ' || c=='\r' || c=='\t' || c=='\n'; }
@@ -70,7 +74,7 @@ struct Projection {
   void selectedTooLong() { if(bootstrapCapture(capture))frame.bootstrap.flags|=bootstrap4::Incomplete|(capture==Capture::BootstrapCursor?bootstrap4::CursorTooLong:bootstrap4::IdInvalid);else if(liveCapture(capture))frame.live.invalid=true;else frame.fields.flags|=SelectedFieldTooLong; }
   void append(unsigned c) {
     if(capture==Capture::None)return;
-    if(!c){ if(capture==Capture::Key||capture==Capture::Method||capture==Capture::Id)invalid=true; else selectedInvalid(); tooLong=true; return; }
+    if(!c){ if(capture!=Capture::Key&&capture!=Capture::Method&&capture!=Capture::Id)selectedInvalid(); tooLong=true; return; }
     if(length>=capacity()){tooLong=true;return;} token[length++]=static_cast<char>(c);
   }
   void codepoint(unsigned c) {
@@ -108,22 +112,32 @@ struct Projection {
   }
   void valueDone(){if(!depth){invalid=true;return;}auto&c=stack[depth-1];c.state=c.object?State::Comma:State::ArrayComma;}
   void close(){if(!depth){invalid=true;return;}--depth;if(!depth)done=true;else valueDone();}
-  void push(bool object,Path path){if(depth==32){invalid=true;return;}stack[depth++]={path,object?State::KeyOrEnd:State::ArrayOrEnd,Key::Other,object,0};}
+  void push(bool object,Path path){
+    if(depth==32){
+      // A projection storage limit is not damaged JSONL framing. Traverse this
+      // unretained subtree only to regain its outer boundary. Since its inner
+      // grammar is no longer fully checked, this entire frame stays incomplete
+      // for every selected auth/live/bootstrap output.
+      opaqueDepth=1;frame.projectionLimited=true;frame.fields.flags|=SelectedFieldInvalid;
+      frame.live.invalid=true;frame.bootstrap.flags|=bootstrap4::Incomplete;return;
+    }
+    stack[depth++]={path,object?State::KeyOrEnd:State::ArrayOrEnd,Key::Other,object,0};
+  }
   void startString(bool keyValue,Capture selected){mode=Mode::String;isKey=keyValue;capture=selected;length=0;escape=false;unicodeLeft=0;unicodeValue=0;high=0;tooLong=false;}
   void stringDone(){
     if(high){tooLong=true;selectedInvalid();}
     if(isKey){
-      if(tooLong){invalid=true;return;}
-      if(depth==1){if(keyCount==16){invalid=true;return;}for(unsigned i=0;i<keyCount;++i)if(std::strlen(rootKeys[i])==length&&!std::memcmp(rootKeys[i],token,length)){invalid=true;duplicate=true;return;}
-        std::memcpy(rootKeys[keyCount],token,length);rootKeys[keyCount++][length]=0;}
-      auto&c=stack[depth-1];c.key=key();
-      if(c.path!=Path::Other&&c.key!=Key::Other){const unsigned bit=1u<<static_cast<unsigned>(c.key);if(c.seen&bit){if(c.path>=Path::BootstrapData||c.key>=Key::Data)frame.bootstrap.flags|=bootstrap4::Incomplete;else if(c.path==Path::ThreadStatus||c.path==Path::Turn||c.path==Path::ActiveFlags||c.key>=Key::ThreadId)frame.live.invalid=true;else frame.fields.flags|=SelectedFieldInvalid;}c.seen|=bit;}
+      // Every selected key is shorter than this bounded token. A longer key
+      // cannot select a field and must not disable capture of other frames.
+      auto&c=stack[depth-1];c.key=tooLong?Key::Other:key();
+      const bool rootSelected=depth==1&&(c.key==Key::Method||c.key==Key::Id||c.key==Key::Params||c.key==Key::Result||c.key==Key::Error);
+      if((depth!=1||rootSelected)&&c.path!=Path::Other&&c.key!=Key::Other){const unsigned bit=1u<<static_cast<unsigned>(c.key);if(c.seen&bit){if(rootSelected){invalid=true;duplicate=true;return;}if(c.path>=Path::BootstrapData||c.key>=Key::Data)frame.bootstrap.flags|=bootstrap4::Incomplete;else if(c.path==Path::ThreadStatus||c.path==Path::Turn||c.path==Path::ActiveFlags||c.key>=Key::ThreadId)frame.live.invalid=true;else frame.fields.flags|=SelectedFieldInvalid;}c.seen|=bit;}
       c.state=State::Colon;
     }else{
       if(tooLong)selectedTooLong();
       switch(capture){
-        case Capture::Method:frame.hasMethod=true;if(tooLong)invalid=true;else {frame.method=method();frame.live.method=liveMethod();}break;
-        case Capture::Id:if(tooLong)invalid=true;else{frame.hasId=true;frame.id.kind=IdKind::String;frame.id.length=length;std::memcpy(frame.id.text,token,length);}break;
+        case Capture::Method:frame.hasMethod=true;if(!tooLong){frame.method=method();frame.live.method=liveMethod();}break;
+        case Capture::Id:if(tooLong)frame.idUnsupported=true;else{frame.hasId=true;frame.id.kind=IdKind::String;frame.id.length=length;std::memcpy(frame.id.text,token,length);}break;
         case Capture::AuthMode:frame.updateMode=equal("apikey")?AuthMode::ApiKey:equal("chatgpt")?AuthMode::Chatgpt:equal("chatgptAuthTokens")?AuthMode::ChatgptAuthTokens:AuthMode::Other;break;
         case Capture::Reason:frame.reason=equal("unauthorized")?1u:0u;break;
         case Capture::Previous:frame.previousFlags&=~AccountIdAbsent;if(tooLong)frame.previousFlags|=SelectedFieldTooLong;else{frame.previousBytes=length;std::memcpy(frame.previous,token,length);}break;
@@ -185,6 +199,19 @@ struct Projection {
   void numberDone(){if(numberState!=2&&numberState!=3&&numberState!=5&&numberState!=8){invalid=true;return;}
     std::int64_t n=0;if((capture==Capture::IdNumber||capture==Capture::Code||capture==Capture::ResolvedNumber)&&integral&&!tooLong){auto p=std::from_chars(token,token+length,n);if(p.ec==std::errc{}&&p.ptr==token+length){if(capture==Capture::IdNumber){frame.hasId=true;frame.id.kind=IdKind::Number;frame.id.number=n;}else if(capture==Capture::ResolvedNumber){frame.live.requestIdSeen=true;frame.live.fields.requestId.kind=IdKind::Number;frame.live.fields.requestId.number=n;}else if(n>=INT32_MIN&&n<=INT32_MAX){frame.fields.rpcErrorCode=static_cast<std::int32_t>(n);frame.errorCode=true;}}}
     mode=Mode::None;capture=Capture::None;SecureZeroMemory(token,sizeof token);length=0;valueDone();}
+  void opaqueByte(char c){
+    const unsigned b=static_cast<unsigned char>(c);
+    if(opaqueString){
+      if(opaqueUnicodeLeft){if(hex(c)<0)invalid=true;else --opaqueUnicodeLeft;return;}
+      if(opaqueEscape){opaqueEscape=false;if(c=='u')opaqueUnicodeLeft=4;else if(c!='"'&&c!='\\'&&c!='/'&&c!='b'&&c!='f'&&c!='n'&&c!='r'&&c!='t')invalid=true;return;}
+      if(c=='\\')opaqueEscape=true;else if(c=='"')opaqueString=false;else if(b<32)invalid=true;
+      return;
+    }
+    if(c=='"')opaqueString=true;
+    else if(c=='{'||c=='['){if(opaqueDepth==UINT32_MAX)invalid=true;else ++opaqueDepth;}
+    else if(c=='}'||c==']'){if(!--opaqueDepth)valueDone();}
+    else if(b<32&&!space(c))invalid=true;
+  }
   Capture selected() const {if(!depth)return Capture::None;const auto&c=stack[depth-1];
     if(c.path==Path::Root){if(c.key==Key::Method)return Capture::Method;if(c.key==Key::Id)return Capture::Id;}
     if(c.path==Path::Params){if(c.key==Key::AuthMode)return Capture::AuthMode;if(c.key==Key::Plan)return Capture::UpdatePlan;if(c.key==Key::Reason)return Capture::Reason;if(c.key==Key::Previous)return Capture::Previous;
@@ -241,7 +268,7 @@ struct Projection {
       if(target==Capture::UpdatePlan){frame.updateFlags&=~PlanAbsent;frame.updateFlags|=PlanNull;}}
     mode=Mode::Literal;literalAt=1;literalLength=static_cast<unsigned>(std::strlen(literal));capture=Capture::None;
   }
-  void byte(char c){if(invalid)return;if(mode==Mode::String){stringByte(c);return;}if(mode==Mode::Literal){if(c!=literal[literalAt++]){invalid=true;return;}if(literalAt==literalLength){mode=Mode::None;valueDone();}return;}
+  void byte(char c){if(invalid)return;if(opaqueDepth){opaqueByte(c);return;}if(mode==Mode::String){stringByte(c);return;}if(mode==Mode::Literal){if(c!=literal[literalAt++]){invalid=true;return;}if(literalAt==literalLength){mode=Mode::None;valueDone();}return;}
     if(mode==Mode::Number){if(numberByte(c))return;numberDone();if(invalid)return;}if(space(c))return;if(done){invalid=true;return;}
     if(!started){if(c!='{'){invalid=true;return;}started=true;push(true,Path::Root);return;}if(!depth){invalid=true;return;}auto&current=stack[depth-1];
     switch(current.state){case State::KeyOrEnd:if(c=='}'){close();return;}[[fallthrough]];case State::KeyOnly:if(c=='"')startString(true,current.path==Path::Other?Capture::None:Capture::Key);else invalid=true;return;
@@ -251,7 +278,7 @@ struct Projection {
       case State::ArrayComma:if(c==']')close();else if(c==',')current.state=State::ArrayValue;else invalid=true;return;}}
   void feed(const char*input,std::size_t count,Stats&stats,bool writer=false,std::uint64_t ticket=0){if(started||mode!=Mode::None)spans=true;unsigned completed=0;
     for(std::size_t i=0;i<count;++i){char c=input[i];if(c!='\n'){byte(c);continue;}byte(c);++stats.lines;++completed;
-      if(!invalid&&started&&done&&!depth&&mode==Mode::None&&!(frame.result&&frame.error)){++stats.valid;if(writer)OnWriteFrame(frame,ticket);else OnReadFrame(frame);}
+      if(!invalid&&started&&done&&!depth&&!opaqueDepth&&mode==Mode::None&&!(frame.result&&frame.error)){++stats.valid;if(frame.projectionLimited)OnProjectionLimited();if(writer)OnWriteFrame(frame,ticket);else OnReadFrame(frame);}
       else{++stats.rejected;if(duplicate)++stats.duplicateRejected;OnInvalidFrame(writer,duplicate);}if(spans)stats.fragmented=true;*this=Projection{};}
     if(completed>1)stats.coalesced=true;}
 };

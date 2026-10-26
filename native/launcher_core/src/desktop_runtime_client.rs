@@ -38,6 +38,7 @@ use windows::{
 
 const STATUS_BUDGET: Duration = Duration::from_millis(600);
 const CONTROL_BUDGET: Duration = Duration::from_secs(3);
+const QUOTA_CONTROL_BUDGET: Duration = Duration::from_secs(13);
 const STARTUP_BUDGET: Duration = Duration::from_secs(10);
 const LOCATOR_LIMIT: u64 = 16 * 1024;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -650,7 +651,7 @@ impl RuntimeClient {
                     profiles_root: root.to_owned(),
                     details: false,
                 },
-                CONTROL_BUDGET,
+                QUOTA_CONTROL_BUDGET,
             )
             .and_then(|reply| {
                 let reply_root = reply["profilesRoot"]

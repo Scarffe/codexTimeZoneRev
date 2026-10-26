@@ -206,6 +206,11 @@ fn control(
     id: u64,
     action: ControlAction,
 ) -> std::result::Result<Value, HostError> {
+    let budget = if matches!(&action, ControlAction::Quota { .. }) {
+        Duration::from_secs(13)
+    } else {
+        Duration::from_secs(2)
+    };
     helper_control::request(
         config,
         ControlRequest {
@@ -213,7 +218,7 @@ fn control(
             request_id: id,
             action,
         },
-        Instant::now() + Duration::from_secs(2),
+        Instant::now() + budget,
     )
 }
 
@@ -318,6 +323,12 @@ fn helper_host_process_lifetime_survives_client_disconnect_and_cleans_after_targ
     )
     .unwrap();
     assert_eq!(mismatch["error"]["kind"], "source_mismatch");
+    fs::write(
+        service.root.join(&source).join(".synthetic-quota-delay-ms"),
+        "2200",
+    )
+    .unwrap();
+    let quota_started = Instant::now();
     let quota = control(
         &config,
         7,
@@ -328,6 +339,7 @@ fn helper_host_process_lifetime_survives_client_disconnect_and_cleans_after_targ
         },
     )
     .unwrap();
+    assert!(quota_started.elapsed() >= Duration::from_secs(2));
     assert_eq!(quota["ok"], true);
     assert_eq!(quota["data"]["sourceId"], source);
     assert_eq!(

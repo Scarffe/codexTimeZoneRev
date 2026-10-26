@@ -109,6 +109,27 @@ pub(crate) struct ManagedAccountProvider {
     cancel: Arc<AtomicBool>,
     budget: Duration,
     owner: Mutex<Option<Owner>>,
+    quota_interrupt: Mutex<Option<Weak<AtomicBool>>>,
+}
+
+struct QuotaRegistration<'a> {
+    provider: &'a ManagedAccountProvider,
+    interrupt: Arc<AtomicBool>,
+}
+impl Drop for QuotaRegistration<'_> {
+    fn drop(&mut self) {
+        let mut registered = self
+            .provider
+            .quota_interrupt
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if registered
+            .as_ref()
+            .is_some_and(|current| std::ptr::eq(current.as_ptr(), Arc::as_ptr(&self.interrupt)))
+        {
+            *registered = None;
+        }
+    }
 }
 
 fn registry() -> &'static Mutex<HashMap<SourceKey, Weak<ManagedAccountProvider>>> {
@@ -179,6 +200,7 @@ impl ManagedAccountProvider {
             key,
             cancel,
             budget,
+            quota_interrupt: Mutex::new(None),
             owner: Mutex::new(Some(Owner {
                 rpc,
                 _lease: lease,
@@ -196,11 +218,16 @@ impl ManagedAccountProvider {
     fn with_owner_budget<T>(
         &self,
         budget: Duration,
+        quota_interrupt: Option<&Arc<AtomicBool>>,
         call: impl FnOnce(&mut Owner) -> ProviderResult<T>,
     ) -> ProviderResult<T> {
         let deadline = Instant::now() + budget.min(self.budget);
+        let cancelled = || {
+            self.cancel.load(Ordering::SeqCst)
+                || quota_interrupt.is_some_and(|signal| signal.load(Ordering::SeqCst))
+        };
         let mut guard = loop {
-            if self.cancel.load(Ordering::SeqCst) {
+            if cancelled() {
                 return Err(RpcError::Cancelled.into());
             }
             match self.owner.try_lock() {
@@ -215,7 +242,7 @@ impl ManagedAccountProvider {
             }
         };
         let owner = guard.as_mut().ok_or(ProviderError::Closed)?;
-        if self.cancel.load(Ordering::SeqCst) {
+        if cancelled() {
             return Err(RpcError::Cancelled.into());
         }
         let remaining = deadline
@@ -230,7 +257,8 @@ impl ManagedAccountProvider {
         &self,
         budget: Duration,
     ) -> ProviderResult<ProviderObservation> {
-        self.with_owner_budget(budget, |owner| {
+        self.interrupt_quota();
+        self.with_owner_budget(budget, None, |owner| {
             let observation = read_chatgpt_details(&mut owner.rpc)?;
             if observation.email != owner.observed_email {
                 return Err(RpcError::IdentityChanged.into());
@@ -258,7 +286,8 @@ impl ManagedAccountProvider {
         budget: Duration,
         consumer: impl FnOnce(&str, &str) -> ProviderResult<()>,
     ) -> ProviderResult<()> {
-        self.with_owner_budget(budget, |owner| {
+        self.interrupt_quota();
+        self.with_owner_budget(budget, None, |owner| {
             if read_chatgpt_observation(&mut owner.rpc)? != owner.observed_email {
                 return Err(RpcError::IdentityChanged.into());
             }
@@ -308,15 +337,63 @@ impl ManagedAccountProvider {
         details: bool,
         budget: Duration,
     ) -> ProviderResult<Value> {
-        self.with_owner_budget(budget, |owner| {
-            let value = account_usage::read_initialized_typed(&mut owner.rpc, details)?;
-            if value["account"]["email"].as_str() != Some(owner.observed_email.as_str()) {
-                return Err(RpcError::IdentityChanged.into());
-            }
-            if self.cancel.load(Ordering::SeqCst) {
-                return Err(RpcError::Cancelled.into());
-            }
-            Ok(value)
+        let interrupt = self.prepare_quota();
+        self.read_quota_interruptible(details, budget, interrupt)
+    }
+
+    /// Register before spawning a quota worker, so an intervening auth request
+    /// can interrupt it even if that worker has not acquired the RPC lock yet.
+    pub(crate) fn prepare_quota(&self) -> Arc<AtomicBool> {
+        let interrupt = Arc::new(AtomicBool::new(false));
+        let mut registered = self
+            .quota_interrupt
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(previous) = registered.as_ref().and_then(Weak::upgrade) {
+            previous.store(true, Ordering::SeqCst);
+        }
+        *registered = Some(Arc::downgrade(&interrupt));
+        interrupt
+    }
+
+    pub(crate) fn interrupt_quota(&self) {
+        if let Some(interrupt) = self
+            .quota_interrupt
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+            .and_then(Weak::upgrade)
+        {
+            interrupt.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn read_quota_interruptible(
+        &self,
+        details: bool,
+        budget: Duration,
+        interrupt: Arc<AtomicBool>,
+    ) -> ProviderResult<Value> {
+        let registration = QuotaRegistration {
+            provider: self,
+            interrupt,
+        };
+        self.with_owner_budget(budget, Some(&registration.interrupt), |owner| {
+            let observed_email = &owner.observed_email;
+            owner
+                .rpc
+                .with_wait_interrupt(registration.interrupt.clone(), |rpc| {
+                    let value = account_usage::read_initialized_typed(rpc, details)?;
+                    if value["account"]["email"].as_str() != Some(observed_email.as_str()) {
+                        return Err(RpcError::IdentityChanged.into());
+                    }
+                    if self.cancel.load(Ordering::SeqCst)
+                        || registration.interrupt.load(Ordering::SeqCst)
+                    {
+                        return Err(RpcError::Cancelled.into());
+                    }
+                    Ok(value)
+                })
         })
     }
 

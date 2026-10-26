@@ -1,4 +1,6 @@
-# rc28 · 运行账号与全局监控
+# rc29 修复候选 · 运行账号与全局监控
+
+最新实机结果：用户在 rc28 完成官方登录后，原 Desktop 的一次标准绑定已到 `active`，随后额度超时、观察通道因投影限制转为 `unresolved`。因此真实持续运行验收仍未通过。rc29 修复未知合法帧误伤、额度后台等待和认证优先级；当前旧 helper 保留，尚未执行受控替换。详见 [真实绑定与修复记录](docs/validation/2026-10-27-hot-binding-repair.md)。
 
 独立分支 `feature/hot-switch-global-monitor`。本轮不替换旧程序，不重启当前 Codex，不发送测试模型请求。构建及机器证据位于 `environment/hot-global-20261026-a/`；旧阶段记录保留其当时结论。
 

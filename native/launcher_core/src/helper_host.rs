@@ -135,6 +135,14 @@ struct Preparation {
     output: Receiver<Result<Arc<ManagedAccountProvider>, ProviderError>>,
     thread: Option<JoinHandle<()>>,
 }
+
+struct PendingQuota {
+    request_id: u64,
+    source_id: String,
+    profiles_root: PathBuf,
+    active_root: PathBuf,
+    read: crate::runtime_helper::QuotaRead,
+}
 impl Preparation {
     fn start(root: PathBuf, source: String) -> Self {
         let cancel = Arc::new(AtomicBool::new(false));
@@ -214,6 +222,7 @@ pub(crate) fn run_with_factory(
     let mut server = ControlServer::bind(&config)?;
     let mut owner = RuntimeOwner::new(transport, config.target.creation_file_time);
     let mut preparing: Option<Preparation> = None;
+    let mut quota: Option<PendingQuota> = None;
     let mut last_error = None;
     loop {
         // Runtime refresh/account metadata always runs before a GUI operation.
@@ -257,6 +266,36 @@ pub(crate) fn run_with_factory(
                 }
                 Err(error) => last_error = Some(error.kind()),
             }
+        }
+        if let Some(pending) = quota.as_mut() {
+            let same_source = owner
+                .active_source_key()
+                .is_some_and(|(root, id)| root == pending.active_root && id == pending.source_id);
+            let result = if !same_source {
+                Some(Err(crate::runtime_helper::HelperError::SourceMismatch))
+            } else if owner.status().phase != Phase::Active {
+                Some(Err(crate::runtime_helper::HelperError::Busy))
+            } else {
+                pending.read.poll()
+            };
+            if let Some(result) = result {
+                let pending = quota.take().unwrap();
+                let reply = match result {
+                    Ok(usage) => success(
+                        pending.request_id,
+                        json!({"sourceId":pending.source_id,"profilesRoot":pending.profiles_root,"usage":usage}),
+                    ),
+                    Err(error) => failure(pending.request_id, error.kind()),
+                };
+                // Cancellation/join affects this quota read only.
+                drop(pending.read);
+                if let Err(error) = server.respond(&reply) {
+                    last_error = Some(error.kind());
+                }
+                owner.gui_detached();
+            }
+            thread::sleep(Duration::from_millis(10));
+            continue;
         }
         let request = match server.poll() {
             Ok(request) => request,
@@ -331,11 +370,21 @@ pub(crate) fn run_with_factory(
                                 })
                         });
                         if let Some((root, _)) = expected {
-                            match owner.read_quota_for_source(&root, &source_id, details) {
-                                Ok(usage) => success(
-                                    request_id,
-                                    json!({"sourceId":source_id,"profilesRoot":profiles_root,"usage":usage}),
-                                ),
+                            match owner.begin_quota_for_source(&root, &source_id, details) {
+                                Ok(read) => match server.defer_quota_response() {
+                                    Ok(()) => {
+                                        quota = Some(PendingQuota {
+                                            request_id,
+                                            source_id,
+                                            profiles_root,
+                                            active_root: root,
+                                            read,
+                                        });
+                                        thread::sleep(Duration::from_millis(10));
+                                        continue;
+                                    }
+                                    Err(error) => failure(request_id, error.kind()),
+                                },
                                 Err(error) => failure(request_id, error.kind()),
                             }
                         } else {

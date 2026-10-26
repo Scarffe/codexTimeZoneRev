@@ -78,6 +78,9 @@ void OwnedResponse(const Frame&frame){
 }
 void OnReadFrame(const Frame&frame){
   OnLiveRead(frame);
+  // An unprojectable ID on an actual auth callback cannot be silently treated
+  // as an unrelated frame or acknowledged with a truncated credential scope.
+  if(frame.method==Method::Refresh&&frame.idUnsupported){Loss(ControlIncomplete);return;}
   if(!frame.hasMethod&&frame.hasId&&(frame.result||frame.error)){
     for(auto&entry:gNatural)if(entry.used&&SameId(entry.id,frame.id)){
       if(frame.result||(frame.error&&frame.errorCode)){entry.responded=true;Finalize(entry);}else Loss(InvalidFrame);
@@ -99,3 +102,4 @@ void OnReadFrame(const Frame&frame){
   }
 }
 void OnInvalidFrame(bool,bool){Loss(InvalidFrame);}
+void OnProjectionLimited(){BootstrapIssue(bootstrap4::BootstrapProjectionIncomplete);LiveLoss(live3::LiveFieldIncomplete);}

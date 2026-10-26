@@ -28,6 +28,146 @@ fn receipt(home: &Path) -> String {
 }
 
 #[test]
+fn desktop_provider_quota_interrupt_budget_allows_more_than_two_seconds() {
+    let (_root, s) = service("desktop_auth");
+    let id = create(&s);
+    let home = s.root.join(&id);
+    fs::write(home.join(".synthetic-quota-delay-ms"), "2200").unwrap();
+    let provider = provider(&s, &id).unwrap();
+    let started = Instant::now();
+    let usage = provider.read_quota_with_budget(false, Duration::from_secs(10));
+    let elapsed = started.elapsed();
+    provider.close();
+    let usage = usage.unwrap();
+    assert_eq!(usage["limits"]["rateLimits"]["primary"]["usedPercent"], 20);
+    assert!(elapsed >= Duration::from_secs(2));
+    assert_eq!(
+        receipt(&home)
+            .lines()
+            .filter(|line| *line == "initialize")
+            .count(),
+        1
+    );
+}
+
+fn assert_quota_preemption_by_high_priority_read(credentials: bool) {
+    let (_root, s) = service("desktop_auth");
+    let id = create(&s);
+    let home = s.root.join(&id);
+    fs::write(home.join(".synthetic-quota-delay-ms"), "2200").unwrap();
+    let provider = provider(&s, &id).unwrap();
+    let quota_provider = provider.clone();
+    let worker = thread::spawn(move || {
+        quota_provider.read_quota_with_budget(false, Duration::from_secs(10))
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !home.join(".desktop-quota-waiting").exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(home.join(".desktop-quota-waiting").exists());
+    let started = Instant::now();
+    let high_priority = if credentials {
+        provider.consume_auth_with_budget(
+            RefreshMode::Refresh,
+            Duration::from_millis(500),
+            |_, principal| {
+                assert_eq!(principal, "synthetic-account-A");
+                Ok(())
+            },
+        )
+    } else {
+        provider
+            .read_observation_with_budget(Duration::from_millis(500))
+            .map(|observation| assert_eq!(observation.email, "synthetic-A@example.invalid"))
+    };
+    let elapsed = started.elapsed();
+    let quota = worker.join().unwrap();
+    fs::remove_file(home.join(".synthetic-quota-delay-ms")).unwrap();
+    let usable_after_interrupt = provider.read_quota_with_budget(false, Duration::from_secs(10));
+    let source_still_owned = s.lease_for(&id, Purpose::Task).err().unwrap().kind;
+    provider.close();
+
+    assert!(
+        high_priority.is_ok(),
+        "high-priority read failed: {:?}",
+        high_priority.err()
+    );
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "quota retained the RPC lock for {elapsed:?}"
+    );
+    assert_eq!(quota.err().map(ProviderError::kind), Some("cancelled"));
+    assert_eq!(
+        usable_after_interrupt.unwrap()["limits"]["rateLimits"]["primary"]["usedPercent"],
+        20
+    );
+    assert_eq!(
+        source_still_owned, "busy",
+        "quota interruption must not cancel its source"
+    );
+    assert_eq!(
+        receipt(&home)
+            .lines()
+            .filter(|line| *line == "initialize")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn desktop_provider_quota_interrupt_auth_preempts_and_provider_remains_usable() {
+    assert_quota_preemption_by_high_priority_read(true);
+}
+
+#[test]
+fn desktop_provider_quota_interrupt_observation_preempts_and_provider_remains_usable() {
+    assert_quota_preemption_by_high_priority_read(false);
+}
+
+#[test]
+fn desktop_provider_quota_interrupt_before_worker_start_is_not_reset() {
+    let (_root, s) = service("desktop_auth");
+    let id = create(&s);
+    let provider = provider(&s, &id).unwrap();
+    let interrupt = provider.prepare_quota();
+    provider.interrupt_quota();
+    let result = provider.read_quota_interruptible(false, Duration::from_secs(10), interrupt);
+    let subsequent = provider.read_quota_with_budget(false, Duration::from_secs(10));
+    provider.close();
+    assert_eq!(result.err().map(ProviderError::kind), Some("cancelled"));
+    assert_eq!(
+        subsequent.unwrap()["limits"]["rateLimits"]["primary"]["usedPercent"],
+        20
+    );
+}
+
+#[test]
+fn desktop_provider_quota_interrupt_retired_job_cannot_clear_new_registration() {
+    let (_root, s) = service("desktop_auth");
+    let id = create(&s);
+    let provider = provider(&s, &id).unwrap();
+    let retired = provider.prepare_quota();
+    let current = provider.prepare_quota();
+    let retired_result = provider.read_quota_interruptible(false, Duration::from_secs(10), retired);
+    provider.interrupt_quota();
+    let current_result = provider.read_quota_interruptible(false, Duration::from_secs(10), current);
+    let subsequent = provider.read_quota_with_budget(false, Duration::from_secs(10));
+    provider.close();
+    assert_eq!(
+        retired_result.err().map(ProviderError::kind),
+        Some("cancelled")
+    );
+    assert_eq!(
+        current_result.err().map(ProviderError::kind),
+        Some("cancelled")
+    );
+    assert_eq!(
+        subsequent.unwrap()["limits"]["rateLimits"]["primary"]["usedPercent"],
+        20
+    );
+}
+
+#[test]
 fn desktop_provider_uses_distinct_principals_and_profile_homes() {
     let (_root, s) = service("desktop_auth");
     let (a, b) = (create(&s), create(&s));

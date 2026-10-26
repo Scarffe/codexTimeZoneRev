@@ -155,6 +155,17 @@ impl ControlServer {
         }
     }
 
+    pub(crate) fn defer_quota_response(&mut self) -> Result<(), HostError> {
+        #[cfg(windows)]
+        {
+            self.inner.defer_quota_response()
+        }
+        #[cfg(not(windows))]
+        {
+            Err(HostError::Unsupported)
+        }
+    }
+
     // Only used after an accepted StopUnowned, while no provider needs refresh.
     // Keep the queued response alive until the one client reads and disconnects.
     pub(crate) fn finish_stop_reply(&mut self, deadline: Instant) -> Result<(), HostError> {
@@ -644,6 +655,7 @@ mod local_pipe {
                 return Err(HostError::InvalidRequest);
             }
             self.pending_reply = Some(encode(reply)?);
+            self.client_deadline = Some(Instant::now() + CONNECTION_LEASE);
             if let Err(error) = self.write_pending() {
                 self.reset();
                 return Err(error);
@@ -651,6 +663,16 @@ mod local_pipe {
             // DisconnectNamedPipe discards unread output. Retain this slot
             // until the client reads and drops, or its short lease expires.
             // No blocking FlushFileBuffers is used.
+            Ok(())
+        }
+
+        pub(super) fn defer_quota_response(&mut self) -> Result<(), HostError> {
+            if !self.connected || !self.delivered || self.replied || self.pending_reply.is_some() {
+                return Err(HostError::InvalidRequest);
+            }
+            // Only an admitted quota read can hold this slot beyond the short
+            // normal lease. The host keeps servicing auth while it waits.
+            self.client_deadline = Some(Instant::now() + Duration::from_secs(12));
             Ok(())
         }
 

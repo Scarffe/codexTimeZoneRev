@@ -363,6 +363,24 @@ fn main() {
                 }
             }
         } else if line.contains("\"method\":\"account/rateLimits/read\"") {
+            if desktop {
+                if let Ok(delay) =
+                    std::fs::read_to_string(Path::new(&home).join(".synthetic-quota-delay-ms"))
+                {
+                    let delay = delay.trim().parse::<u64>().unwrap();
+                    std::fs::write(Path::new(&home).join(".desktop-quota-waiting"), "synthetic")
+                        .unwrap();
+                    // An official RPC can await its network response while
+                    // serving a later identity/auth request on the same stream.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(delay));
+                        println!(
+                            r#"{{"id":{id},"result":{{"rateLimits":{{"primary":{{"usedPercent":20}}}},"rateLimitsByLimitId":null}}}}"#
+                        );
+                    });
+                    continue;
+                }
+            }
             if mode == "query_timeout" {
                 std::thread::sleep(Duration::from_secs(120));
             }

@@ -118,6 +118,7 @@ pub(crate) struct Rpc {
     next_id: u32,
     deadline: Instant,
     cancel: Arc<AtomicBool>,
+    wait_interrupt: Option<Arc<AtomicBool>>,
     notifications: std::collections::VecDeque<Value>,
     profile_home: Option<PathBuf>,
     strict_error_codes: bool,
@@ -233,6 +234,7 @@ impl Rpc {
             next_id: 1,
             deadline: Instant::now() + timeout,
             cancel,
+            wait_interrupt: None,
             notifications: Default::default(),
             profile_home: home.map(Path::to_path_buf),
             strict_error_codes: false,
@@ -240,6 +242,7 @@ impl Rpc {
     }
 
     pub(crate) fn send(&mut self, value: Value) -> Result<(), RpcError> {
+        self.check_cancelled()?;
         writeln!(self.input, "{value}")
             .and_then(|_| self.input.flush())
             .map_err(|_| RpcError::Failed)
@@ -257,7 +260,46 @@ impl Rpc {
         Ok(())
     }
 
+    fn check_cancelled(&self) -> Result<(), RpcError> {
+        if self.cancel.load(Ordering::SeqCst)
+            || self
+                .wait_interrupt
+                .as_ref()
+                .is_some_and(|signal| signal.load(Ordering::SeqCst))
+        {
+            Err(RpcError::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn with_wait_interrupt<T>(
+        &mut self,
+        interrupt: Arc<AtomicBool>,
+        call: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        struct Scope<'a> {
+            rpc: &'a mut Rpc,
+            previous: Option<Arc<AtomicBool>>,
+        }
+        impl Drop for Scope<'_> {
+            fn drop(&mut self) {
+                self.rpc.wait_interrupt = self.previous.take();
+            }
+        }
+        let previous = self.wait_interrupt.replace(interrupt);
+        let scope = Scope {
+            rpc: self,
+            previous,
+        };
+        call(&mut *scope.rpc)
+    }
+
     pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value, RpcError> {
+        self.check_cancelled()?;
+        if Instant::now() >= self.deadline {
+            return Err(RpcError::Timeout);
+        }
         let id = self.next_id;
         self.next_id += 1;
         self.send(json!({"id": id, "method": method, "params": params}))?;
@@ -312,17 +354,23 @@ impl Rpc {
 
     fn receive(&self, deadline: Instant) -> Result<Value, RpcError> {
         loop {
-            if self.cancel.load(Ordering::SeqCst) {
-                return Err(RpcError::Cancelled);
-            }
+            self.check_cancelled()?;
             let remaining = deadline
                 .checked_duration_since(Instant::now())
                 .ok_or(RpcError::Timeout)?;
+            let poll = if self.wait_interrupt.is_some() {
+                10
+            } else {
+                50
+            };
             match self
                 .output
-                .recv_timeout(remaining.min(Duration::from_millis(50)))
+                .recv_timeout(remaining.min(Duration::from_millis(poll)))
             {
-                Ok(v) => return v,
+                Ok(v) => {
+                    self.check_cancelled()?;
+                    return v;
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(_) => return Err(RpcError::Failed),
             }
@@ -560,6 +608,8 @@ mod tests {
                 "limits_only",
                 "rate_limited",
                 "current_args",
+                "rpc_receipt",
+                "rpc_late_id",
             ] {
                 let target = root.path().join(if cfg!(windows) {
                     format!("{mode}.exe")
@@ -578,6 +628,55 @@ mod tests {
     }
     fn read_fixture(mode: &str) -> Result<Value, String> {
         read_usage(&mut Rpc::start(&fixture(mode), Duration::from_secs(10)).unwrap())
+    }
+    #[test]
+    fn rpc_pre_send_expired_deadline_does_not_reach_child_and_can_renew() {
+        let mut rpc = Rpc::start(&fixture("rpc_receipt"), Duration::ZERO).unwrap();
+        assert!(matches!(
+            rpc.call("account/read", json!({})),
+            Err(RpcError::Timeout)
+        ));
+
+        rpc.renew_deadline(Duration::from_secs(10)).unwrap();
+        let receipt = rpc.call("initialize", json!({})).unwrap();
+        assert_eq!(
+            receipt["requests"], 1,
+            "an expired call must not emit a request"
+        );
+    }
+    #[test]
+    fn rpc_pre_send_cancelled_call_does_not_reach_child() {
+        let mut rpc = Rpc::start(&fixture("rpc_receipt"), Duration::from_secs(10)).unwrap();
+        rpc.cancel.store(true, Ordering::SeqCst);
+        assert!(matches!(
+            rpc.call("account/read", json!({})),
+            Err(RpcError::Cancelled)
+        ));
+
+        // Reset only this isolated fixture's signal to read its emission receipt.
+        rpc.cancel.store(false, Ordering::SeqCst);
+        rpc.renew_deadline(Duration::from_secs(10)).unwrap();
+        let receipt = rpc.call("initialize", json!({})).unwrap();
+        assert_eq!(
+            receipt["requests"], 1,
+            "a cancelled call must not emit a request"
+        );
+    }
+    #[test]
+    fn rpc_pre_send_renewed_call_ignores_a_timed_out_reads_late_response() {
+        let mut rpc = Rpc::start(&fixture("rpc_late_id"), Duration::from_secs(10)).unwrap();
+        rpc.send(json!({"id":0,"method":"account/read","params":{}}))
+            .unwrap();
+        rpc.deadline = Instant::now();
+        assert!(matches!(rpc.receive(rpc.deadline), Err(RpcError::Timeout)));
+
+        rpc.renew_deadline(Duration::from_secs(10)).unwrap();
+        let current = rpc.call("initialize", json!({})).unwrap();
+        assert_eq!(
+            current["marker"], "current",
+            "the old ID must not satisfy the renewed call"
+        );
+        assert_eq!(current["requests"], 2);
     }
     #[test]
     fn desktop_and_query_components_are_distinct() {
