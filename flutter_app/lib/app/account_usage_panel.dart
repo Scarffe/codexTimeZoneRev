@@ -437,6 +437,8 @@ String _resetState(AppCopy copy, UsageWindow window, DateTime now) =>
     ? copy.text('accounts.expired')
     : _quotaCountdown(copy, window.resetsAt, now);
 
+// These detail and clipboard timestamps are provenance facts. Keep their exact
+// ISO representation (including fractional seconds) independent of UI language.
 class _AccountUsageInformation extends StatelessWidget {
   const _AccountUsageInformation({required this.controller});
   final AccountUsageController controller;
@@ -508,10 +510,9 @@ class _AccountUsageInformation extends StatelessWidget {
                             AppCopy.of(context).text(
                               'accounts.usage.limitsUpdated',
                               args: {
-                                'time': AppCopy.of(context).dateTime(
-                                  data.fetchedAt,
-                                  includeSeconds: true,
-                                ),
+                                'time': data.fetchedAt
+                                    .toLocal()
+                                    .toIso8601String(),
                               },
                             ),
                           ),
@@ -520,10 +521,9 @@ class _AccountUsageInformation extends StatelessWidget {
                               AppCopy.of(context).text(
                                 'accounts.usage.tokensUpdated',
                                 args: {
-                                  'time': AppCopy.of(context).dateTime(
-                                    data.tokensFetchedAt,
-                                    includeSeconds: true,
-                                  ),
+                                  'time': data.tokensFetchedAt!
+                                      .toLocal()
+                                      .toIso8601String(),
                                 },
                               ),
                             ),
@@ -586,10 +586,9 @@ class _AccountUsageInformation extends StatelessWidget {
                             AppCopy.of(context).text(
                               'accounts.usage.lastAttempt',
                               args: {
-                                'time': AppCopy.of(context).dateTime(
-                                  controller.lastAttempt,
-                                  includeSeconds: true,
-                                ),
+                                'time': controller.lastAttempt!
+                                    .toLocal()
+                                    .toIso8601String(),
                               },
                             ),
                           ),
@@ -598,10 +597,9 @@ class _AccountUsageInformation extends StatelessWidget {
                             AppCopy.of(context).text(
                               'accounts.usage.nextAttempt',
                               args: {
-                                'time': AppCopy.of(context).dateTime(
-                                  controller.nextRefreshAt,
-                                  includeSeconds: true,
-                                ),
+                                'time': controller.nextRefreshAt!
+                                    .toLocal()
+                                    .toIso8601String(),
                               },
                             ),
                           ),
@@ -644,20 +642,18 @@ class _AccountUsageInformation extends StatelessWidget {
                                   AppCopy.of(context).text(
                                     'accounts.usage.limitsUpdated',
                                     args: {
-                                      'time': AppCopy.of(context).dateTime(
-                                        data.fetchedAt,
-                                        includeSeconds: true,
-                                      ),
+                                      'time': data.fetchedAt
+                                          .toLocal()
+                                          .toIso8601String(),
                                     },
                                   ),
                                 if (data?.tokensFetchedAt != null)
                                   AppCopy.of(context).text(
                                     'accounts.usage.tokensUpdated',
                                     args: {
-                                      'time': AppCopy.of(context).dateTime(
-                                        data!.tokensFetchedAt,
-                                        includeSeconds: true,
-                                      ),
+                                      'time': data!.tokensFetchedAt!
+                                          .toLocal()
+                                          .toIso8601String(),
                                     },
                                   ),
                                 if (data?.limitsError != null)
