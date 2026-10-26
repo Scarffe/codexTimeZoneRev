@@ -2,25 +2,32 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import 'dashboard_style.dart';
+import '../l10n/app_language.dart';
 
 // Build dependent component styles from a single desktop type scale, including
 // explicit CJK fallbacks instead of relying on platform font discovery alone.
-final _themes = <(bool, bool, DashboardThemeStyle), FThemeData>{};
+final _themes = <(bool, bool, DashboardThemeStyle, AppLanguage), FThemeData>{};
 
 FThemeData launcherTheme(
   bool dark, {
   bool acrylic = false,
   DashboardThemeStyle style = DashboardThemeStyle.soft,
-}) => _themes.putIfAbsent((
-  dark,
-  acrylic,
-  style,
-), () => _buildLauncherTheme(dark, acrylic: acrylic, style: style));
+  AppLanguage language = AppLanguage.zh,
+}) => _themes.putIfAbsent(
+  (dark, acrylic, style, language),
+  () => _buildLauncherTheme(
+    dark,
+    acrylic: acrylic,
+    style: style,
+    language: language,
+  ),
+);
 
 FThemeData _buildLauncherTheme(
   bool dark, {
   required bool acrylic,
   required DashboardThemeStyle style,
+  required AppLanguage language,
 }) {
   final base =
       (dark ? FTheme.neutral.dark.desktop : FTheme.neutral.light.desktop)
@@ -61,7 +68,11 @@ FThemeData _buildLauncherTheme(
     ],
   );
   TextStyle text(double size, {FontWeight weight = FontWeight.w400}) =>
-      inherited.md.copyWith(fontSize: size, height: 1.5, fontWeight: weight);
+      inherited.md.copyWith(
+        fontSize: size,
+        height: language == AppLanguage.en ? 1.45 : 1.5,
+        fontWeight: weight,
+      );
   final typeface = inherited.copyWith(
     xs3: text(12),
     xs2: text(12),

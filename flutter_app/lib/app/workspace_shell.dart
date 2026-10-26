@@ -4,6 +4,8 @@ import 'package:forui/forui.dart';
 import 'monitor_presentation.dart';
 import 'dashboard_style.dart';
 import 'dashboard_motion.dart';
+import '../l10n/app_copy.dart';
+import '../l10n/app_language.dart';
 
 enum WorkspaceDestination {
   launcher('启动器', FLucideIcons.clock3),
@@ -36,6 +38,8 @@ class WorkspaceShell extends StatelessWidget {
     required this.benchmark,
     this.unreadCount = 0,
     this.onSettings,
+    this.language = AppLanguage.zh,
+    this.onLanguage,
   });
   final WorkspaceDestination selected;
   final int unreadCount;
@@ -46,6 +50,8 @@ class WorkspaceShell extends StatelessWidget {
   final ValueChanged<DashboardThemeStyle>? onThemeStyle;
   final Widget launcher, overview, accounts, sessions, analysis, benchmark;
   final VoidCallback? onSettings;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage>? onLanguage;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -53,6 +59,7 @@ class WorkspaceShell extends StatelessWidget {
       final narrow = constraints.maxWidth <= 620;
       final colors = context.theme.colors;
       final palette = DashboardPalette.of(context);
+      final copy = AppCopy.of(context);
       final horizontal = narrow
           ? 12.0
           : constraints.maxWidth <= 760
@@ -79,8 +86,14 @@ class WorkspaceShell extends StatelessWidget {
                       name:
                           destination == WorkspaceDestination.sessions &&
                               unreadCount > 0
-                          ? '${destination.label} · $unreadCount 未读'
-                          : destination.label,
+                          ? copy.text(
+                              'nav.unread',
+                              args: {
+                                'name': copy.text('nav.${destination.name}'),
+                                'count': unreadCount,
+                              },
+                            )
+                          : copy.text('nav.${destination.name}'),
                       icon: destination.icon,
                       selected: selected == destination,
                       onPress: () => onSelect(destination),
@@ -88,7 +101,7 @@ class WorkspaceShell extends StatelessWidget {
                   const Spacer(),
                   MonitorIconAction(
                     key: const ValueKey('monitor-settings'),
-                    label: '监控与提醒设置',
+                    label: copy.text('app.monitorSettings'),
                     icon: FLucideIcons.settings,
                     onPress: onSettings,
                   ),
@@ -132,7 +145,7 @@ class WorkspaceShell extends StatelessWidget {
                                   ),
                                 if (!narrow) const SizedBox(height: 3),
                                 Text(
-                                  selected.label,
+                                  copy.text('nav.${selected.name}'),
                                   style: context.theme.typography.display.xl
                                       .copyWith(
                                         height: 1.2,
@@ -148,16 +161,16 @@ class WorkspaceShell extends StatelessWidget {
                           childAnchor: Alignment.bottomRight,
                           menuBuilder: (context, controller, _) => [
                             FItemGroup(
-                              semanticsLabel: '配色风格',
+                              semanticsLabel: copy.text('theme.family'),
                               children: [
                                 FItem(
-                                  title: const Text('配色风格'),
+                                  title: Text(copy.text('theme.family')),
                                   enabled: false,
                                 ),
                                 for (final style in DashboardThemeStyle.values)
                                   FItem(
                                     key: ValueKey('theme-style-${style.id}'),
-                                    title: Text(style.label),
+                                    title: Text(copy.text('theme.${style.id}')),
                                     suffix: themeStyle == style
                                         ? const Icon(FLucideIcons.check)
                                         : null,
@@ -173,16 +186,16 @@ class WorkspaceShell extends StatelessWidget {
                             FItemGroup(
                               children: [
                                 FItem(
-                                  title: const Text('明暗模式'),
+                                  title: Text(copy.text('theme.mode')),
                                   enabled: false,
                                 ),
-                                for (final (label, value, icon) in [
+                                for (final (_, value, icon) in [
                                   ('跟随系统', 'system', FLucideIcons.monitor),
                                   ('浅色', 'light', FLucideIcons.sun),
                                   ('深色', 'dark', FLucideIcons.moon),
                                 ])
                                   FItem(
-                                    title: Text(label),
+                                    title: Text(copy.text('theme.$value')),
                                     prefix: Icon(icon),
                                     suffix: appearance == value
                                         ? const Icon(FLucideIcons.check)
@@ -198,7 +211,7 @@ class WorkspaceShell extends StatelessWidget {
                           builder: (context, controller, _) =>
                               MonitorIconAction(
                                 key: const ValueKey('workspace-theme'),
-                                label: '主题',
+                                label: copy.text('theme.menu'),
                                 icon: appearance == 'dark'
                                     ? FLucideIcons.moon
                                     : appearance == 'light'
@@ -207,6 +220,40 @@ class WorkspaceShell extends StatelessWidget {
                                 onPress: controller.toggle,
                               ),
                         ),
+                        if (onLanguage != null)
+                          FPopoverMenu(
+                            menuAnchor: Alignment.topRight,
+                            childAnchor: Alignment.bottomRight,
+                            menuBuilder: (context, controller, _) => [
+                              FItemGroup(
+                                children: [
+                                  for (final choice in AppLanguage.values)
+                                    FItem(
+                                      key: ValueKey('language-${choice.code}'),
+                                      title: Text(
+                                        copy.text(
+                                          'app.language.${choice.code}',
+                                        ),
+                                      ),
+                                      suffix: language == choice
+                                          ? const Icon(FLucideIcons.check)
+                                          : null,
+                                      onPress: () {
+                                        onLanguage!(choice);
+                                        controller.hide();
+                                      },
+                                    ),
+                                ],
+                              ),
+                            ],
+                            builder: (context, controller, _) =>
+                                MonitorIconAction(
+                                  key: const ValueKey('workspace-language'),
+                                  label: copy.text('app.language'),
+                                  icon: FLucideIcons.languages,
+                                  onPress: controller.toggle,
+                                ),
+                          ),
                         FPopoverMenu(
                           menuAnchor: Alignment.topRight,
                           childAnchor: Alignment.bottomRight,
@@ -214,9 +261,17 @@ class WorkspaceShell extends StatelessWidget {
                             FItemGroup(
                               children: [
                                 FItem(
-                                  title: const Text('Codex 时区启动器'),
-                                  subtitle: const Text(
-                                    '版本 ${String.fromEnvironment('FLUTTER_BUILD_NAME', defaultValue: 'dev')}',
+                                  title: Text(copy.text('app.name')),
+                                  subtitle: Text(
+                                    copy.text(
+                                      'app.version',
+                                      args: {
+                                        'version': const String.fromEnvironment(
+                                          'FLUTTER_BUILD_NAME',
+                                          defaultValue: 'dev',
+                                        ),
+                                      },
+                                    ),
                                   ),
                                   enabled: false,
                                 ),
@@ -226,7 +281,7 @@ class WorkspaceShell extends StatelessWidget {
                           builder: (context, controller, _) =>
                               MonitorIconAction(
                                 key: const ValueKey('workspace-about'),
-                                label: '应用信息',
+                                label: copy.text('app.about'),
                                 icon: FLucideIcons.info,
                                 glyph: Image.asset(
                                   'assets/app_icon.png',

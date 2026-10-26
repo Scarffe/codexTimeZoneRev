@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import '../l10n/app_language.dart';
+import '../l10n/app_copy.dart';
+
 import '../services/session_rhythm_store.dart';
 import '../state/session_rhythm_controller.dart';
 import 'session_rhythm_panel.dart';
@@ -235,6 +238,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       );
   late final appearance = ValueNotifier(widget.initialAppearance);
   late final themeStyle = ValueNotifier(widget.initialThemeStyle);
+  final language = ValueNotifier(AppLanguage.zh);
+  int _languageRevision = 0;
   int _appearanceRevision = 0, _styleRevision = 0;
   late bool acrylicEnabled = widget.acrylicEnabled;
   bool? materialDark;
@@ -417,6 +422,9 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     unawaited(rhythm.initialize());
     network.initialize();
     benchmark.initialize();
+    if (!widget.preview && !widget.offlineTrial) {
+      _loadLanguage();
+    }
     if (!widget.preview && !widget.offlineTrial && widget.backend == null) {
       _loadAppearance();
     }
@@ -438,6 +446,40 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       });
     } catch (_) {
       /* Current in-memory appearance is a safe fallback. */
+    }
+  }
+
+  Future<void> _loadLanguage() async {
+    final revision = _languageRevision;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted || revision != _languageRevision) return;
+      setState(
+        () => language.value = AppLanguage.parse(prefs.get('flutter-language')),
+      );
+    } catch (_) {
+      // Keep the visible choice when the preference service is unavailable.
+    }
+  }
+
+  Future<void> _setLanguage(AppLanguage value) async {
+    _languageRevision++;
+    setState(() => language.value = value);
+    if (!widget.preview && !widget.offlineTrial) {
+      try {
+        if (!await (await SharedPreferences.getInstance()).setString(
+          'flutter-language',
+          value.code,
+        )) {
+          throw StateError('Language preference was not saved');
+        }
+      } catch (error) {
+        if (mounted)
+          launcher.report(
+            AppCopy(value).text('app.languageSaveFailure'),
+            detail: error.toString(),
+          );
+      }
     }
   }
 
@@ -476,11 +518,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   @override
   Widget build(BuildContext context) => WidgetsApp(
     navigatorKey: _navigator,
-    title: 'Codex 时区启动器',
+    title: AppCopy(language.value).text('app.name'),
     color: const Color(0xff18181b),
     debugShowCheckedModeBanner: false,
-    locale: const Locale('zh', 'CN'),
-    supportedLocales: FLocalizations.supportedLocales,
+    locale: language.value.locale,
+    supportedLocales: AppLanguage.values.map((language) => language.locale),
     localizationsDelegates: FLocalizations.localizationsDelegates,
     builder: (context, child) {
       final dark =
@@ -493,26 +535,30 @@ class _LauncherApplicationState extends State<LauncherApplication> {
         dark,
         acrylic: acrylicEnabled,
         style: themeStyle.value,
+        language: language.value,
       );
-      return DashboardStyleScope(
-        style: themeStyle.value,
-        child: FTheme(
-          data: theme,
-          child: ListenableBuilder(
-            listenable: usage,
-            child: FToaster(
-              child: FTooltipGroup(
-                child: DefaultTextStyle(
-                  style: theme.typography.body.md.copyWith(
-                    color: theme.colors.foreground,
+      return AppCopyScope(
+        language: language.value,
+        child: DashboardStyleScope(
+          style: themeStyle.value,
+          child: FTheme(
+            data: theme,
+            child: ListenableBuilder(
+              listenable: usage,
+              child: FToaster(
+                child: FTooltipGroup(
+                  child: DefaultTextStyle(
+                    style: theme.typography.body.md.copyWith(
+                      color: theme.colors.foreground,
+                    ),
+                    child: _benchmarkKeyboard(child!),
                   ),
-                  child: _benchmarkKeyboard(child!),
                 ),
               ),
-            ),
-            builder: (context, child) => DashboardMotionScope(
-              reducedMotion: usage.reducedMotion || !usage.mainWindowVisible,
-              child: DashboardMotionBackdrop(child: child!),
+              builder: (context, child) => DashboardMotionScope(
+                reducedMotion: usage.reducedMotion || !usage.mainWindowVisible,
+                child: DashboardMotionBackdrop(child: child!),
+              ),
             ),
           ),
         ),
@@ -528,6 +574,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           metrics,
           appearance,
           themeStyle,
+          language,
           benchmark,
           attention,
           rhythm,
@@ -545,8 +592,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     padding: const EdgeInsets.all(8),
                     child: Text(
                       sources?.service.synthetic == true
-                          ? '离线试用 · 仅合成来源可操作；真实账号查询与客户端启动已停用。'
-                          : '离线试用 · 公网、账号查询与客户端启动已停用；主题仅本次生效。',
+                          ? AppCopy.of(context).text('app.offlineSynthetic')
+                          : AppCopy.of(context).text('app.offlineTrial'),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: DashboardPalette.of(context).foreground,
@@ -562,12 +609,15 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                     onAppearance: _setAppearance,
                     themeStyle: themeStyle.value,
                     onThemeStyle: _setThemeStyle,
+                    language: language.value,
+                    onLanguage: _setLanguage,
                     onSettings: !usage.preferencesReady
                         ? null
                         : () => showGeneralDialog<void>(
                             context: context,
                             barrierDismissible: true,
-                            barrierLabel: '关闭监控设置',
+                            barrierLabel: AppCopy.of(context)
+                                .text('app.closeSettings'),
                             pageBuilder: (context, _, _) =>
                                 MonitorSettingsDialog(controller: usage),
                           ),
@@ -618,9 +668,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                             key: const ValueKey('benchmark-page'),
                             controller: benchmark,
                           )
-                        : const SingleChildScrollView(
-                            key: PageStorageKey('benchmark-scroll'),
-                            child: Text('独立 API 测速 · 当前预览未启用。'),
+                        : SingleChildScrollView(
+                            key: const PageStorageKey('benchmark-scroll'),
+                            child: Text(
+                              AppCopy.of(context).text('app.benchmarkPreview'),
+                            ),
                           ),
                   ),
                 ),
@@ -644,6 +696,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     metrics.dispose();
     benchmark.dispose();
     appearance.dispose();
+    language.dispose();
     themeStyle.dispose();
     attention.dispose();
     unawaited(rhythm.shutdown());
