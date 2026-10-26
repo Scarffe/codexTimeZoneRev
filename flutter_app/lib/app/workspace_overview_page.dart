@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
@@ -5,10 +7,12 @@ import '../l10n/app_copy.dart';
 import '../services/global_workbench.dart';
 import '../state/account_usage_controller.dart';
 import '../state/global_workbench_controller.dart';
+import '../state/global_live_controller.dart';
 import '../state/session_attention_controller.dart';
 import '../state/session_metrics_controller.dart';
 import 'dashboard_style.dart';
 import 'global_session_list.dart';
+import 'global_live_panel.dart';
 import 'global_workbench_charts.dart';
 import 'monitor_information.dart';
 import 'workspace_shell.dart';
@@ -24,6 +28,7 @@ class WorkspaceOverviewPage extends StatefulWidget {
     required this.recentNotice,
     this.global,
     this.onOpenSession,
+    this.live,
   });
   final AccountUsageController usage;
   final SessionMetricsController metrics;
@@ -32,12 +37,14 @@ class WorkspaceOverviewPage extends StatefulWidget {
   final String recentNotice;
   final GlobalWorkbenchController? global;
   final ValueChanged<GlobalSessionRow>? onOpenSession;
+  final GlobalLiveController? live;
   @override
   State<WorkspaceOverviewPage> createState() => _WorkspaceOverviewPageState();
 }
 
 class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
   String metric = 'totalTokens';
+  final _sessionRows = GlobalKey();
   late final _search = TextEditingController(
     text: widget.global?.query.search ?? '',
   );
@@ -45,6 +52,35 @@ class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  Future<void> _openLiveThread(String id) async {
+    final controller = widget.global;
+    if (controller == null) return;
+    final row = controller.snapshot?.sessions
+        .where((row) => row.threadId == id)
+        .firstOrNull;
+    if (row?.canOpenDetail == true && widget.onOpenSession != null) {
+      widget.onOpenSession!(row!);
+      return;
+    }
+    // Exact ID search is an index query, never an inferred local path.
+    _search.text = id;
+    await controller.clearFilters();
+    if (!mounted) return;
+    await controller.setSearch(id);
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _sessionRows.currentContext;
+      if (mounted && target != null) {
+        unawaited(
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 180),
+          ),
+        );
+      }
+    });
   }
 
   @override
@@ -123,6 +159,16 @@ class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
               color: palette.muted,
             ),
           ),
+          if (widget.live != null) ...[
+            const SizedBox(height: 14),
+            GlobalLivePanel(
+              controller: widget.live!,
+              onConnect: () => widget.onSelect(WorkspaceDestination.accounts),
+              onOpenThread: controller == null || controller.busy
+                  ? null
+                  : _openLiveThread,
+            ),
+          ],
           const SizedBox(height: 14),
           Wrap(
             spacing: 7,
@@ -382,6 +428,7 @@ class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
           ),
           const SizedBox(height: 16),
           GlobalSessionList(
+            key: _sessionRows,
             snapshot: snapshot,
             busy: controller?.busy ?? false,
             sort: controller?.query.sort ?? 'recent',

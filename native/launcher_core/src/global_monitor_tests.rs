@@ -660,3 +660,215 @@ fn global_monitor_default_home_changes_after_restore_but_explicit_selection_surv
     assert_eq!(value["sessions"][0]["threadId"], "thread-a");
     assert_eq!(value["sessions"][0]["canOpenDetail"], false);
 }
+
+fn fixture_modified(path: &Path, seconds: u64) {
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_times(
+            fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(seconds)),
+        )
+        .unwrap();
+}
+
+#[test]
+fn global_monitor_first_bounded_scan_reads_latest_small_live_session() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    for index in 0..80 {
+        let path = fixture(&home, &format!("old-{index:03}"), "transport", false);
+        fixture_modified(&path, 100 + index);
+    }
+    let live = fixture(&home, "z-live", "transport", false);
+    let mut file = fs::OpenOptions::new().append(true).open(&live).unwrap();
+    record(
+        &mut file,
+        json!({"type":"event_msg","timestamp":"2026-10-26T00:00:10Z","payload":{"type":"task_started","turn_id":"live-turn"}}),
+    );
+    drop(file);
+    fixture_modified(&live, 10_000);
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    let value = kernel.query(&json!({"limit":200})).unwrap();
+    let live = value["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["threadId"] == "z-live");
+    assert!(
+        live.is_some(),
+        "newest small rollout must be visible on the first bounded scan"
+    );
+    assert_eq!(live.unwrap()["lifecycleState"], "running");
+}
+
+#[test]
+fn global_monitor_compressed_entries_do_not_consume_supported_read_slots() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let archive = home.join("archived_sessions");
+    fs::create_dir_all(&archive).unwrap();
+    for index in 0..40 {
+        fs::write(
+            archive.join(format!("rollout-old-{index:03}.jsonl.zst")),
+            b"synthetic compressed placeholder",
+        )
+        .unwrap();
+        fixture(&home, &format!("thread-{index:03}"), "transport", false);
+    }
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    let first = kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    assert_eq!(first["coverage"]["indexed"], 32);
+    assert_eq!(first["coverage"]["unsupported"], 40);
+    kernel
+        .scan(&json!({"generation":1,"nowMs":1792972821000u64}))
+        .unwrap();
+    assert_eq!(
+        kernel.query(&json!({"limit":200})).unwrap()["filteredCount"],
+        40
+    );
+}
+
+#[test]
+fn global_monitor_hot_priority_keeps_backlog_fair_and_bounds_one_large_file() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let large = fixture(&home, "old-000-large", "transport", false);
+    let mut file = fs::OpenOptions::new().append(true).open(&large).unwrap();
+    let ignored =
+        json!({"type":"response_item","payload":{"content":"x".repeat(2048)}}).to_string();
+    for _ in 0..1536 {
+        writeln!(file, "{ignored}").unwrap();
+    }
+    file.flush().unwrap();
+    drop(file);
+    fixture_modified(&large, 50);
+    for index in 0..80 {
+        let path = fixture(&home, &format!("old-{index:03}"), "transport", false);
+        fixture_modified(&path, 100 + index);
+    }
+    let live = fixture(&home, "z-live", "transport", false);
+    fixture_modified(&live, 10_000);
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    let large_key = large.canonicalize().unwrap();
+    let first_offset = kernel.sources[&large_key].offset;
+    assert!(
+        first_offset > 0 && first_offset <= 1024 * 1024,
+        "a large file must not own the whole scan byte budget"
+    );
+    assert!(first_offset < kernel.sources[&large_key].length);
+    for index in 0..8 {
+        let mut file = fs::OpenOptions::new().append(true).open(&live).unwrap();
+        record(
+            &mut file,
+            usage("z-live", "live-turn", &format!("live-{index}"), 5),
+        );
+        drop(file);
+        fixture_modified(&live, 10_001 + index);
+        kernel
+            .scan(&json!({"generation":1,"nowMs":1792972821000u64+index*1000}))
+            .unwrap();
+    }
+    assert!(
+        kernel.sources[&large_key].offset > first_offset,
+        "round-robin backlog must continue despite a repeatedly hot source"
+    );
+    assert!(kernel.coverage()["indexed"].as_u64().unwrap() >= 80);
+}
+
+fn backlog_fixture(home: &Path, id: &str) -> (PathBuf, File) {
+    let path = fixture(home, id, "transport", false);
+    let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    finish(&mut file, "old-turn", Value::Null);
+    let ignored =
+        json!({"type":"response_item","payload":{"content":"x".repeat(2048)}}).to_string();
+    for _ in 0..1536 {
+        writeln!(file, "{ignored}").unwrap();
+    }
+    (path, file)
+}
+
+#[test]
+fn global_monitor_unindexed_tail_observes_current_lifecycle_without_counting_tail_usage() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let (_, mut file) = backlog_fixture(&home, "tail-live");
+    record(
+        &mut file,
+        json!({"type":"event_msg","timestamp":"2026-10-26T00:00:19Z","payload":{"type":"task_started","turn_id":"new-turn"}}),
+    );
+    record(
+        &mut file,
+        usage("tail-live", "new-turn", "not-indexed-yet", 999),
+    );
+    drop(file);
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    let value = kernel.query(&json!({})).unwrap();
+    assert_eq!(value["phase"], "scanning");
+    assert_eq!(value["sessions"][0]["lifecycleState"], "running");
+    assert_eq!(value["sessions"][0]["freshness"], "fresh");
+    assert_ne!(
+        value["totals"]["tokens"]["outputTokens"], 999,
+        "tail state observation must not count unindexed usage"
+    );
+}
+
+#[test]
+fn global_monitor_unindexed_tail_does_not_report_old_completion_as_current() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let (_, mut file) = backlog_fixture(&home, "tail-unknown");
+    record(
+        &mut file,
+        json!({"type":"response_item","payload":{"content":"x".repeat(128 * 1024)}}),
+    );
+    drop(file);
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    let value = kernel.query(&json!({})).unwrap();
+    assert_eq!(
+        value["sessions"][0]["lifecycleState"], "unknown",
+        "the unseen backlog may contain a newer turn"
+    );
+}
+
+#[test]
+fn global_monitor_unindexed_tail_ignores_unfinished_completion_record() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let (_, mut file) = backlog_fixture(&home, "tail-partial");
+    record(
+        &mut file,
+        json!({"type":"event_msg","timestamp":"2026-10-26T00:00:19Z","payload":{"type":"task_started","turn_id":"new-turn"}}),
+    );
+    write!(file, "{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_complete\",\"turn_id\":\"new-turn\"}}}}").unwrap();
+    file.flush().unwrap();
+    drop(file);
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    kernel
+        .scan(&json!({"generation":1,"roots":[home],"nowMs":1792972820000u64}))
+        .unwrap();
+    assert_eq!(
+        kernel.query(&json!({})).unwrap()["sessions"][0]["lifecycleState"],
+        "running"
+    );
+}

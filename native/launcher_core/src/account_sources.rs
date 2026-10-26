@@ -235,6 +235,7 @@ struct Job {
 enum Purpose {
     Operation,
     Task,
+    Desktop,
 }
 struct Active {
     purpose: Purpose,
@@ -250,6 +251,7 @@ struct State {
 }
 struct Service {
     root: PathBuf,
+    create_root: bool,
     state: Mutex<State>,
     timeout: Duration,
     browser: Option<Arc<dyn Fn(&str) -> Result<()> + Send + Sync>>,
@@ -317,6 +319,110 @@ impl Lease {
 /// and cross-process profile leases; callers retain it through confirmed cleanup.
 pub(crate) struct TaskSourceLease {
     inner: Lease,
+}
+
+/// A desktop-auth reservation is distinct from a launched task. It keeps the
+/// existing profile and cross-process ownership until its CLI owner is cleaned.
+pub(crate) struct DesktopSourceLease {
+    inner: Lease,
+}
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DesktopSourceError {
+    SourceInvalid,
+    SourceBusy,
+    Shutdown,
+    CliChanged,
+    Isolation,
+    StartupFailed,
+    Cancelled,
+}
+impl DesktopSourceError {
+    pub(crate) fn kind(self) -> &'static str {
+        match self {
+            Self::SourceInvalid => "source_invalid",
+            Self::SourceBusy => "source_busy",
+            Self::Shutdown => "shutdown",
+            Self::CliChanged => "cli_changed",
+            Self::Isolation => "isolation_failed",
+            Self::StartupFailed => "startup_failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+    fn from_source(error: Error) -> Self {
+        match error.kind {
+            "busy" => Self::SourceBusy,
+            "shutdown" => Self::Shutdown,
+            "protected_source" | "invalid_source" | "not_found" => Self::SourceInvalid,
+            "unavailable" => Self::CliChanged,
+            _ => Self::Isolation,
+        }
+    }
+}
+pub(crate) fn acquire_desktop_source(
+    id: &str,
+) -> std::result::Result<DesktopSourceLease, DesktopSourceError> {
+    let service = global().map_err(|_| DesktopSourceError::StartupFailed)?;
+    service
+        .lease_for(id, Purpose::Desktop)
+        .map(|inner| DesktopSourceLease { inner })
+        .map_err(DesktopSourceError::from_source)
+}
+pub(crate) fn acquire_desktop_source_at(
+    root: &Path,
+    id: &str,
+) -> std::result::Result<DesktopSourceLease, DesktopSourceError> {
+    source(id).map_err(DesktopSourceError::from_source)?;
+    let service = Service::existing(root).map_err(DesktopSourceError::from_source)?;
+    service
+        .lease_for(id, Purpose::Desktop)
+        .map(|inner| DesktopSourceLease { inner })
+        .map_err(DesktopSourceError::from_source)
+}
+impl DesktopSourceLease {
+    pub(crate) fn registry_key(
+        &self,
+    ) -> std::result::Result<(PathBuf, String), DesktopSourceError> {
+        Ok((
+            fs::canonicalize(&self.inner.service.root)
+                .map_err(|_| DesktopSourceError::Isolation)?,
+            self.inner.source.clone(),
+        ))
+    }
+    pub(crate) fn cancel_signal(&self) -> Arc<AtomicBool> {
+        self.inner.cancel.clone()
+    }
+    pub(crate) fn start_rpc(
+        &self,
+        timeout: Duration,
+    ) -> std::result::Result<Rpc, DesktopSourceError> {
+        let state = self
+            .inner
+            .service
+            .state
+            .lock()
+            .map_err(|_| DesktopSourceError::StartupFailed)?;
+        if state.shutdown {
+            return Err(DesktopSourceError::Shutdown);
+        }
+        if self.inner.cancel.load(Ordering::SeqCst) {
+            return Err(DesktopSourceError::Cancelled);
+        }
+        if !state.active.get(&self.inner.source).is_some_and(|active| {
+            active.purpose == Purpose::Desktop && Arc::ptr_eq(&active.cancel, &self.inner.cancel)
+        }) {
+            return Err(DesktopSourceError::SourceBusy);
+        }
+        let cli = fixed_cli(&self.inner.metadata).map_err(|_| DesktopSourceError::CliChanged)?;
+        // This gate orders service shutdown against owned child creation. No
+        // protocol wait occurs until the service mutex has been released.
+        Rpc::start_options(
+            &cli,
+            timeout,
+            Some(&self.inner.home),
+            self.inner.cancel.clone(),
+        )
+        .map_err(|_| DesktopSourceError::StartupFailed)
+    }
 }
 pub(crate) fn validate_task_source(id: &str) -> std::result::Result<(), String> {
     source(id).map_err(|_| "source_invalid".into())
@@ -505,8 +611,20 @@ pub(crate) fn task_fixture_source(root: PathBuf, cli: PathBuf) -> TaskFixtureSou
 }
 impl Service {
     fn new(root: PathBuf) -> Arc<Self> {
+        Self::with_root_creation(root, true)
+    }
+    fn existing(root: &Path) -> Result<Arc<Self>> {
+        safe_path(root)?;
+        let root = fs::canonicalize(root).map_err(|_| Error::new("isolation_failed"))?;
+        if !root.is_dir() {
+            return Err(Error::new("isolation_failed"));
+        }
+        Ok(Self::with_root_creation(root, false))
+    }
+    fn with_root_creation(root: PathBuf, create_root: bool) -> Arc<Self> {
         Arc::new(Self {
             root,
+            create_root,
             state: Mutex::new(State::default()),
             timeout: LOGIN_TIMEOUT,
             browser: Some(Arc::new(open_auth_url)),
@@ -518,6 +636,7 @@ impl Service {
     fn for_test(root: PathBuf, cli: PathBuf, timeout: Duration) -> Arc<Self> {
         Arc::new(Self {
             root,
+            create_root: true,
             state: Mutex::new(State {
                 verified: Some(binding(&cli).unwrap()),
                 bound: Some(cli),
@@ -553,6 +672,11 @@ impl Service {
     fn root_ready(&self) -> Result<()> {
         safe_path(&self.root)?;
         if !self.root.exists() {
+            // Explicit helper roots stay existing-only on every validation,
+            // including if the directory disappeared after canonicalization.
+            if !self.create_root {
+                return Err(Error::new("isolation_failed"));
+            }
             fs::create_dir(&self.root).map_err(|_| Error::new("isolation_failed"))?;
             acl(&self.root, true, false)?;
             let mut f = OpenOptions::new()
@@ -657,7 +781,7 @@ impl Service {
             probe();
         }
         let (mut home, metadata) = self.owned_profile(id)?;
-        if purpose == Purpose::Task {
+        if matches!(purpose, Purpose::Task | Purpose::Desktop) {
             // Long-running callers must use the persisted fixed registration,
             // never Service.bound or any default/current-account fallback.
             fixed_cli(&metadata)?;
@@ -681,6 +805,18 @@ impl Service {
         })
     }
     fn usage(self: &Arc<Self>, id: &str) -> Result<Value> {
+        if self.state.lock().unwrap().shutdown {
+            return Err(Error::new("shutdown"));
+        }
+        if let Some(result) = crate::desktop_auth::usage_for_source(&self.root, id) {
+            let usage = result.map_err(|error| Error::new(error.kind()))?;
+            return Ok(json!({"sourceId":id,"queriedAtMs":now(),"usage":usage}));
+        }
+        #[cfg(windows)]
+        if let Some(result) = crate::desktop_runtime_client::quota_for_source(&self.root, id) {
+            let usage = result.map_err(|error| Error::new(error.kind()))?;
+            return Ok(json!({"sourceId":id,"queriedAtMs":now(),"usage":usage}));
+        }
         let lease = self.lease(id)?;
         let cli = fixed_cli(&lease.metadata)?;
         let mut rpc = Rpc::start_options(
@@ -850,7 +986,10 @@ impl Service {
                 let s = self.state.lock().unwrap();
                 match id {
                     Some(id) => {
-                        if s.active.get(id).is_some_and(|a| a.purpose == Purpose::Task) {
+                        if s.active
+                            .get(id)
+                            .is_some_and(|a| matches!(a.purpose, Purpose::Task | Purpose::Desktop))
+                        {
                             return Err(Error::new("busy"));
                         }
                         s.active.contains_key(id)
@@ -872,7 +1011,7 @@ impl Service {
         {
             let mut s = self.state.lock().unwrap();
             if let Some(c) = s.active.get(id) {
-                if c.purpose == Purpose::Task {
+                if matches!(c.purpose, Purpose::Task | Purpose::Desktop) {
                     return Err(Error::new("busy"));
                 }
                 c.cancel.store(true, Ordering::SeqCst)
@@ -1056,6 +1195,16 @@ fn global() -> Result<&'static Arc<Service>> {
         .ok_or(Error::new("unavailable"))?;
     Ok(SERVICE.get_or_init(|| Service::new(root)))
 }
+pub(crate) fn managed_profiles_root() -> std::result::Result<PathBuf, &'static str> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|executable| {
+            executable
+                .parent()
+                .map(|parent| parent.join("account-profiles"))
+        })
+        .ok_or("unavailable")
+}
 pub(crate) fn execute(command: &str, payload: Value) -> std::result::Result<Value, String> {
     let result = (|| -> Result<Value> {
         let s = global()?;
@@ -1105,6 +1254,14 @@ pub(crate) fn execute(command: &str, payload: Value) -> std::result::Result<Valu
 #[cfg(test)]
 mod tests {
     #[cfg(windows)]
+    mod desktop_provider;
+    #[cfg(windows)]
+    mod helper_host_process;
+    #[cfg(windows)]
+    mod runtime_helper;
+    #[cfg(windows)]
+    mod owned_adapter;
+    #[cfg(windows)]
     mod task_arbiter;
     use super::*;
     use std::{
@@ -1114,6 +1271,33 @@ mod tests {
         sync::OnceLock,
         time::{Duration, Instant},
     };
+    #[test]
+    fn explicit_desktop_source_never_creates_a_missing_root_or_uses_a_protected_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let missing = directory.path().join("explicit-profiles");
+        for id in ["current", "default", "profile-0123456789abcdef"] {
+            let error = acquire_desktop_source_at(&missing, id).err().unwrap();
+            assert_eq!(
+                error.kind(),
+                if id.starts_with("profile-") {
+                    "isolation_failed"
+                } else {
+                    "source_invalid"
+                }
+            );
+            assert!(!missing.exists());
+        }
+    }
+    #[test]
+    fn explicit_root_disappearance_during_validation_never_recreates_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("explicit-profiles");
+        fs::create_dir(&root).unwrap();
+        let service = Service::existing(&root).unwrap();
+        fs::remove_dir(&root).unwrap();
+        assert_eq!(service.root_ready().unwrap_err().kind, "isolation_failed");
+        assert!(!root.exists());
+    }
     fn fixture(mode: &str) -> PathBuf {
         static FIXTURE: OnceLock<tempfile::TempDir> = OnceLock::new();
         let root = FIXTURE.get_or_init(|| {
@@ -1156,6 +1340,15 @@ mod tests {
                 "home_nonstring",
                 "home_alias",
                 "startup_args",
+                "desktop_auth",
+                "desktop_api_key",
+                "desktop_missing_auth",
+                "desktop_token_null",
+                "desktop_secret_error",
+                "desktop_bad_claim",
+                "desktop_principal_mismatch",
+                "desktop_bad_method",
+                "desktop_auth_stall",
             ] {
                 fs::copy(
                     &exe,

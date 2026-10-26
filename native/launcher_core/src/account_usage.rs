@@ -120,11 +120,16 @@ pub(crate) struct Rpc {
     cancel: Arc<AtomicBool>,
     notifications: std::collections::VecDeque<Value>,
     profile_home: Option<PathBuf>,
+    strict_error_codes: bool,
 }
 
 // Kill only this query's app-server if the isolated launcher exits unexpectedly.
 #[cfg(windows)]
 struct QueryJob(windows::Win32::Foundation::HANDLE);
+// SAFETY: a Job handle is a process-wide kernel object, not a thread-affine
+// resource. Ownership moves with Rpc; its sole Drop closes it exactly once.
+#[cfg(windows)]
+unsafe impl Send for QueryJob {}
 #[cfg(windows)]
 impl QueryJob {
     fn attach(child: &Child) -> Result<Self, String> {
@@ -230,6 +235,7 @@ impl Rpc {
             cancel,
             notifications: Default::default(),
             profile_home: home.map(Path::to_path_buf),
+            strict_error_codes: false,
         })
     }
 
@@ -237,6 +243,18 @@ impl Rpc {
         writeln!(self.input, "{value}")
             .and_then(|_| self.input.flush())
             .map_err(|_| RpcError::Failed)
+    }
+
+    pub(crate) fn restrict_errors_to_codes(&mut self) {
+        self.strict_error_codes = true;
+    }
+
+    pub(crate) fn renew_deadline(&mut self, timeout: Duration) -> Result<(), RpcError> {
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(RpcError::Cancelled);
+        }
+        self.deadline = Instant::now() + timeout;
+        Ok(())
     }
 
     pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value, RpcError> {
@@ -261,10 +279,16 @@ impl Rpc {
             }
             if let Some(error) = message.get("error") {
                 // Raw server errors and stderr can contain sensitive data; never return or log them.
-                let text = error["message"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_ascii_lowercase();
+                // Private credential consumers classify only protocol codes.
+                // Existing observation adapters keep their compatibility path.
+                let text = if self.strict_error_codes {
+                    String::new()
+                } else {
+                    error["message"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase()
+                };
                 return Err(if error["code"] == -32601 {
                     RpcError::Unsupported
                 } else if error["code"] == 401
@@ -353,6 +377,10 @@ impl Rpc {
 
 pub(crate) fn read_typed(rpc: &mut Rpc, details: bool) -> Result<Value, RpcError> {
     rpc.initialize()?;
+    read_initialized_typed(rpc, details)
+}
+
+pub(crate) fn read_initialized_typed(rpc: &mut Rpc, details: bool) -> Result<Value, RpcError> {
     let account = rpc.call("account/read", json!({"refreshToken":false}))?["account"].clone();
     if account.is_null() {
         return Err(RpcError::Auth);

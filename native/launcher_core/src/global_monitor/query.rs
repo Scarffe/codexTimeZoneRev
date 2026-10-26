@@ -124,6 +124,13 @@ struct Contribution {
     estimated: bool,
 }
 
+fn current_tail(source: &Source) -> Option<&reduce::TailState> {
+    source
+        .tail
+        .as_ref()
+        .filter(|tail| tail.length == source.length)
+}
+
 impl Kernel {
     pub(super) fn query(&self, value: &Value) -> Result<Value, String> {
         let mut q = Query::parse(value)?;
@@ -207,11 +214,27 @@ impl Kernel {
                 .iter()
                 .flat_map(|s| s.reasons.iter().cloned())
                 .collect();
+            let lifecycle_gap = sources.iter().any(|s| {
+                s.offset < s.length && current_tail(s).is_none_or(|t| t.latest_turn.is_none())
+            });
             let latest = sources
                 .iter()
-                .flat_map(|s| s.turns.values())
+                .flat_map(|s| {
+                    if s.offset < s.length {
+                        current_tail(s)
+                            .and_then(|t| t.latest_turn.as_ref())
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                    } else {
+                        s.turns.values().collect::<Vec<_>>()
+                    }
+                })
                 .max_by_key(|t| (t.started_at.or(t.completed_at).unwrap_or(0), t.order));
+            if lifecycle_gap {
+                reasons.insert("lifecycle_backlog_unknown".into());
+            }
             let observed_lifecycle = latest
+                .filter(|_| !lifecycle_gap)
                 .map(|t| {
                     if t.state.is_empty() {
                         "unknown"
@@ -231,7 +254,16 @@ impl Kernel {
                 .and_then(|c| c.project.clone())
                 .or_else(|| best.project.clone());
             let model = latest_context.and_then(|c| c.model.clone());
-            let last = sources.iter().filter_map(|s| s.last_event_ms).max();
+            let last = sources
+                .iter()
+                .flat_map(|s| {
+                    [
+                        s.last_event_ms,
+                        current_tail(s).and_then(|t| t.last_event_ms),
+                    ]
+                })
+                .flatten()
+                .max();
             let freshness = if sources.iter().all(|s| s.source_state == "missing") {
                 "missing"
             } else if sources.iter().all(|s| s.source_state == "unreadable") {

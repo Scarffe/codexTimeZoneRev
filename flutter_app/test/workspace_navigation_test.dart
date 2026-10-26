@@ -6,6 +6,7 @@ import 'package:codex_timezone/app/account_usage_panel.dart';
 import 'package:codex_timezone/app/application.dart';
 import 'package:codex_timezone/app/launcher_page.dart';
 import 'package:codex_timezone/app/monitor_charts.dart';
+import 'package:codex_timezone/app/quota_history_panel.dart';
 import 'package:codex_timezone/app/session_metrics_panel.dart';
 import 'package:codex_timezone/services/account_usage.dart';
 import 'package:codex_timezone/services/desktop_monitor.dart';
@@ -405,6 +406,12 @@ void main() {
         find.byType(AccountUsagePanel, skipOffstage: false),
         findsOneWidget,
       );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('accounts-history')),
+      );
+      await tester.tap(find.byKey(const ValueKey('accounts-history')));
+      await tester.pumpAndSettle();
+      expect(find.byType(QuotaHistoryPanel), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('workspace-benchmark')));
       await tester.pumpAndSettle();
       expect(find.textContaining('当前预览未启用'), findsOneWidget);

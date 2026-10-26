@@ -6,9 +6,11 @@ import 'package:forui/forui.dart';
 import '../state/account_usage_controller.dart';
 import '../state/launcher_controller.dart';
 import '../state/quota_history_controller.dart';
+import '../state/runtime_account_controller.dart';
 import 'account_sources_panel.dart';
 import 'account_usage_panel.dart';
 import 'quota_history_panel.dart';
+import 'runtime_account_panel.dart';
 
 class AccountsWorkspacePage extends StatefulWidget {
   const AccountsWorkspacePage({
@@ -16,16 +18,41 @@ class AccountsWorkspacePage extends StatefulWidget {
     required this.usage,
     required this.launcher,
     this.history,
+    this.runtime,
+    this.revealCurrentRevision = 0,
   });
   final AccountUsageController usage;
   final LauncherController launcher;
   final QuotaHistoryController? history;
+  final RuntimeAccountController? runtime;
+  final int revealCurrentRevision;
   @override
   State<AccountsWorkspacePage> createState() => _AccountsWorkspacePageState();
 }
 
 class _AccountsWorkspacePageState extends State<AccountsWorkspacePage> {
   bool _history = false;
+  final _quotaAnchor = GlobalKey();
+
+  @override
+  void didUpdateWidget(covariant AccountsWorkspacePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.revealCurrentRevision == widget.revealCurrentRevision) return;
+    _history = false;
+    final revision = widget.revealCurrentRevision;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          revision != widget.revealCurrentRevision ||
+          !TickerMode.valuesOf(context).enabled) {
+        return;
+      }
+      final target = _quotaAnchor.currentContext;
+      if (target != null && target.mounted) {
+        Scrollable.ensureVisible(target, alignment: 0);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     key: const PageStorageKey('accounts-scroll'),
@@ -72,9 +99,17 @@ class _AccountsWorkspacePageState extends State<AccountsWorkspacePage> {
         else if (widget.usage.sources == null ||
             widget.usage.sources!.selected != null)
           AccountUsagePanel(
+            key: _quotaAnchor,
             controller: widget.usage,
             launcher: widget.launcher,
           ),
+        if (widget.runtime != null) ...[
+          const SizedBox(height: 16),
+          RuntimeAccountPanel(
+            controller: widget.runtime!,
+            sources: widget.usage.sources,
+          ),
+        ],
         const SizedBox(height: 16),
       ],
     ),

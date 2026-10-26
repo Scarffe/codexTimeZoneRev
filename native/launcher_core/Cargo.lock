@@ -103,6 +103,7 @@ dependencies = [
 name = "codex_timezone_core"
 version = "0.2.3"
 dependencies = [
+ "base64",
  "quick-xml",
  "reqwest",
  "serde",

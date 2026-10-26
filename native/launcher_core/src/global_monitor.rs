@@ -21,6 +21,8 @@ use std::{
 const MAX_LINE: u64 = 8 * 1024 * 1024;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_FILES: usize = 32;
+const RECENT_FILES: usize = 8;
+const FILE_BYTES: usize = 512 * 1024;
 static CANCELLED: AtomicU64 = AtomicU64::new(0);
 // One admission word: odd while stopping, even only after drain has completed.
 static ADMISSION: AtomicU64 = AtomicU64::new(0);
@@ -126,7 +128,7 @@ struct Kernel {
     roots: Vec<PathBuf>,
     roots_explicit: bool,
     sources: BTreeMap<PathBuf, Source>,
-    pending_dirs: VecDeque<PathBuf>,
+    pending_dirs: VecDeque<(PathBuf, SystemTime)>,
     current_dir: Option<(PathBuf, fs::ReadDir)>,
     discovered: BTreeSet<PathBuf>,
     discovery_done: bool,
@@ -312,22 +314,61 @@ impl Kernel {
         if was_discovering && self.discovery_done {
             self.last_discovery = now;
         }
-        let paths: Vec<_> = self.sources.keys().cloned().collect();
+        // Unsupported compressed rollouts remain coverage gaps, never read slots.
+        let paths: Vec<_> = self
+            .sources
+            .keys()
+            .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+            .cloned()
+            .collect();
+        let mut recent = paths.clone();
+        recent.sort_by(|a, b| {
+            catalog::is_active_session_path(b)
+                .cmp(&catalog::is_active_session_path(a))
+                .then_with(|| {
+                    self.sources[b]
+                        .priority_modified
+                        .cmp(&self.sources[a].priority_modified)
+                })
+                .then_with(|| a.cmp(b))
+        });
         let mut bytes = 0;
         let mut visited = 0;
+        let mut seen = BTreeSet::new();
+        // Reserve half the byte budget for fair backlog work, even when all
+        // recent rollouts are large. Complete records retain the existing cap.
+        for path in recent.into_iter().take(RECENT_FILES) {
+            if bytes >= MAX_BYTES / 2 || cancelled(generation, epoch) {
+                break;
+            }
+            if let Some(source) = self.sources.get_mut(&path) {
+                let budget = FILE_BYTES.min(MAX_BYTES / 2 - bytes);
+                bytes += catalog::read_source(source, budget, generation, epoch);
+                seen.insert(path);
+                visited += 1;
+            }
+        }
+        let mut considered = 0;
         while !paths.is_empty()
             && visited < MAX_FILES
             && bytes < MAX_BYTES
+            && considered < paths.len()
             && !cancelled(generation, epoch)
         {
             let index = self.next_file % paths.len();
             self.next_file = (index + 1) % paths.len();
+            considered += 1;
+            if !seen.insert(paths[index].clone()) {
+                continue;
+            }
             visited += 1;
             if let Some(source) = self.sources.get_mut(&paths[index]) {
-                bytes += catalog::read_source(source, MAX_BYTES - bytes, generation, epoch);
-            }
-            if visited >= paths.len() {
-                break;
+                bytes += catalog::read_source(
+                    source,
+                    FILE_BYTES.min(MAX_BYTES - bytes),
+                    generation,
+                    epoch,
+                );
             }
         }
         if cancelled(generation, epoch) {

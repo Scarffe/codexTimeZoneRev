@@ -7,7 +7,11 @@ import '../services/session_rhythm_store.dart';
 import '../services/global_workbench_service.dart';
 import '../services/global_workbench_store.dart';
 import '../state/global_workbench_controller.dart';
+import '../state/runtime_account_controller.dart';
 import '../services/global_workbench.dart';
+import '../services/runtime_account.dart';
+import '../services/global_live.dart';
+import '../state/global_live_controller.dart';
 import '../state/session_rhythm_controller.dart';
 import 'session_rhythm_panel.dart';
 
@@ -104,11 +108,15 @@ class LauncherApplication extends StatefulWidget {
     this.rhythmStore,
     this.tasksController,
     this.globalController,
+    this.runtimeController,
+    this.globalLiveController,
   });
   final SessionRhythmController? rhythmController;
   final SessionRhythmStore? rhythmStore;
   final TasksController? tasksController;
   final GlobalWorkbenchController? globalController;
+  final RuntimeAccountController? runtimeController;
+  final GlobalLiveController? globalLiveController;
   final bool preview;
   final LauncherBackend? backend;
   final String initialAppearance;
@@ -256,6 +264,43 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     );
   }
 
+  late final runtime = _createRuntime();
+  RuntimeAccountController _createRuntime() {
+    final injected = widget.runtimeController;
+    if (injected != null &&
+        ((!widget.offlineTrial && !widget.preview) ||
+            injected.service is SyntheticRuntimeAccountService)) {
+      return injected;
+    }
+    final production =
+        !widget.preview && !widget.offlineTrial && widget.backend == null;
+    return RuntimeAccountController(
+      production
+          ? NativeRuntimeAccountService(backend)
+          : SyntheticRuntimeAccountService(),
+    );
+  }
+
+  late final live = _createLive();
+  GlobalLiveController _createLive() {
+    final injected = widget.globalLiveController;
+    if (injected != null &&
+        ((!widget.offlineTrial && !widget.preview) ||
+            injected.service is SyntheticGlobalLiveService)) {
+      return injected;
+    }
+    final production =
+        !widget.preview && !widget.offlineTrial && widget.backend == null;
+    return GlobalLiveController(
+      production
+          ? NativeGlobalLiveService(backend)
+          : SyntheticGlobalLiveService(),
+    );
+  }
+
+  void _livePolicyChanged() =>
+      live.setBackgroundObservation(global.backgroundObservationEnabled);
+
   // Existing injected launcher fixtures opt in explicitly to the new backend.
   late final benchmark = _createBenchmark();
   BenchmarkController _createBenchmark() {
@@ -354,6 +399,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
   final _sessionPanel = GlobalKey();
   final _noticeContext = GlobalKey();
   int _analysisRevealRevision = 0;
+  int _accountRevealRevision = 0;
   Widget _benchmarkKeyboard(Widget child) => CallbackShortcuts(
     bindings: {
       if (selected == WorkspaceDestination.benchmark &&
@@ -393,7 +439,15 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     });
   }
 
-  void _showAccountDetails() => _select(WorkspaceDestination.accounts);
+  void _showAccountDetails() {
+    if (!mounted) return;
+    _analysisRevealRevision++;
+    setState(() {
+      selected = WorkspaceDestination.accounts;
+      _accountRevealRevision++;
+    });
+  }
+
   void _showAttentionDetails() => _select(WorkspaceDestination.sessions);
   void _showSessionDetails() {
     if (mounted) {
@@ -488,12 +542,18 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           benchmark: benchmark,
           tasks: tasks,
           global: global,
+          runtime: runtime,
+          live: live,
         )..start();
       }
     });
     unawaited(attention.initialize(attentionStore));
     unawaited(rhythm.initialize());
     unawaited(global.initialize());
+    unawaited(runtime.initialize());
+    global.addListener(_livePolicyChanged);
+    _livePolicyChanged();
+    unawaited(live.initialize());
     network.initialize();
     benchmark.initialize();
     if (!widget.preview && !widget.offlineTrial) {
@@ -721,6 +781,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       onSelect: _select,
                       recentNotice: recentNotice,
                       global: global,
+                      live: live,
                       onOpenSession: _openGlobalSession,
                     ),
                     accounts: AccountsWorkspacePage(
@@ -728,6 +789,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       history: history,
                       usage: usage,
                       launcher: launcher,
+                      runtime: runtime,
+                      revealCurrentRevision: _accountRevealRevision,
                     ),
                     sessions: TasksWorkspacePage(
                       key: const ValueKey('sessions-page'),
@@ -794,7 +857,12 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     attention.dispose();
     unawaited(rhythm.shutdown());
     rhythm.dispose();
+    global.removeListener(_livePolicyChanged);
     global.dispose();
+    unawaited(live.shutdown());
+    live.dispose();
+    unawaited(runtime.shutdown());
+    runtime.dispose();
     super.dispose();
   }
 }

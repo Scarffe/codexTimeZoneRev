@@ -19,7 +19,9 @@ def main():
     if receipt.exists():
         raise RuntimeError('preserve_existing_receipt')
     process = subprocess.Popen(
-        [args.host, args.library], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        [str(pathlib.Path(args.host).resolve(strict=True)),
+         str(pathlib.Path(args.library).resolve(strict=True))],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, text=True, encoding='utf-8',
         creationflags=subprocess.CREATE_NO_WINDOW,
     )

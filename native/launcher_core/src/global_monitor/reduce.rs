@@ -118,6 +118,14 @@ pub(super) struct Fact {
     pub checkpoint: Option<LegacyCheckpoint>,
 }
 
+// Ephemeral recent lifecycle evidence while the usage ledger catches up.
+#[derive(Clone)]
+pub(super) struct TailState {
+    pub length: u64,
+    pub last_event_ms: Option<u64>,
+    pub latest_turn: Option<Turn>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Source {
     pub path: PathBuf,
@@ -144,6 +152,11 @@ pub(super) struct Source {
     pub legacy_segment: u64,
     pub reasons: BTreeSet<String>,
     pub conflicting_responses: BTreeSet<String>,
+    // Ephemeral scheduling evidence only; never lifecycle or durable usage data.
+    #[serde(skip)]
+    pub priority_modified: Option<SystemTime>,
+    #[serde(skip)]
+    pub tail: Option<TailState>,
 }
 impl Source {
     pub fn new(path: PathBuf) -> Self {
@@ -172,6 +185,8 @@ impl Source {
             legacy_segment: 0,
             reasons: BTreeSet::new(),
             conflicting_responses: BTreeSet::new(),
+            priority_modified: None,
+            tail: None,
         }
     }
     pub fn valid_cache(&self) -> bool {

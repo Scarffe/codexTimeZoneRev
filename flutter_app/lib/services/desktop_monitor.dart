@@ -5,6 +5,8 @@ import '../l10n/app_language.dart';
 
 import '../state/session_rhythm_controller.dart';
 import '../state/global_workbench_controller.dart';
+import '../state/runtime_account_controller.dart';
+import '../state/global_live_controller.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -33,6 +35,8 @@ class DesktopMonitor {
     this.benchmark,
     this.tasks,
     this.global,
+    this.runtime,
+    this.live,
     this.interval = const Duration(minutes: 2),
     this.language,
   });
@@ -44,6 +48,8 @@ class DesktopMonitor {
   final BenchmarkController? benchmark;
   final TasksController? tasks;
   final GlobalWorkbenchController? global;
+  final RuntimeAccountController? runtime;
+  final GlobalLiveController? live;
   final String Function() path;
   final Duration interval;
   final AppLanguage Function()? language;
@@ -175,6 +181,8 @@ class DesktopMonitor {
       if (attention != null) attention!.shutdown(),
       if (rhythm != null) rhythm!.shutdown(),
       if (global != null) global!.shutdown(),
+      if (runtime != null) runtime!.shutdown(),
+      if (live != null) live!.shutdown(),
     ]);
     await benchmark?.saved;
     await global?.saved;
@@ -195,11 +203,13 @@ class DesktopMonitor {
       if (!_closed) {
         usage.setMainWindowVisible(visible);
         global?.setMainWindowVisible(visible);
+        live?.setMainWindowVisible(visible);
       }
     } catch (_) {
       if (!_closed) {
         usage.setMainWindowVisible(false);
         global?.setMainWindowVisible(false);
+        live?.setMainWindowVisible(false);
       }
     }
   }

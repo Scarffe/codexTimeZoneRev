@@ -38,11 +38,13 @@ try {
     Invoke-Checked 'cargo' @('build', '--release', '--manifest-path', (Join-Path $projectRoot 'native\launcher_core\Cargo.toml'))
     $env:CODEX_TZ_NATIVE_LIBRARY = Join-Path $env:CARGO_TARGET_DIR 'release\codex_timezone_core.dll'
     if ($Action -eq 'run') {
+        & (Join-Path $PSScriptRoot 'build-runtime-owner.ps1') -OutputDirectory (Join-Path (Get-Location) 'build/windows/x64/runner/Debug') -CargoTargetDirectory $env:CARGO_TARGET_DIR
         Invoke-Checked $flutter @('run', '-d', 'windows')
     } else {
         Invoke-Checked $flutter @('build', 'windows', '--release')
         $output = Join-Path (Get-Location) 'build\windows\x64\runner\Release'
         Copy-Item -LiteralPath $env:CODEX_TZ_NATIVE_LIBRARY -Destination $output -Force
+        & (Join-Path $PSScriptRoot 'build-runtime-owner.ps1') -OutputDirectory $output -CargoTargetDirectory $env:CARGO_TARGET_DIR
         $artifacts = Join-Path $projectRoot 'environment\artifacts'
         New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
         # Package only application assets, never local settings or logs.

@@ -51,6 +51,9 @@ fn children(root: &Path) -> Vec<PathBuf> {
         vec![root.join("sessions"), root.join("archived_sessions")]
     }
 }
+pub(super) fn is_active_session_path(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == "sessions")
+}
 pub(super) fn strict_detail_supported(path: &Path) -> bool {
     let home = std::env::var_os("CODEX_HOME")
         .map(PathBuf::from)
@@ -74,13 +77,36 @@ fn reparse(metadata: &fs::Metadata) -> bool {
     }
 }
 impl Kernel {
+    fn queue_directory(&mut self, path: PathBuf, modified: SystemTime) {
+        let active = is_active_session_path(&path);
+        let position = self
+            .pending_dirs
+            .iter()
+            .position(|(other, stamp)| {
+                let other_active = is_active_session_path(other);
+                active && !other_active
+                    || active == other_active
+                        && (modified > *stamp
+                            || modified == *stamp && path.as_path() < other.as_path())
+            })
+            .unwrap_or(self.pending_dirs.len());
+        self.pending_dirs.insert(position, (path, modified));
+    }
     pub(super) fn start_discovery(&mut self) {
-        self.pending_dirs = self
+        let directories: Vec<_> = self
             .roots
             .iter()
             .flat_map(|p| children(p))
             .filter(|p| p.exists())
             .collect();
+        self.pending_dirs.clear();
+        for path in directories {
+            let modified = fs::symlink_metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(UNIX_EPOCH);
+            self.queue_directory(path, modified);
+        }
         self.current_dir = None;
         self.discovery_done = self.pending_dirs.is_empty();
         self.directory_errors = 0;
@@ -92,7 +118,7 @@ impl Kernel {
                 return;
             }
             if self.current_dir.is_none() {
-                let Some(path) = self.pending_dirs.pop_front() else {
+                let Some((path, _)) = self.pending_dirs.pop_front() else {
                     self.discovery_done = true;
                     return;
                 };
@@ -135,7 +161,7 @@ impl Kernel {
                 continue;
             }
             if meta.is_dir() {
-                self.pending_dirs.push_back(path);
+                self.queue_directory(path, meta.modified().unwrap_or(UNIX_EPOCH));
                 continue;
             }
             if !meta.is_file()
@@ -153,9 +179,15 @@ impl Kernel {
                 continue;
             }
             self.discovered.insert(path.clone());
-            self.sources
+            let source = self
+                .sources
                 .entry(path.clone())
                 .or_insert_with(|| Source::new(path));
+            source.priority_modified = meta.modified().ok();
+            if source.path.extension().is_none_or(|e| e != "jsonl") {
+                source.source_state = "unsupported".into();
+                source.length = meta.len();
+            }
         }
     }
 }
@@ -237,6 +269,85 @@ fn line(reader: &mut impl BufRead) -> std::io::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+const TAIL_BYTES: usize = 64 * 1024;
+
+// Only lifecycle/activity metadata is projected. Usage always comes from the
+// sequential ledger; a tail scan must never duplicate or attribute token facts.
+fn recent_tail(
+    file: &mut File,
+    source: &Source,
+    generation: u64,
+    epoch: u64,
+) -> (Option<reduce::TailState>, usize) {
+    if source.thread_id.is_empty() || source.child || source.parent_thread_id.is_some() {
+        return (None, 0);
+    }
+    let start = source.length.saturating_sub(TAIL_BYTES as u64);
+    let mut bytes = Vec::new();
+    if file.seek(SeekFrom::Start(start)).is_err()
+        || file
+            .take(source.length - start)
+            .read_to_end(&mut bytes)
+            .is_err()
+    {
+        return (None, 0);
+    }
+    let read = bytes.len();
+    let Some(end) = bytes.iter().rposition(|b| *b == b'\n') else {
+        return (None, read);
+    };
+    let begin = if start == 0 {
+        0
+    } else {
+        match bytes.iter().position(|b| *b == b'\n') {
+            Some(i) => i + 1,
+            None => return (None, read),
+        }
+    };
+    if begin > end {
+        return (None, read);
+    }
+    let mut projection = Source::new(source.path.clone());
+    projection.thread_id = source.thread_id.clone();
+    for line in bytes[begin..=end].split(|b| *b == b'\n') {
+        if cancelled(generation, epoch) {
+            return (None, read);
+        }
+        let Ok(row) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let kind = row["type"].as_str().unwrap_or("");
+        let payload = &row["payload"];
+        if kind == "event_msg"
+            && matches!(
+                payload["type"].as_str(),
+                Some("task_started" | "task_complete" | "task_completed" | "turn_aborted")
+            )
+        {
+            projection.accept(&row);
+        } else if kind == "token_usage_record"
+            && payload["thread_id"].as_str() == Some(source.thread_id.as_str())
+        {
+            if let Some(time) = reduce::timestamp(&row["timestamp"]) {
+                projection.last_event_ms = Some(projection.last_event_ms.unwrap_or(0).max(time));
+            }
+        }
+    }
+    let latest_turn = projection
+        .turns
+        .values()
+        .max_by_key(|t| (t.started_at.or(t.completed_at).unwrap_or(0), t.order))
+        .cloned();
+    (
+        Some(reduce::TailState {
+            length: source.length,
+            last_event_ms: projection.last_event_ms,
+            latest_turn,
+        }),
+        read,
+    )
+}
+
 pub(super) fn read_source(
     source: &mut Source,
     budget: usize,
@@ -273,6 +384,7 @@ pub(super) fn read_source(
         *source = Source::new(path);
     }
     source.length = meta.len();
+    source.priority_modified = meta.modified().ok();
     source.source_state = "ok".into();
     source.restored = false;
     let mut reader = BufReader::new(file);
@@ -281,7 +393,7 @@ pub(super) fn read_source(
         return 0;
     }
     let mut read = 0;
-    while read < budget && !cancelled(generation, epoch) {
+    while read < budget.saturating_sub(TAIL_BYTES) && !cancelled(generation, epoch) {
         let bytes = match line(&mut reader) {
             Ok(v) => v,
             Err(_) => {
@@ -315,6 +427,12 @@ pub(super) fn read_source(
         return read;
     }
     source.identity = Identity::capture(reader.get_mut(), source.offset).ok();
+    source.tail = None;
+    if source.offset < source.length {
+        let (tail, tail_bytes) = recent_tail(reader.get_mut(), source, generation, epoch);
+        source.tail = tail;
+        read += tail_bytes;
+    }
     if source.offset >= source.length && source.thread_id.is_empty() {
         source.source_state = "unsupported".into();
         source.reasons.insert("missing_session_meta".into());

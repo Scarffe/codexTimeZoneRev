@@ -7,20 +7,36 @@ use std::sync::Mutex;
 mod account_sources;
 mod account_usage;
 mod benchmark;
-mod global_monitor;
 #[path = "platform/common.rs"]
 mod common;
+mod desktop_auth;
+#[cfg(test)]
+mod desktop_auth_contract_tests;
+#[cfg(windows)]
+mod desktop_runtime_client;
+#[cfg(all(test, windows))]
+mod desktop_runtime_contract_tests;
+#[cfg(windows)]
+mod desktop_runtime_transport;
+mod global_live;
+mod global_monitor;
+#[cfg(test)]
+mod global_monitor_contract_tests;
+#[cfg(windows)]
+mod helper_control;
+#[cfg(windows)]
+mod helper_host;
 #[cfg(target_os = "macos")]
 #[path = "platform/mac/mod.rs"]
 mod macos;
 mod owned_stdio;
 #[cfg(windows)]
 mod proxy;
+mod runtime_helper;
+mod runtime_bootstrap;
 mod session_metrics;
 mod task_protocol;
 mod tasks;
-#[cfg(test)]
-mod global_monitor_contract_tests;
 // K3.0 is an offline contract experiment, absent from release dispatch/binaries.
 #[cfg(test)]
 mod task_execution;
@@ -55,8 +71,18 @@ fn dispatch(request: &str) -> Result<Value, String> {
     if request.command == "session_metrics" {
         return session_metrics::execute(request.payload);
     }
+    #[cfg(windows)]
+    if request.command == "desktop_runtime" {
+        return desktop_runtime_client::execute(request.payload);
+    }
     if request.command == "global_monitor" {
         return global_monitor::execute(request.payload);
+    }
+    if request.command == "global_live" {
+        return global_live::execute(request.payload);
+    }
+    if request.command == "desktop_auth_capabilities" {
+        return Ok(desktop_auth::capabilities());
     }
     // Benchmark jobs own a separate runtime; never wait on REQUEST_LOCK.
     if request.command.starts_with("benchmark_") {
@@ -285,5 +311,18 @@ mod tests {
         settings.mode = "zone".into();
         settings.zone_id = "not/a/zone".into();
         assert!(common::tz(&settings).is_err());
+    }
+}
+
+/// Entry for the colocated native owner process; no public credential dispatcher.
+#[doc(hidden)]
+pub fn helper_entry() -> i32 {
+    #[cfg(windows)]
+    {
+        helper_host::main_entry()
+    }
+    #[cfg(not(windows))]
+    {
+        2
     }
 }
