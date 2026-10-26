@@ -1,0 +1,116 @@
+[
+  {
+    "path": "stdio_runtime_probe.cpp",
+    "sha256": "c187e582137896ba1808d877977e5d6a3daa0efa29fe4adf4f43c4041ef64575",
+    "testedSourceSha256": "c187e582137896ba1808d877977e5d6a3daa0efa29fe4adf4f43c4041ef64575",
+    "normalization": "LF only"
+  },
+  {
+    "path": "fake_app_server.cjs",
+    "sha256": "d081e0a78d98965accb18997a989f40b7f5e7e8bd738969d63cacf23b096264d",
+    "testedSourceSha256": "557dfdef71075ede85ef8b783f1ebe8e426a6dcf84dcb23225d8d648af4deb26",
+    "normalization": "LF only"
+  },
+  {
+    "path": "fake_desktop.cjs",
+    "sha256": "75f44d858b984ec9f666aa6207c2ffa60d80908e6f1c6de1474a264d1606f134",
+    "testedSourceSha256": "22213cde70fd610eb99e834c355d8e8de504844faa819ec5f1cd0fc8bbb97af2",
+    "normalization": "LF only"
+  },
+  {
+    "path": "fake_desktop_native.cjs",
+    "sha256": "a4c3fe5ac5896f1e90b4dd2916d220a05ebd74407f8bb7838bdd0ddffaca488d",
+    "testedSourceSha256": "192f4ec48924ea2649de9e6d44d1d470f5590b396765481c16ea8166ba9a4622",
+    "normalization": "LF only"
+  },
+  {
+    "path": "run_cpp_fixture.py",
+    "sha256": "9f92e127a471962e67c4a3393de0d46a45f5a814f653db6933bca1f0040d9d75",
+    "testedSourceSha256": "f12b96838e0b66a65ddae0213d8c28414fb561e82080a4ce5def00ce16588a2a",
+    "normalization": "LF only"
+  },
+  {
+    "path": "verify_stdin_metadata.py",
+    "sha256": "03e7ea888e3209e8e328a47276e62150a1a004e0a7d0eaf044ed764b88a7372d",
+    "testedSourceSha256": "24d11195cce8fec8738a2d8754abb90d00083cc022a0b2a85f4cf87a1cd244c3",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/metadata_matrix.py",
+    "sha256": "99f1032d5a7b1f44d59f82c4f12e089c29a2bbd9c7a3d4f6b7ba55bfe97bab67",
+    "testedSourceSha256": "b68a2479d40a1586ccee341669748b8dc79c1dfa0cd88ac055d207347b58039a",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/locator_metadata.py",
+    "sha256": "03cee8508e75e3d2ef1856946b23f5fae711b1fd8c876a86c3a81d09f67ce118",
+    "testedSourceSha256": "03cee8508e75e3d2ef1856946b23f5fae711b1fd8c876a86c3a81d09f67ce118",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/run_two_child_fixture.py",
+    "sha256": "0e24819acc04bfaa9bc957a67e8982473e7c3b3cddb6d7bfc5a058755324a0bd",
+    "testedSourceSha256": "0e24819acc04bfaa9bc957a67e8982473e7c3b3cddb6d7bfc5a058755324a0bd",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/two_child_desktop.cjs",
+    "sha256": "73b6f08bc68ffef3af6ded90ce94009262ac516b572f239204bbcf0e0f994724",
+    "testedSourceSha256": "df0cb900eb91ef06630033d9a9f89c9aee6de1922d5113953dbb3b60256294f6",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/shim-prototype/owned_iat_observer_fixture.cpp",
+    "sha256": "21e5cc06fbeb462a30de820370599b9b2e4fcd90be594cff924b18075395ae2c",
+    "testedSourceSha256": "21e5cc06fbeb462a30de820370599b9b2e4fcd90be594cff924b18075395ae2c",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/shim-prototype/README.md",
+    "sha256": "1ab5a3b081b8a754ecdef164f52524f4e5776c414960731d4312b3556f4caf5b",
+    "testedSourceSha256": "2a079a05b310eddff1c91399b77e1e66d022e202919f5e311a17ce36f0e1cdcb",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/observer_dll.cpp",
+    "sha256": "85388ff4ef8dc7b3fbb060932f1e195de8b779f392fd174e3e06f9ccbda9b44c",
+    "testedSourceSha256": "85388ff4ef8dc7b3fbb060932f1e195de8b779f392fd174e3e06f9ccbda9b44c",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/observer_core.h",
+    "sha256": "743702441e54543c1f10adb1a337fb4c285cd9fa7f4ec9f752ab77744202f479",
+    "testedSourceSha256": "f9c00c7210dd30e4e82b21c115a3a802cc2176a20901fd5081932fc2959c8c3d",
+    "normalization": "LF; trailing blank line only"
+  },
+  {
+    "path": "attachment-v2/node-observer/fixture_frames.cjs",
+    "sha256": "e42aeb7bce65e4b4cff9ef33d9be38644527820b6685448ad531dae87830f978",
+    "testedSourceSha256": "e42aeb7bce65e4b4cff9ef33d9be38644527820b6685448ad531dae87830f978",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/owned_fake_server.cjs",
+    "sha256": "fa2699e15d6f18a797ed30d8878d49ec59505b413fc32f35d7096e7f36318dbe",
+    "testedSourceSha256": "fa2699e15d6f18a797ed30d8878d49ec59505b413fc32f35d7096e7f36318dbe",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/owned_node_parent.cjs",
+    "sha256": "4191bdb41edf549ea71b677b4665d2bf0b7454c54e8ff33fa79a84ae9cb59ffb",
+    "testedSourceSha256": "4191bdb41edf549ea71b677b4665d2bf0b7454c54e8ff33fa79a84ae9cb59ffb",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/run_owned_node_observer.py",
+    "sha256": "df43e3300bcefd1ae8805d31bd231fd7136f88ae2ff1e09dad068c2186b18a5b",
+    "testedSourceSha256": "df43e3300bcefd1ae8805d31bd231fd7136f88ae2ff1e09dad068c2186b18a5b",
+    "normalization": "LF only"
+  },
+  {
+    "path": "attachment-v2/node-observer/README.md",
+    "sha256": "9579d625f1b1effa8df0d09db7310668d5f1be9998f69ff8306edd59647823ed",
+    "testedSourceSha256": "9579d625f1b1effa8df0d09db7310668d5f1be9998f69ff8306edd59647823ed",
+    "normalization": "LF only"
+  }
+]

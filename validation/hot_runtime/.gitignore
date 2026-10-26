@@ -1,0 +1,11 @@
+__pycache__/
+*.exe
+*.dll
+*.obj
+*.lib
+*.exp
+*-result.json
+*-receipt*.json
+*-failure*.json
+fixture-current.json
+two-child-association-detail.json

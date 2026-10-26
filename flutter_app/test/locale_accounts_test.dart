@@ -258,7 +258,7 @@ void main() {
   );
 
   testWidgets(
-    'overview translates empty and status summaries while keeping raw alias',
+    'global overview translates empty state without attributing the selected account',
     (tester) async {
       final f = await syntheticMultiFixture();
       final usage = AccountUsageController(_ForbiddenUsage(), sources: f.owner);
@@ -288,16 +288,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Offline replay'), findsOneWidget);
-      expect(find.text('System alert history'), findsOneWidget);
-      expect(
-        find.text('Selected · ${f.owner.selected!.alias}'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Latest completed turn · Average throughput'),
-        findsOneWidget,
-      );
+      expect(find.text('Global session workbench'), findsOneWidget);
+      expect(find.text('Global index unavailable'), findsWidgets);
+      expect(find.text('Daily token trend'), findsOneWidget);
+      expect(find.text('Project composition'), findsOneWidget);
+      expect(find.text('Model composition'), findsOneWidget);
+      expect(find.text('Selected · ${f.owner.selected!.alias}'), findsNothing);
       expect(tester.takeException(), isNull);
       f.metrics.select(null);
       await tester.pumpWidget(const SizedBox());

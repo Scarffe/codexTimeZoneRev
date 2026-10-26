@@ -10,6 +10,7 @@ import 'copy_analysis.dart';
 import 'copy_benchmark.dart';
 import 'copy_notices.dart';
 import 'copy_tasks.dart';
+import 'copy_global.dart';
 
 /// Application copy is explicitly scoped: platform/system locale must not
 /// silently change this app's Chinese default, or translate source/user data.
@@ -41,6 +42,7 @@ class AppCopy {
     ...benchmarkMessages,
     ...noticeMessages,
     ...taskMessages,
+    ...globalMessages,
   });
   static final _parameter = RegExp(r'\{([A-Za-z][A-Za-z0-9_]*)\}');
 

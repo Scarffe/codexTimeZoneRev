@@ -77,8 +77,10 @@ void main() {
       () async {
         await controller.initialize();
         backend.pendingStart = Completer();
+        final admitted = Completer<void>();
+        backend.beforeStart = () async => admitted.complete();
         final start = controller.start();
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await admitted.future.timeout(const Duration(seconds: 10));
         final pending = action == 'cancel'
             ? controller.cancel()
             : action == 'interrupt'

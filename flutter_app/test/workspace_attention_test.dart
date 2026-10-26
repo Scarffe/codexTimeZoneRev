@@ -195,7 +195,7 @@ void main() {
     },
   );
   testWidgets(
-    'overview reports selected quota windows freshness and watched status without extra queries',
+    'global overview stays separate from account selection and manual watch status',
     (tester) async {
       final f = await WorkspaceAttentionFixture.create();
       await tester.pumpWidget(
@@ -212,21 +212,18 @@ void main() {
       final queries = f.sourceService.queries.length;
       await tester.tap(find.byKey(const ValueKey('workspace-overview')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Codex · 5 小时额度 · 剩余 72.00%'), findsOneWidget);
-      expect(find.textContaining('Codex · 周额度 · 剩余 54.00%'), findsOneWidget);
-      expect(find.text('进行中 1 · 已完成 1'), findsOneWidget);
-      expect(find.text('已取消 0 · 未知 0'), findsOneWidget);
+      expect(find.byKey(const ValueKey('global-workbench')), findsOneWidget);
+      final selectedLog = f.metrics.selected;
+      expect(find.textContaining('72.00%'), findsNothing);
       f.sources.select('profile-unknown');
       await tester.pump();
-      expect(find.textContaining('5 小时额度 · 剩余 未知'), findsOneWidget);
-      expect(find.textContaining('72.00%'), findsNothing);
+      expect(find.byKey(const ValueKey('global-stat-active')), findsOneWidget);
       f.sources.select('profile-stale');
       await tester.pump();
-      expect(find.textContaining('上次观测'), findsOneWidget);
       await f.unreadableB();
       await tester.pump();
-      expect(find.text('进行中 1 · 已完成 0'), findsOneWidget);
-      expect(find.text('已取消 0 · 未知 1'), findsOneWidget);
+      expect(find.byKey(const ValueKey('global-session-list')), findsOneWidget);
+      expect(f.metrics.selected, selectedLog);
       expect(f.sourceService.queries.length, queries);
       await tester.pumpWidget(const SizedBox());
     },

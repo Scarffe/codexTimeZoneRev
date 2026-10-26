@@ -5,8 +5,8 @@ const taskMessages = <String, AppMessage>{
   'tasks.attentionTab': (zh: '关注事项', en: 'Attention'),
   'tasks.title': (zh: '独立账号新任务', en: 'New independent account task'),
   'tasks.subtitle': (
-    zh: '先准备，再明确启动；任务输出独立于本地会话图表。',
-    en: 'Prepare first, then explicitly start. Task output stays separate from local session charts.',
+    zh: '实验功能：使用独立 CLI 子进程；不为桌面版已有任务分配账号。',
+    en: 'Experimental external CLI process. This does not assign accounts to existing desktop tasks.',
   ),
   'tasks.mode': (zh: '任务模式', en: 'Task mode'),
   'tasks.mode.offline_preview': (zh: '合成预览', en: 'Synthetic preview'),

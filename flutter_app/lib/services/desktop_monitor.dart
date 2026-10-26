@@ -4,6 +4,7 @@ import '../l10n/app_copy.dart';
 import '../l10n/app_language.dart';
 
 import '../state/session_rhythm_controller.dart';
+import '../state/global_workbench_controller.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -31,6 +32,7 @@ class DesktopMonitor {
     this.metrics,
     this.benchmark,
     this.tasks,
+    this.global,
     this.interval = const Duration(minutes: 2),
     this.language,
   });
@@ -41,6 +43,7 @@ class DesktopMonitor {
   final SessionMetricsController? metrics;
   final BenchmarkController? benchmark;
   final TasksController? tasks;
+  final GlobalWorkbenchController? global;
   final String Function() path;
   final Duration interval;
   final AppLanguage Function()? language;
@@ -68,6 +71,7 @@ class DesktopMonitor {
     benchmark?.addListener(_publish);
     tasks?.addListener(_publish);
     rhythm?.addListener(_publish);
+    global?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'attentionDetails':
@@ -102,12 +106,15 @@ class DesktopMonitor {
         case 'muteCycle':
           usage.muteCurrentCycle();
         case 'systemSuspend':
+          await global?.suspend();
           metrics?.resetObservation();
           attention?.resetObservation();
           usage.systemSuspending();
           await benchmark?.interrupt();
           await tasks?.cancelAll();
         case 'systemResume':
+          await _syncMainVisibility();
+          await global?.resume();
           attention?.resetObservation();
           usage.systemResumed();
         case 'refresh':
@@ -145,7 +152,8 @@ class DesktopMonitor {
       metrics?.selected != null ||
       attention?.watches.any((watch) => watch.enabled) == true ||
       benchmark?.keepAlive == true ||
-      tasks?.keepAlive == true;
+      tasks?.keepAlive == true ||
+      global?.keepAlive == true;
 
   Future<void> _exit() =>
       _exitRequest ??= _gracefulExit().catchError((Object _) {
@@ -166,8 +174,10 @@ class DesktopMonitor {
       if (benchmark != null) benchmark!.shutdown(),
       if (attention != null) attention!.shutdown(),
       if (rhythm != null) rhythm!.shutdown(),
+      if (global != null) global!.shutdown(),
     ]);
     await benchmark?.saved;
+    await global?.saved;
     await usage.roles.saved;
     await usage.settingsSaved;
     // Query owns its short-lived app-server. Let Rust Drop clean it first.
@@ -182,9 +192,15 @@ class DesktopMonitor {
   Future<void> _syncMainVisibility() async {
     try {
       final visible = await channel.invokeMethod<bool>('mainVisible') ?? false;
-      if (!_closed) usage.setMainWindowVisible(visible);
+      if (!_closed) {
+        usage.setMainWindowVisible(visible);
+        global?.setMainWindowVisible(visible);
+      }
     } catch (_) {
-      if (!_closed) usage.setMainWindowVisible(false);
+      if (!_closed) {
+        usage.setMainWindowVisible(false);
+        global?.setMainWindowVisible(false);
+      }
     }
   }
 
@@ -380,6 +396,7 @@ class DesktopMonitor {
     benchmark?.removeListener(_publish);
     tasks?.removeListener(_publish);
     rhythm?.removeListener(_publish);
+    global?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }
 }

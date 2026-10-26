@@ -7,6 +7,7 @@ use std::sync::Mutex;
 mod account_sources;
 mod account_usage;
 mod benchmark;
+mod global_monitor;
 #[path = "platform/common.rs"]
 mod common;
 #[cfg(target_os = "macos")]
@@ -18,6 +19,8 @@ mod proxy;
 mod session_metrics;
 mod task_protocol;
 mod tasks;
+#[cfg(test)]
+mod global_monitor_contract_tests;
 // K3.0 is an offline contract experiment, absent from release dispatch/binaries.
 #[cfg(test)]
 mod task_execution;
@@ -51,6 +54,9 @@ fn dispatch(request: &str) -> Result<Value, String> {
     }
     if request.command == "session_metrics" {
         return session_metrics::execute(request.payload);
+    }
+    if request.command == "global_monitor" {
+        return global_monitor::execute(request.payload);
     }
     // Benchmark jobs own a separate runtime; never wait on REQUEST_LOCK.
     if request.command.starts_with("benchmark_") {
@@ -211,7 +217,7 @@ mod tests {
             .set_read_timeout(Some(Duration::from_millis(200)))
             .unwrap();
         let mut buffer = [0; 4096];
-        socket.read(&mut buffer).unwrap();
+        assert!(socket.read(&mut buffer).unwrap() > 0);
         socket
             .write_all(
                 b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",

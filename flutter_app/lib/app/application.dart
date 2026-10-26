@@ -4,6 +4,10 @@ import '../l10n/app_language.dart';
 import '../l10n/app_copy.dart';
 
 import '../services/session_rhythm_store.dart';
+import '../services/global_workbench_service.dart';
+import '../services/global_workbench_store.dart';
+import '../state/global_workbench_controller.dart';
+import '../services/global_workbench.dart';
 import '../state/session_rhythm_controller.dart';
 import 'session_rhythm_panel.dart';
 
@@ -99,10 +103,12 @@ class LauncherApplication extends StatefulWidget {
     this.rhythmController,
     this.rhythmStore,
     this.tasksController,
+    this.globalController,
   });
   final SessionRhythmController? rhythmController;
   final SessionRhythmStore? rhythmStore;
   final TasksController? tasksController;
+  final GlobalWorkbenchController? globalController;
   final bool preview;
   final LauncherBackend? backend;
   final String initialAppearance;
@@ -230,6 +236,26 @@ class _LauncherApplicationState extends State<LauncherApplication> {
       (!widget.preview && !widget.offlineTrial && widget.backend == null
           ? SessionAttentionStore.portable()
           : MemoryAttentionStore());
+  late final global = _createGlobal();
+  GlobalWorkbenchController _createGlobal() {
+    final injected = widget.globalController;
+    if (injected != null &&
+        (!widget.offlineTrial ||
+            injected.service is SyntheticGlobalWorkbenchService)) {
+      return injected;
+    }
+    final production =
+        !widget.preview && !widget.offlineTrial && widget.backend == null;
+    return GlobalWorkbenchController(
+      service: production
+          ? GlobalWorkbenchService(backend)
+          : SyntheticGlobalWorkbenchService(),
+      store: production
+          ? GlobalWorkbenchStore.portable()
+          : GlobalWorkbenchStore.memory(),
+    );
+  }
+
   // Existing injected launcher fixtures opt in explicitly to the new backend.
   late final benchmark = _createBenchmark();
   BenchmarkController _createBenchmark() {
@@ -405,6 +431,18 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     _revealAnalysis(_noticeContext);
   }
 
+  void _openGlobalSession(GlobalSessionRow row) {
+    if (!mounted || !row.canOpenDetail) return;
+    metrics.select(row.path, expectedId: row.threadId);
+    setState(() {
+      openedNotice = null;
+      openedHistory = null;
+      currentViewRevision++;
+      selected = WorkspaceDestination.analysis;
+    });
+    _revealAnalysis(_sessionPanel);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -449,11 +487,13 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           metrics: metrics,
           benchmark: benchmark,
           tasks: tasks,
+          global: global,
         )..start();
       }
     });
     unawaited(attention.initialize(attentionStore));
     unawaited(rhythm.initialize());
+    unawaited(global.initialize());
     network.initialize();
     benchmark.initialize();
     if (!widget.preview && !widget.offlineTrial) {
@@ -680,6 +720,8 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       attention: attention,
                       onSelect: _select,
                       recentNotice: recentNotice,
+                      global: global,
+                      onOpenSession: _openGlobalSession,
                     ),
                     accounts: AccountsWorkspacePage(
                       key: const ValueKey('accounts-page'),
@@ -752,6 +794,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     attention.dispose();
     unawaited(rhythm.shutdown());
     rhythm.dispose();
+    global.dispose();
     super.dispose();
   }
 }
