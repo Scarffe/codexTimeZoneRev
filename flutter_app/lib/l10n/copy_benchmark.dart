@@ -1,6 +1,36 @@
 import 'copy_types.dart';
 
 const benchmarkMessages = <String, AppMessage>{
+  'benchmark.mode': (zh: '数据模式', en: 'Data mode'),
+  'benchmark.mode.offline_replay': (zh: '离线回放', en: 'Offline replay'),
+  'benchmark.mode.live': (zh: '真实 API · 可选', en: 'Live API · Optional'),
+  'benchmark.liveSubtitle': (
+    zh: '用户接口 · 客户端观测',
+    en: 'User endpoint · Client observations',
+  ),
+  'benchmark.liveStart': (zh: '发送一次真实请求', en: 'Send one live request'),
+  'benchmark.livePolicy': (
+    zh: '仅点击启动才发送，可能产生接口费用。密钥、提示词和地址仅保留在本次内存；无自动重试。',
+    en: 'Sends only on Start; provider charges may apply. Key, prompt and endpoint stay in memory. No automatic retries.',
+  ),
+  'benchmark.live.base-url': (
+    zh: 'API 前缀地址（如 https://接口/v1）',
+    en: 'API prefix URL (for example https://provider/v1)',
+  ),
+  'benchmark.live.model': (zh: '模型 ID', en: 'Model ID'),
+  'benchmark.live.prompt': (zh: '测试提示词', en: 'Test prompt'),
+  'benchmark.live.key': (zh: 'API 密钥（仅本次内存）', en: 'API key (memory only)'),
+  'benchmark.live.maxTokens': (zh: '最大输出 token', en: 'Maximum output tokens'),
+  'benchmark.live.route': (zh: '连接路由', en: 'Connection route'),
+  'benchmark.route.system': (
+    zh: '系统代理',
+    en: 'System proxy',
+  ),
+  'benchmark.route.direct': (zh: '直连', en: 'Direct'),
+  'benchmark.error.liveStart': (
+    zh: 'API 测试未能开始；没有可展示的新结果。',
+    en: 'The API benchmark could not start; there is no new result.',
+  ),
   'benchmark.title': (zh: '独立 API 测速', en: 'Independent API benchmark'),
   'benchmark.subtitle': (
     zh: '离线回放 · 合成数据 · 客户端观测',
@@ -51,6 +81,7 @@ const benchmarkMessages = <String, AppMessage>{
   'benchmark.state.queued': (zh: '排队', en: 'Queued'),
   'benchmark.state.connecting': (zh: '连接中', en: 'Connecting'),
   'benchmark.state.streaming': (zh: '回放中', en: 'Replaying'),
+  'benchmark.state.liveStreaming': (zh: '接收流式输出', en: 'Receiving stream'),
   'benchmark.state.completed': (zh: '已完成', en: 'Completed'),
   'benchmark.state.cancelled': (zh: '已取消', en: 'Cancelled'),
   'benchmark.state.interrupted': (zh: '已中断', en: 'Interrupted'),
@@ -89,8 +120,8 @@ const benchmarkMessages = <String, AppMessage>{
     en: 'Inspect {name}: formula and reasons',
   ),
   'benchmark.offlineOnly': (
-    zh: '真实 API 测试尚未启用。Ctrl+Enter 开始 · Esc 取消。',
-    en: 'Live API tests are disabled. Ctrl+Enter to start · Esc to cancel.',
+    zh: '合成回放不访问真实接口。Ctrl+Enter 开始 · Esc 取消。',
+    en: 'Synthetic replay never contacts a provider. Ctrl+Enter to start · Esc to cancel.',
   ),
   'benchmark.restorePolicy': (
     zh: '记录是最后保存的观察，恢复后不会自动补发请求。',

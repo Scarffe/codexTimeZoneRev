@@ -81,7 +81,7 @@ const SCENARIOS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 pub(super) fn catalog() -> Value {
-    json!({"offlineOnly":true,"liveExecutionEnabled":false,"protocols":["chat_completions","responses"],"scenarios":SCENARIOS.iter().map(|(id,p,label,desc)|json!({"scenarioId":id,"protocol":p,"label":label,"description":desc})).collect::<Vec<_>>()})
+    json!({"offlineOnly":false,"liveExecutionEnabled":true,"protocols":["chat_completions","responses"],"scenarios":SCENARIOS.iter().map(|(id,p,label,desc)|json!({"scenarioId":id,"protocol":p,"label":label,"description":desc})).collect::<Vec<_>>()})
 }
 pub(super) fn validate(protocol: &str, id: &str) -> Result<(), String> {
     if protocol != "chat_completions" && protocol != "responses" {

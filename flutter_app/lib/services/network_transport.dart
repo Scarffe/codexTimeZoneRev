@@ -16,6 +16,7 @@ typedef TransportFactory = NetworkTransport Function();
 
 class SystemProxyResolver {
   SystemProxyResolver({this._backend = const NativeBackend()});
+  SystemProxyResolver.forBackend(this._backend);
   final LauncherBackend _backend;
   final Map<Uri, Future<String>> _inFlight = {};
 

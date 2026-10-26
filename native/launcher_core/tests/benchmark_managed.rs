@@ -37,11 +37,11 @@ fn wait(id: &str) -> Value {
 fn managed_catalog_admission_dual_protocol_and_owned_cleanup() {
     let catalog = ok("benchmark_catalog", json!({}));
     eprintln!("M3_CATALOG={catalog}");
-    assert_eq!(catalog["offlineOnly"], true);
-    assert_eq!(catalog["liveExecutionEnabled"], false);
+    assert_eq!(catalog["offlineOnly"], false);
+    assert_eq!(catalog["liveExecutionEnabled"], true);
     assert_eq!(
         call("benchmark_start", json!({"mode":"live"}))["error"],
-        "live_execution_disabled"
+        "invalid_benchmark_request"
     );
     for payload in [
         json!({"mode":"offline_replay","protocol":"responses","scenarioId":"responses_text_complete","baseUrl":"http://example.com"}),

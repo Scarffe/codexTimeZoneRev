@@ -18,8 +18,11 @@ abstract interface class SyntheticSessionBackend implements LauncherBackend {}
 
 /// A process-local denial boundary; no real account/session/target operation.
 class OfflineTrialBackend implements LauncherBackend {
-  const OfflineTrialBackend(this.delegate);
+  OfflineTrialBackend(this.delegate);
   final LauncherBackend delegate;
+  final _previewTasks = <String>{};
+  String _taskKey(Map<String, dynamic> value) =>
+      '${value['taskId']}:${value['sourceEpoch']}:${value['generation']}';
   @override
   Future<Map<String, dynamic>> call(
     String command, [
@@ -28,6 +31,37 @@ class OfflineTrialBackend implements LauncherBackend {
     if (command == 'bootstrap') {
       final local = await const PreviewBackend().call('bootstrap');
       return {...local, 'detected': ''};
+    }
+    if (command == 'task_catalog') {
+      final result = await delegate.call(command);
+      return {
+        ...result,
+        'modes': ['offline_preview'],
+      };
+    }
+    if (command == 'task_prepare' && payload['mode'] == 'offline_preview') {
+      final result = await delegate.call(command, payload);
+      if (result['mode'] != 'offline_preview' ||
+          result['taskId'] is! String ||
+          result['sourceEpoch'] is! int ||
+          result['generation'] is! int) {
+        throw const FormatException('invalid_task_identity');
+      }
+      _previewTasks.add(_taskKey(result));
+      return result;
+    }
+    if (const {
+          'task_start',
+          'task_status',
+          'task_cancel',
+          'task_clear',
+          'task_approval',
+          'task_input',
+        }.contains(command) &&
+        _previewTasks.contains(_taskKey(payload))) {
+      final result = await delegate.call(command, payload);
+      if (command == 'task_clear') _previewTasks.remove(_taskKey(payload));
+      return result;
     }
     if ([
           'benchmark_catalog',
@@ -38,7 +72,10 @@ class OfflineTrialBackend implements LauncherBackend {
           'benchmark_shutdown',
         ].contains(command) ||
         (command == 'benchmark_start' && payload['mode'] == 'offline_replay')) {
-      return delegate.call(command, payload);
+      final result = await delegate.call(command, payload);
+      return command == 'benchmark_catalog'
+          ? {...result, 'offlineOnly': true, 'liveExecutionEnabled': false}
+          : result;
     }
     throw StateError('offline_trial_operation_disabled');
   }

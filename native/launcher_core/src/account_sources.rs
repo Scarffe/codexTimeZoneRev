@@ -292,7 +292,6 @@ impl Drop for Lease {
         }
     }
 }
-#[cfg(all(test, windows))]
 impl Lease {
     fn task_start<T>(&self, start: impl FnOnce() -> T) -> Result<T> {
         let state = self.service.state.lock().unwrap();
@@ -308,10 +307,200 @@ impl Lease {
             return Err(Error::new("busy"));
         }
         fixed_cli(&self.metadata)?;
-        // Test-only launch integration. The same mutex orders acquisition and
-        // shutdown against fixture process creation/Job attach. No production
-        // task entry exists; its future adapter must preserve this gate.
+        // The same mutex orders shutdown against owned suspended creation/Job
+        // attachment. Network/protocol waits happen after this gate is released.
         Ok(start())
+    }
+}
+
+/// Narrow production task capability. Its lifetime holds the existing in-memory
+/// and cross-process profile leases; callers retain it through confirmed cleanup.
+pub(crate) struct TaskSourceLease {
+    inner: Lease,
+}
+pub(crate) fn validate_task_source(id: &str) -> std::result::Result<(), String> {
+    source(id).map_err(|_| "source_invalid".into())
+}
+pub(crate) fn acquire_task_source(id: &str) -> std::result::Result<TaskSourceLease, String> {
+    let service = global().map_err(|_| "startup_failed")?;
+    service
+        .lease_for(id, Purpose::Task)
+        .map(|inner| TaskSourceLease { inner })
+        .map_err(|error| {
+            match error.kind {
+                "busy" => "source_busy",
+                "shutdown" => "shutdown",
+                "protected_source" | "invalid_source" | "not_found" => "source_invalid",
+                "unavailable" => "cli_changed",
+                _ => "isolation_failed",
+            }
+            .into()
+        })
+}
+impl TaskSourceLease {
+    pub(crate) fn home(&self) -> &Path {
+        &self.inner.home
+    }
+    pub(crate) fn cancel_signal(&self) -> Arc<AtomicBool> {
+        self.inner.cancel.clone()
+    }
+    pub(crate) fn launch(
+        &self,
+        workspace: &Path,
+    ) -> std::result::Result<crate::owned_stdio::OwnedStdio, crate::owned_stdio::StartFailure> {
+        let cli =
+            fixed_cli(&self.inner.metadata).map_err(|_| crate::owned_stdio::StartFailure {
+                kind: "cli_changed",
+                retained: None,
+            })?;
+        let home = self.home();
+        let temp = home.join("tmp");
+        safe_path(&temp).map_err(|_| crate::owned_stdio::StartFailure {
+            kind: "isolation_failed",
+            retained: None,
+        })?;
+        fs::create_dir_all(&temp).map_err(|_| crate::owned_stdio::StartFailure {
+            kind: "isolation_failed",
+            retained: None,
+        })?;
+        safe_path(&temp).map_err(|_| crate::owned_stdio::StartFailure {
+            kind: "isolation_failed",
+            retained: None,
+        })?;
+        let mut environment = std::collections::BTreeMap::new();
+        #[cfg(test)]
+        let mut hidden_drives = 0usize;
+        #[cfg(test)]
+        let mut normalized_duplicates = 0usize;
+        for (key, value) in std::env::vars_os() {
+            // Windows shell pseudo records (e.g. =C: and =ExitCode) are not
+            // regular environment names. This child has an explicit cwd and
+            // no shell state to inherit. Other invalid names remain rejected.
+            if is_windows_pseudo_environment_key(&key) {
+                #[cfg(test)]
+                {
+                    hidden_drives += 1;
+                }
+                continue;
+            }
+            if !is_auth_override(&key.to_string_lossy()) {
+                // Windows resolves environment names case-insensitively. Some
+                // parent launchers supply Path and PATH in the raw block. Use
+                // the OS's effective value and one canonical ASCII key rather
+                // than forwarding conflicting duplicates to CreateProcess.
+                let effective = std::env::var_os(&key).unwrap_or(value);
+                let canonical: std::ffi::OsString =
+                    key.to_string_lossy().to_ascii_uppercase().into();
+                let previous = environment.insert(canonical, effective);
+                #[cfg(test)]
+                {
+                    if previous.is_some() {
+                        normalized_duplicates += 1;
+                    }
+                }
+                #[cfg(not(test))]
+                let _ = previous;
+            }
+        }
+        #[cfg(test)]
+        eprintln!("task_environment hiddenDriveDropped={hidden_drives} caseDuplicateNormalized={normalized_duplicates}");
+        for key in [
+            "CODEX_HOME",
+            "HOME",
+            "USERPROFILE",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "TEMP",
+            "TMP",
+        ] {
+            environment.retain(|existing, _| !existing.to_string_lossy().eq_ignore_ascii_case(key));
+            environment.insert(
+                key.into(),
+                if matches!(key, "TEMP" | "TMP") {
+                    temp.as_os_str().to_owned()
+                } else {
+                    home.as_os_str().to_owned()
+                },
+            );
+        }
+        let args = [
+            "--no-daemon",
+            "-c",
+            "cli_auth_credentials_store=\"file\"",
+            "-c",
+            "analytics.enabled=false",
+            "app-server",
+            "--strict-config",
+            "--listen",
+            "stdio://",
+        ]
+        .map(String::from);
+        match self.inner.task_start(|| {
+            crate::owned_stdio::OwnedStdio::start(&cli, &args, workspace, &environment)
+        }) {
+            Ok(result) => result,
+            Err(error) => Err(crate::owned_stdio::StartFailure {
+                kind: match error.kind {
+                    "shutdown" => "shutdown",
+                    "cancelled" => "cancelled",
+                    "unavailable" => "cli_changed",
+                    _ => "source_busy",
+                },
+                retained: None,
+            }),
+        }
+    }
+}
+
+fn is_windows_pseudo_environment_key(key: &std::ffi::OsStr) -> bool {
+    key.to_string_lossy().starts_with('=')
+}
+
+#[cfg(test)]
+#[test]
+fn task_environment_omits_windows_shell_pseudo_records_only() {
+    for key in ["=C:", "=z:", "=ExitCode", "=::"] {
+        assert!(is_windows_pseudo_environment_key(std::ffi::OsStr::new(key)));
+    }
+    for key in ["", "PATH", "A=B", "C:"] {
+        assert!(!is_windows_pseudo_environment_key(std::ffi::OsStr::new(
+            key
+        )));
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct TaskFixtureSource {
+    pub id: String,
+    pub home: PathBuf,
+    pub acquire: Arc<dyn Fn(&str) -> std::result::Result<TaskSourceLease, String> + Send + Sync>,
+    pub remove: Arc<dyn Fn() -> std::result::Result<Value, String> + Send + Sync>,
+}
+#[cfg(test)]
+pub(crate) fn task_fixture_source(root: PathBuf, cli: PathBuf) -> TaskFixtureSource {
+    let service = Service::for_test(root, cli, Duration::from_secs(2));
+    let id = service.create().unwrap()["sourceId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let home = service.root.join(&id);
+    let acquire_service = service.clone();
+    let remove_service = service.clone();
+    let remove_id = id.clone();
+    TaskFixtureSource {
+        id,
+        home,
+        acquire: Arc::new(move |id| {
+            acquire_service
+                .lease_for(id, Purpose::Task)
+                .map(|inner| TaskSourceLease { inner })
+                .map_err(|error| error.kind.to_owned())
+        }),
+        remove: Arc::new(move || {
+            remove_service
+                .remove(&remove_id)
+                .map_err(|error| error.kind.to_owned())
+        }),
     }
 }
 impl Service {

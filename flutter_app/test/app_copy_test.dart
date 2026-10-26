@@ -8,6 +8,7 @@ import 'package:codex_timezone/l10n/copy_sessions.dart';
 import 'package:codex_timezone/l10n/copy_analysis.dart';
 import 'package:codex_timezone/l10n/copy_benchmark.dart';
 import 'package:codex_timezone/l10n/copy_notices.dart';
+import 'package:codex_timezone/l10n/copy_tasks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -63,6 +64,7 @@ void main() {
         analysisMessages,
         benchmarkMessages,
         noticeMessages,
+        taskMessages,
       ];
       final seen = <String>{};
       final parameter = RegExp(r'\{([A-Za-z][A-Za-z0-9_]*)\}');

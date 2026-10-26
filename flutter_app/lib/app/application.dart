@@ -31,7 +31,6 @@ import '../state/quota_history_controller.dart';
 import 'launcher_page.dart';
 import 'accounts_workspace_page.dart';
 import 'workspace_overview_page.dart';
-import 'session_attention_page.dart';
 import 'independent_benchmark_panel.dart';
 import '../services/session_attention.dart';
 import '../services/session_attention_store.dart';
@@ -47,6 +46,10 @@ import '../state/session_metrics_controller.dart';
 import '../state/benchmark_controller.dart';
 import '../services/benchmark.dart';
 import '../services/benchmark_store.dart';
+import '../services/tasks.dart';
+import '../services/task_store.dart';
+import '../state/tasks_controller.dart';
+import 'tasks_workspace_page.dart';
 
 /// Reads only the app appearance keys; malformed family never hides valid mode.
 ({String? appearance, DashboardThemeStyle style})
@@ -95,9 +98,11 @@ class LauncherApplication extends StatefulWidget {
     this.attentionStore,
     this.rhythmController,
     this.rhythmStore,
+    this.tasksController,
   });
   final SessionRhythmController? rhythmController;
   final SessionRhythmStore? rhythmStore;
+  final TasksController? tasksController;
   final bool preview;
   final LauncherBackend? backend;
   final String initialAppearance;
@@ -226,16 +231,42 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           ? SessionAttentionStore.portable()
           : MemoryAttentionStore());
   // Existing injected launcher fixtures opt in explicitly to the new backend.
-  late final benchmark =
-      widget.benchmarkController ??
-      BenchmarkController(
-        BenchmarkService(backend),
-        store: widget.backend == null && !widget.preview && !widget.offlineTrial
-            ? BenchmarkStore.portable()
-            : null,
-        enabled:
-            !widget.preview && (widget.backend == null || widget.offlineTrial),
-      );
+  late final benchmark = _createBenchmark();
+  BenchmarkController _createBenchmark() {
+    final result =
+        widget.benchmarkController ??
+        BenchmarkController(
+          BenchmarkService(backend),
+          store:
+              widget.backend == null && !widget.preview && !widget.offlineTrial
+              ? BenchmarkStore.portable()
+              : null,
+          enabled:
+              !widget.preview &&
+              (widget.backend == null || widget.offlineTrial),
+        );
+    if (widget.preview || widget.offlineTrial) result.restrictToOffline();
+    return result;
+  }
+
+  late final tasks = _createTasks();
+  TasksController _createTasks() {
+    final result =
+        widget.tasksController ??
+        TasksController(
+          TaskService(
+            backend,
+            officialEnabled: !widget.preview && !widget.offlineTrial,
+          ),
+          store:
+              widget.backend == null && !widget.preview && !widget.offlineTrial
+              ? TaskStore.portable()
+              : TaskStore.memory(),
+        );
+    if (widget.preview || widget.offlineTrial) result.restrictToPreview();
+    return result;
+  }
+
   late final appearance = ValueNotifier(widget.initialAppearance);
   late final themeStyle = ValueNotifier(widget.initialThemeStyle);
   final language = ValueNotifier(AppLanguage.zh);
@@ -417,6 +448,7 @@ class _LauncherApplicationState extends State<LauncherApplication> {
           rhythm: rhythm,
           metrics: metrics,
           benchmark: benchmark,
+          tasks: tasks,
         )..start();
       }
     });
@@ -655,9 +687,11 @@ class _LauncherApplicationState extends State<LauncherApplication> {
                       usage: usage,
                       launcher: launcher,
                     ),
-                    sessions: SessionAttentionPage(
+                    sessions: TasksWorkspacePage(
                       key: const ValueKey('sessions-page'),
-                      controller: attention,
+                      attention: attention,
+                      tasks: tasks,
+                      sources: sources,
                       onOpenNotice: _openAttentionNotice,
                     ),
                     analysis: MonitoringPage(
@@ -708,7 +742,10 @@ class _LauncherApplicationState extends State<LauncherApplication> {
     history.dispose();
     sources?.dispose();
     metrics.dispose();
+    unawaited(benchmark.shutdown());
     benchmark.dispose();
+    unawaited(tasks.shutdown());
+    tasks.dispose();
     appearance.dispose();
     language.dispose();
     themeStyle.dispose();

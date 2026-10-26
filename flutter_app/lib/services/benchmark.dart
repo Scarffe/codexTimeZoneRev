@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'backend.dart';
+import 'network_transport.dart';
 
 const benchmarkMetricKeys = [
   'ttftMs',
@@ -166,6 +169,73 @@ bool _flag(Object? value) {
   return value;
 }
 
+String _modelName(Object? value) {
+  if (value is! String ||
+      value.isEmpty ||
+      utf8.encode(value).length > 256 ||
+      value.runes.any((c) => c < 32 || c == 127)) {
+    throw const FormatException('invalid_benchmark_model');
+  }
+  return value;
+}
+
+/// Request fields remain in memory. Credentials are supplied separately.
+class BenchmarkLiveConfig {
+  const BenchmarkLiveConfig({
+    this.baseUrl = '',
+    this.model = '',
+    this.prompt = '',
+    this.maxOutputTokens = 256,
+    this.route = 'system',
+  });
+  final String baseUrl, model, prompt, route;
+  final int maxOutputTokens;
+  bool get valid {
+    final uri = Uri.tryParse(baseUrl);
+    if (uri == null ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !['https', 'http'].contains(uri.scheme) ||
+        (uri.scheme == 'http' &&
+            !(uri.host == '::1' ||
+                RegExp(r'^127\.(\d{1,3}\.){2}\d{1,3}$').hasMatch(uri.host))) ||
+        uri.path.endsWith('/chat/completions') ||
+        uri.path.endsWith('/responses') ||
+        !['system', 'direct'].contains(route) ||
+        maxOutputTokens < 1 ||
+        maxOutputTokens > 8192 ||
+        prompt.isEmpty ||
+        utf8.encode(prompt).length > 65536) {
+      return false;
+    }
+    try {
+      _modelName(model);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Uri endpointFor(String protocol) => Uri.parse(
+    '${baseUrl.replaceFirst(RegExp(r'/+$'), '')}/${protocol == 'responses' ? 'responses' : 'chat/completions'}',
+  );
+  BenchmarkLiveConfig copy({
+    String? baseUrl,
+    String? model,
+    String? prompt,
+    int? maxOutputTokens,
+    String? route,
+  }) => BenchmarkLiveConfig(
+    baseUrl: baseUrl ?? this.baseUrl,
+    model: model ?? this.model,
+    prompt: prompt ?? this.prompt,
+    maxOutputTokens: maxOutputTokens ?? this.maxOutputTokens,
+    route: route ?? this.route,
+  );
+}
+
 class BenchmarkMetric {
   const BenchmarkMetric({
     required this.value,
@@ -248,11 +318,13 @@ class BenchmarkScenario {
 }
 
 class BenchmarkCatalog {
-  const BenchmarkCatalog(this.scenarios);
+  const BenchmarkCatalog(this.scenarios, {this.liveExecutionEnabled = false});
   final List<BenchmarkScenario> scenarios;
+  final bool liveExecutionEnabled;
   factory BenchmarkCatalog.fromJson(Map<String, dynamic> json) {
-    if (json['offlineOnly'] != true ||
-        json['liveExecutionEnabled'] != false ||
+    if (json['offlineOnly'] is! bool ||
+        json['liveExecutionEnabled'] is! bool ||
+        json['offlineOnly'] == json['liveExecutionEnabled'] ||
         json['scenarios'] is! List) {
       throw const FormatException('invalid_benchmark_catalog');
     }
@@ -283,6 +355,7 @@ class BenchmarkCatalog {
           );
         }),
       ),
+      liveExecutionEnabled: json['liveExecutionEnabled'] as bool,
     );
   }
 }
@@ -306,9 +379,11 @@ class BenchmarkSnapshot {
     required this.usage,
     required this.metrics,
     this.restored = false,
+    this.executionMode = 'offline_replay',
   });
   final String? runId, responseModel, protocolTerminal;
   final String state, protocol, scenarioId, engineVersion, requestedModel;
+  final String executionMode;
   final bool cleanupPending, successfulSample, restored;
   final int? elapsedNs;
   final List<String> reasons;
@@ -326,15 +401,29 @@ class BenchmarkSnapshot {
         state == 'interrupted' &&
         reasons.contains('previous_process_ended');
     benchmarkChoice(json['measurementKind'], ['independent_api']);
-    benchmarkChoice(json['executionMode'], ['offline_replay']);
+    final mode = benchmarkChoice(json['executionMode'], [
+      'offline_replay',
+      'live',
+    ]);
+    final live = mode == 'live';
     final source = benchmarkMap(json['source']);
-    benchmarkChoice(source['kind'], ['offline_fixture']);
-    benchmarkChoice(source['networkScope'], ['literal_loopback_only']);
-    final scenario = benchmarkChoice(source['scenarioId'], benchmarkScenarios);
+    benchmarkChoice(source['kind'], [
+      live ? 'user_endpoint' : 'offline_fixture',
+    ]);
+    benchmarkChoice(source['networkScope'], [
+      live ? 'user_configured_endpoint' : 'literal_loopback_only',
+    ]);
+    if (live && source['scenarioId'] != null) {
+      throw const FormatException('invalid_benchmark_scenario');
+    }
+    final scenario = live
+        ? ''
+        : benchmarkChoice(source['scenarioId'], benchmarkScenarios);
     final protocol = benchmarkChoice(json['protocol'], benchmarkProtocols);
-    if (!scenario.startsWith(
-      protocol == 'responses' ? 'responses_' : 'chat_',
-    )) {
+    if (!live &&
+        !scenario.startsWith(
+          protocol == 'responses' ? 'responses_' : 'chat_',
+        )) {
       throw const FormatException('invalid_benchmark_scenario');
     }
     final time = benchmarkMap(json['timingsNs']);
@@ -359,16 +448,19 @@ class BenchmarkSnapshot {
     return BenchmarkSnapshot(
       runId: runId,
       state: state,
+      executionMode: mode,
       protocol: protocol,
       scenarioId: scenario,
       engineVersion: benchmarkChoice(json['engineVersion'], [
-        'm3-rust-v1+aiperf-b1746a84',
+        live ? 'm4-rust-v1+aiperf-b1746a84' : 'm3-rust-v1+aiperf-b1746a84',
       ]),
-      requestedModel: benchmarkChoice(json['requestedModel'], [
-        'fixture-model',
-      ]),
+      requestedModel: live
+          ? _modelName(json['requestedModel'])
+          : benchmarkChoice(json['requestedModel'], ['fixture-model']),
       responseModel: json['responseModel'] == null
           ? null
+          : live
+          ? _modelName(json['responseModel'])
           : benchmarkChoice(json['responseModel'], ['fixture-response-model']),
       cleanupPending: _flag(json['cleanupPending']),
       elapsedNs: unobservedIntent
@@ -404,6 +496,7 @@ class BenchmarkSnapshot {
   }) => BenchmarkSnapshot(
     runId: runId,
     state: state ?? this.state,
+    executionMode: executionMode,
     protocol: protocol,
     scenarioId: scenarioId,
     engineVersion: engineVersion,
@@ -435,14 +528,18 @@ class BenchmarkSnapshot {
         );
   static BenchmarkSnapshot interruptedIntent(
     String protocol,
-    String scenario,
-  ) => BenchmarkSnapshot(
+    String scenario, {
+    String executionMode = 'offline_replay',
+  }) => BenchmarkSnapshot(
     runId: null,
     state: 'interrupted',
+    executionMode: executionMode,
     protocol: protocol,
     scenarioId: scenario,
-    engineVersion: 'm3-rust-v1+aiperf-b1746a84',
-    requestedModel: 'fixture-model',
+    engineVersion: executionMode == 'live'
+        ? 'm4-rust-v1+aiperf-b1746a84'
+        : 'm3-rust-v1+aiperf-b1746a84',
+    requestedModel: executionMode == 'live' ? 'unknown' : 'fixture-model',
     responseModel: null,
     cleanupPending: false,
     elapsedNs: null,
@@ -472,11 +569,13 @@ class BenchmarkSnapshot {
     'state': state,
     'measurementKind': 'independent_api',
     'protocol': protocol,
-    'executionMode': 'offline_replay',
+    'executionMode': executionMode,
     'source': {
-      'kind': 'offline_fixture',
-      'scenarioId': scenarioId,
-      'networkScope': 'literal_loopback_only',
+      'kind': executionMode == 'live' ? 'user_endpoint' : 'offline_fixture',
+      'scenarioId': executionMode == 'live' ? null : scenarioId,
+      'networkScope': executionMode == 'live'
+          ? 'user_configured_endpoint'
+          : 'literal_loopback_only',
     },
     'engineVersion': engineVersion,
     'requestedModel': requestedModel,
@@ -502,6 +601,45 @@ class BenchmarkService {
   final LauncherBackend backend;
   Future<BenchmarkCatalog> catalog() async =>
       BenchmarkCatalog.fromJson(await backend.call('benchmark_catalog'));
+  Future<String> resolveLiveProxy(Uri endpoint) async {
+    final resolved = await SystemProxyResolver.forBackend(backend)
+        .resolve(endpoint);
+    final first = resolved.split(';').first.trim();
+    if (first != 'DIRECT' &&
+        !RegExp(r'^PROXY [^\s;]+:[0-9]{1,5}$').hasMatch(first)) {
+      throw const FormatException('unsupported_proxy');
+    }
+    return first;
+  }
+
+  Future<BenchmarkSnapshot> startLive(
+    String protocol,
+    BenchmarkLiveConfig config, {
+    required String apiKey,
+    required String resolvedProxy,
+    void Function(String)? onOwned,
+  }) async {
+    if (!config.valid || apiKey.isEmpty || apiKey.contains(RegExp(r'[\r\n]'))) {
+      throw const FormatException('invalid_live_config');
+    }
+    final raw = await backend.call('benchmark_start', {
+      'mode': 'live',
+      'protocol': protocol,
+      'baseUrl': config.baseUrl,
+      'model': config.model,
+      'prompt': config.prompt,
+      'apiKey': apiKey,
+      'resolvedProxy': resolvedProxy,
+      'maxOutputTokens': config.maxOutputTokens,
+      'timeoutMs': 30000,
+      'idleTimeoutMs': 5000,
+    });
+    final id = _identifier(raw['runId']);
+    if (id == null) throw const FormatException('missing_run_id');
+    onOwned?.call(id);
+    return BenchmarkSnapshot.fromJson(raw);
+  }
+
   Future<BenchmarkSnapshot> start(
     String protocol,
     String scenario, {

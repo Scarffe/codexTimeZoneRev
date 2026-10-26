@@ -148,11 +148,22 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                               copy.text('benchmark.title'),
                               style: context.theme.typography.body.lg,
                             ),
-                            Text(copy.text('benchmark.subtitle'), style: muted),
+                            Text(
+                              copy.text(
+                                controller.executionMode == 'live'
+                                    ? 'benchmark.liveSubtitle'
+                                    : 'benchmark.subtitle',
+                              ),
+                              style: muted,
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
                         _controls(context, scenarios),
+                        if (controller.executionMode == 'live') ...[
+                          const SizedBox(height: 12),
+                          _LiveConfigForm(controller: controller),
+                        ],
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 16,
@@ -160,7 +171,11 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             Text(
-                              '${controller.starting ? _state(context, 'starting') : _state(context, snapshot?.state ?? '')}${snapshot?.restored == true ? copy.text('benchmark.restoredSuffix') : ''}',
+                              '${controller.starting
+                                  ? _state(context, 'starting')
+                                  : snapshot?.executionMode == 'live' && snapshot?.state == 'streaming'
+                                  ? copy.text('benchmark.state.liveStreaming')
+                                  : _state(context, snapshot?.state ?? '')}${snapshot?.restored == true ? copy.text('benchmark.restoredSuffix') : ''}',
                               style: context.theme.typography.body.md.copyWith(
                                 fontWeight: FontWeight.w600,
                                 color: snapshot?.state == 'failed'
@@ -196,7 +211,7 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                               'benchmark.resultSource',
                               args: {
                                 'value':
-                                    '${snapshot.protocol} · ${snapshot.scenarioId}',
+                                    '${copy.text('benchmark.mode.${snapshot.executionMode}')} · ${snapshot.protocol} · ${snapshot.executionMode == 'live' ? snapshot.requestedModel : snapshot.scenarioId}',
                               },
                             ),
                             style: muted,
@@ -316,7 +331,14 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text(copy.text('benchmark.offlineOnly'), style: muted),
+                Text(
+                  copy.text(
+                    controller.executionMode == 'live'
+                        ? 'benchmark.livePolicy'
+                        : 'benchmark.offlineOnly',
+                  ),
+                  style: muted,
+                ),
                 Text(copy.text('benchmark.restorePolicy'), style: muted),
                 const SizedBox(height: 12),
               ],
@@ -344,6 +366,27 @@ class IndependentBenchmarkPanel extends StatelessWidget {
               SizedBox(
                 width: selectWidth,
                 child: FSelect<String>(
+                  key: const ValueKey('benchmark-execution-mode'),
+                  label: Text(AppCopy.of(context).text('benchmark.mode')),
+                  items: {
+                    AppCopy.of(context).text('benchmark.mode.offline_replay'):
+                        'offline_replay',
+                    if (controller.allowLive &&
+                        controller.catalog?.liveExecutionEnabled == true)
+                      AppCopy.of(context).text('benchmark.mode.live'): 'live',
+                  },
+                  enabled: !controller.busy,
+                  control: FSelectControl.lifted(
+                    value: controller.executionMode,
+                    onChange: (v) {
+                      if (v != null) unawaited(controller.selectMode(v));
+                    },
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: selectWidth,
+                child: FSelect<String>(
                   key: const ValueKey('benchmark-protocol'),
                   label: Text(AppCopy.of(context).text('benchmark.protocol')),
                   items: const {
@@ -359,25 +402,26 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              SizedBox(
-                width: selectWidth,
-                child: FSelect<String>(
-                  key: const ValueKey('benchmark-scenario'),
-                  label: Text(AppCopy.of(context).text('benchmark.scenario')),
-                  items: {
-                    for (final s in scenarios) _scenario(context, s): s.id,
-                  },
-                  enabled: !controller.busy && scenarios.isNotEmpty,
-                  control: FSelectControl.lifted(
-                    value: scenarios.any((s) => s.id == controller.scenarioId)
-                        ? controller.scenarioId
-                        : null,
-                    onChange: (v) {
-                      if (v != null) unawaited(controller.selectScenario(v));
+              if (controller.executionMode != 'live')
+                SizedBox(
+                  width: selectWidth,
+                  child: FSelect<String>(
+                    key: const ValueKey('benchmark-scenario'),
+                    label: Text(AppCopy.of(context).text('benchmark.scenario')),
+                    items: {
+                      for (final s in scenarios) _scenario(context, s): s.id,
                     },
+                    enabled: !controller.busy && scenarios.isNotEmpty,
+                    control: FSelectControl.lifted(
+                      value: scenarios.any((s) => s.id == controller.scenarioId)
+                          ? controller.scenarioId
+                          : null,
+                      onChange: (v) {
+                        if (v != null) unawaited(controller.selectScenario(v));
+                      },
+                    ),
                   ),
                 ),
-              ),
               FButton(
                 key: const ValueKey('benchmark-start'),
                 mainAxisSize: MainAxisSize.min,
@@ -385,7 +429,15 @@ class IndependentBenchmarkPanel extends StatelessWidget {
                     ? () => unawaited(controller.start())
                     : null,
                 prefix: const Icon(FLucideIcons.play, size: 16),
-                child: Text(AppCopy.of(context).text('benchmark.start')),
+                child: Flexible(
+                  child: Text(
+                    AppCopy.of(context).text(
+                      controller.executionMode == 'live'
+                          ? 'benchmark.liveStart'
+                          : 'benchmark.start',
+                    ),
+                  ),
+                ),
               ),
               FButton(
                 key: const ValueKey('benchmark-cancel'),
@@ -409,6 +461,139 @@ class IndependentBenchmarkPanel extends StatelessWidget {
           );
         },
       );
+}
+
+class _LiveConfigForm extends StatefulWidget {
+  const _LiveConfigForm({required this.controller});
+  final BenchmarkController controller;
+  @override
+  State<_LiveConfigForm> createState() => _LiveConfigFormState();
+}
+
+class _LiveConfigFormState extends State<_LiveConfigForm> {
+  late final _endpoint = TextEditingController(
+    text: widget.controller.liveConfig.baseUrl,
+  );
+  late final _model = TextEditingController(
+    text: widget.controller.liveConfig.model,
+  );
+  late final _prompt = TextEditingController(
+    text: widget.controller.liveConfig.prompt,
+  );
+  late final _key = TextEditingController(text: widget.controller.apiKey);
+  void _update() => widget.controller.updateLiveConfig(
+    widget.controller.liveConfig.copy(
+      baseUrl: _endpoint.text.trim(),
+      model: _model.text.trim(),
+      prompt: _prompt.text,
+    ),
+  );
+  @override
+  Widget build(BuildContext context) {
+    final copy = AppCopy.of(context), c = widget.controller;
+    Widget field(
+      String id,
+      TextEditingController control, {
+      bool secret = false,
+      bool multiline = false,
+    }) => FTextField(
+      key: ValueKey('benchmark-live-$id'),
+      label: Text(copy.text('benchmark.live.$id')),
+      enabled: !c.busy,
+      obscureText: secret,
+      minLines: multiline ? 3 : 1,
+      maxLines: multiline ? 5 : 1,
+      control: FTextFieldControl.managed(
+        controller: control,
+        onChange: (_) {
+          if (secret) {
+            c.updateApiKey(control.text);
+          } else {
+            _update();
+          }
+        },
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(copy.text('benchmark.livePolicy')),
+        const SizedBox(height: 10),
+        field('base-url', _endpoint),
+        const SizedBox(height: 8),
+        field('model', _model),
+        const SizedBox(height: 8),
+        field('key', _key, secret: true),
+        const SizedBox(height: 8),
+        field('prompt', _prompt, multiline: true),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth < 500
+                ? constraints.maxWidth
+                : (constraints.maxWidth - 12) / 2;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: [
+                SizedBox(
+                  width: width,
+                  child: FSelect<int>(
+                    key: const ValueKey('benchmark-live-max-tokens'),
+                    label: Text(copy.text('benchmark.live.maxTokens')),
+                    items: {
+                      for (final n in [64, 256, 512, 1024, 2048, 4096, 8192])
+                        '$n': n,
+                    },
+                    enabled: !c.busy,
+                    control: FSelectControl.lifted(
+                      value: c.liveConfig.maxOutputTokens,
+                      onChange: (v) {
+                        if (v != null) {
+                          c.updateLiveConfig(
+                            c.liveConfig.copy(maxOutputTokens: v),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: FSelect<String>(
+                    key: const ValueKey('benchmark-live-route'),
+                    label: Text(copy.text('benchmark.live.route')),
+                    items: {
+                      copy.text('benchmark.route.system'): 'system',
+                      copy.text('benchmark.route.direct'): 'direct',
+                    },
+                    enabled: !c.busy,
+                    control: FSelectControl.lifted(
+                      value: c.liveConfig.route,
+                      onChange: (v) {
+                        if (v != null) {
+                          c.updateLiveConfig(c.liveConfig.copy(route: v));
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _endpoint.dispose();
+    _model.dispose();
+    _prompt.dispose();
+    _key.dispose();
+    super.dispose();
+  }
 }
 
 class _TimingMarkers extends StatelessWidget {

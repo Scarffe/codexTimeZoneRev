@@ -12,9 +12,12 @@ mod common;
 #[cfg(target_os = "macos")]
 #[path = "platform/mac/mod.rs"]
 mod macos;
+mod owned_stdio;
 #[cfg(windows)]
 mod proxy;
 mod session_metrics;
+mod task_protocol;
+mod tasks;
 // K3.0 is an offline contract experiment, absent from release dispatch/binaries.
 #[cfg(test)]
 mod task_execution;
@@ -55,6 +58,9 @@ fn dispatch(request: &str) -> Result<Value, String> {
     }
     if request.command.starts_with("account_source_") {
         return account_sources::execute(&request.command, request.payload);
+    }
+    if request.command.starts_with("task_") {
+        return tasks::execute(&request.command, request.payload);
     }
     // Account reads can wait on the network. Never hold the settings/launch lock.
     if request.command == "account_usage" {

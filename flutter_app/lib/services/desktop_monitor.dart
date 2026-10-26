@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import '../state/account_usage_controller.dart';
 import '../state/session_metrics_controller.dart';
 import '../state/benchmark_controller.dart';
+import '../state/tasks_controller.dart';
 import '../state/session_attention_controller.dart';
 
 /// Only publishes display data; native surfaces never query the account.
@@ -29,6 +30,7 @@ class DesktopMonitor {
     this.onNotice,
     this.metrics,
     this.benchmark,
+    this.tasks,
     this.interval = const Duration(minutes: 2),
     this.language,
   });
@@ -38,6 +40,7 @@ class DesktopMonitor {
   final VoidCallback? onAttentionDetails;
   final SessionMetricsController? metrics;
   final BenchmarkController? benchmark;
+  final TasksController? tasks;
   final String Function() path;
   final Duration interval;
   final AppLanguage Function()? language;
@@ -63,6 +66,7 @@ class DesktopMonitor {
     metrics?.addListener(_publish);
     attention?.addListener(_publish);
     benchmark?.addListener(_publish);
+    tasks?.addListener(_publish);
     rhythm?.addListener(_publish);
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
@@ -102,6 +106,7 @@ class DesktopMonitor {
           attention?.resetObservation();
           usage.systemSuspending();
           await benchmark?.interrupt();
+          await tasks?.cancelAll();
         case 'systemResume':
           attention?.resetObservation();
           usage.systemResumed();
@@ -139,7 +144,8 @@ class DesktopMonitor {
       usage.sources?.anyBusy == true ||
       metrics?.selected != null ||
       attention?.watches.any((watch) => watch.enabled) == true ||
-      benchmark?.keepAlive == true;
+      benchmark?.keepAlive == true ||
+      tasks?.keepAlive == true;
 
   Future<void> _exit() =>
       _exitRequest ??= _gracefulExit().catchError((Object _) {
@@ -149,6 +155,12 @@ class DesktopMonitor {
 
   Future<void> _gracefulExit() async {
     usage.pause(persist: false);
+    // Task children own source leases. Confirm their cleanup before sources exit.
+    await tasks?.shutdown();
+    await tasks?.saved;
+    if (tasks?.cleanupComplete == false) {
+      throw StateError('owned_task_cleanup_incomplete');
+    }
     await Future.wait([
       if (usage.sources != null) usage.sources!.shutdown(),
       if (benchmark != null) benchmark!.shutdown(),
@@ -366,6 +378,7 @@ class DesktopMonitor {
     metrics?.removeListener(_publish);
     attention?.removeListener(_publish);
     benchmark?.removeListener(_publish);
+    tasks?.removeListener(_publish);
     rhythm?.removeListener(_publish);
     channel.setMethodCallHandler(null);
   }

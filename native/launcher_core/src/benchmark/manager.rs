@@ -98,6 +98,8 @@ impl View {
         object.insert("source".into(), self.source.clone());
         if self.execution_mode == "offline_replay" {
             object.insert("engineVersion".into(), json!("m3-rust-v1+aiperf-b1746a84"));
+        } else if self.execution_mode == "live" {
+            object.insert("engineVersion".into(), json!("m4-rust-v1+aiperf-b1746a84"));
         }
         object.insert("requestedModel".into(), json!(self.model));
         object.insert("responseModel".into(), json!(self.response_model));
@@ -220,7 +222,9 @@ impl Manager {
             state: "queued",
             protocol: config.protocol.clone(),
             execution_mode: config.execution_mode.clone(),
-            source: if let Some(scenario) = config.scenario_id.as_deref() {
+            source: if config.execution_mode == "live" {
+                json!({"kind":"user_endpoint","scenarioId":null,"networkScope":"user_configured_endpoint"})
+            } else if let Some(scenario) = config.scenario_id.as_deref() {
                 json!({"kind":"offline_fixture","scenarioId":scenario,"networkScope":"literal_loopback_only"})
             } else {
                 json!({"kind":"local_replay","scenarioId":null,"networkScope":"literal_loopback_only"})

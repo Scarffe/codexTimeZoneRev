@@ -1,4 +1,4 @@
-//! Independent API measurement. M2 admission is restricted to local replay.
+//! Independent API measurement with explicit live and synthetic replay admission.
 mod chat;
 mod collector;
 mod manager;

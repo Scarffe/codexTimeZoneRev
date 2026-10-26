@@ -12,7 +12,10 @@ class BenchmarkController extends ChangeNotifier {
     this.store,
     this.pollInterval = const Duration(milliseconds: 250),
     this.enabled = true,
-  });
+    bool allowLive = true,
+    // Keep the public named parameter while privately guarding the capability.
+    // ignore: prefer_initializing_formals
+  }) : _allowLive = allowLive;
   final BenchmarkService service;
   final BenchmarkStore? store;
   final Duration pollInterval;
@@ -20,6 +23,19 @@ class BenchmarkController extends ChangeNotifier {
   BenchmarkCatalog? catalog;
   BenchmarkSnapshot? snapshot;
   String protocol = 'chat_completions', scenarioId = 'chat_text_complete';
+  String executionMode = 'offline_replay';
+  BenchmarkLiveConfig liveConfig = const BenchmarkLiveConfig();
+  String _apiKey = '';
+  bool _allowLive;
+  bool get allowLive => _allowLive;
+  String get apiKey => _apiKey;
+  set apiKey(String value) {
+    if (busy || _closing || _disposed || !_allowLive) return;
+    _apiKey = value;
+    _emit();
+  }
+
+  void updateApiKey(String value) => apiKey = value;
   String? lastError, _ownedId, _attemptId;
   bool initializing = false,
       starting = false,
@@ -45,7 +61,20 @@ class BenchmarkController extends ChangeNotifier {
       (_ownedId != null &&
           (snapshot?.terminal != true || snapshot?.cleanupPending == true));
   bool get canStart =>
-      enabled && !_closing && !initializing && catalog != null && !busy;
+      enabled &&
+      !_disposed &&
+      !_closing &&
+      !initializing &&
+      catalog != null &&
+      !busy &&
+      (executionMode == 'offline_replay' ||
+          (executionMode == 'live' &&
+              _allowLive &&
+              liveConfig.valid &&
+              catalog?.liveExecutionEnabled == true &&
+              _apiKey.isNotEmpty &&
+              _apiKey.length <= 8192 &&
+              _apiKey.codeUnits.every((c) => c >= 0x21 && c <= 0x7e)));
   bool get canCancel =>
       !_closing &&
       (starting || (_ownedId != null && snapshot?.terminal != true));
@@ -69,10 +98,19 @@ class BenchmarkController extends ChangeNotifier {
         final record = await store?.read();
         if (record != null) {
           protocol = record.protocol;
-          scenarioId = record.scenarioId;
+          executionMode = record.executionMode == 'live' && _allowLive
+              ? 'live'
+              : 'offline_replay';
+          scenarioId = record.executionMode == 'live'
+              ? _defaultScenario(protocol)
+              : record.scenarioId;
           _attemptId = record.attemptId;
           snapshot = record.starting
-              ? BenchmarkSnapshot.interruptedIntent(protocol, scenarioId)
+              ? BenchmarkSnapshot.interruptedIntent(
+                  protocol,
+                  record.executionMode == 'live' ? '' : scenarioId,
+                  executionMode: record.executionMode,
+                )
               : record.snapshot?.recover();
         }
       } catch (_) {
@@ -90,7 +128,8 @@ class BenchmarkController extends ChangeNotifier {
   Future<bool> _save({bool intent = false}) {
     final record = BenchmarkRecord(
       protocol: protocol,
-      scenarioId: scenarioId,
+      scenarioId: executionMode == 'live' ? '' : scenarioId,
+      executionMode: executionMode,
       attemptId: _attemptId,
       starting: intent,
       snapshot: intent ? null : snapshot,
@@ -108,6 +147,41 @@ class BenchmarkController extends ChangeNotifier {
       }
     });
     return done.future;
+  }
+
+  String _defaultScenario(String value) =>
+      value == 'responses' ? 'responses_text_complete' : 'chat_text_complete';
+
+  Future<void> selectMode(String value) async {
+    if (busy ||
+        _closing ||
+        _disposed ||
+        !['offline_replay', 'live'].contains(value) ||
+        (value == 'live' && !_allowLive)) {
+      return;
+    }
+    executionMode = value;
+    lastError = null;
+    _emit();
+    await _save();
+  }
+
+  void updateLiveConfig(BenchmarkLiveConfig value) {
+    if (busy || _closing || _disposed || !_allowLive) return;
+    liveConfig = value;
+    _emit();
+  }
+
+  /// Restrict injected preview/offline owners before exposing the panel.
+  void restrictToOffline() {
+    if (!_allowLive) return;
+    _allowLive = false;
+    _apiKey = '';
+    if (executionMode == 'live' && busy) {
+      unawaited(interrupt());
+    }
+    executionMode = 'offline_replay';
+    _emit();
   }
 
   Future<void> selectProtocol(String value) async {
@@ -145,30 +219,74 @@ class BenchmarkController extends ChangeNotifier {
     _attemptId =
         'attempt-${DateTime.now().microsecondsSinceEpoch}-${++_attemptSequence}';
     _emit();
-    return _startOperation = _start();
+    return _startOperation = _start(
+      generation: _generation,
+      mode: executionMode,
+      selectedProtocol: protocol,
+      selectedScenario: scenarioId,
+      config: liveConfig,
+      key: _apiKey,
+    );
   }
 
-  Future<void> _start() async {
+  Future<void> _start({
+    required int generation,
+    required String mode,
+    required String selectedProtocol,
+    required String selectedScenario,
+    required BenchmarkLiveConfig config,
+    required String key,
+  }) async {
+    bool mayAdmit() =>
+        generation == _generation &&
+        !_closing &&
+        !_disposed &&
+        (mode != 'live' || _allowLive);
+    bool admitted = false;
     try {
       if (!await _save(intent: true)) return;
+      if (!mayAdmit()) return;
       if (_ownedId != null) {
         await service.clear(_ownedId!);
         _ownedId = null;
       }
+      if (!mayAdmit()) return;
+      String route = 'DIRECT';
+      if (mode == 'live' && config.route == 'system') {
+        route = await service.resolveLiveProxy(
+          config.endpointFor(selectedProtocol),
+        );
+        if (!mayAdmit()) return;
+      }
       snapshot = null;
-      final result = await service.start(
-        protocol,
-        scenarioId,
-        onOwned: (id) => _ownedId = id,
-      );
+      admitted = true;
+      final result = mode == 'live'
+          ? await service.startLive(
+              selectedProtocol,
+              config,
+              apiKey: key,
+              resolvedProxy: route,
+              onOwned: (id) => _ownedId = id,
+            )
+          : await service.start(
+              selectedProtocol,
+              selectedScenario,
+              onOwned: (id) => _ownedId = id,
+            );
       // Capture ownership before handling any delayed lifecycle action.
       _ownedId = result.runId;
       if (_ownedId == null) throw const FormatException('missing_run_id');
       snapshot = result;
       await _save();
     } catch (_) {
-      lastError = '离线测试未能开始；没有可展示的新结果。';
+      if (mayAdmit() || admitted) {
+        lastError = mode == 'live'
+            ? 'API 测试未能开始；没有可展示的新结果。'
+            : '离线测试未能开始；没有可展示的新结果。';
+      }
     } finally {
+      // An aborted preparation is no longer a pending start intent on disk.
+      if (!admitted && generation != _generation) await _save();
       starting = false;
       _emit();
       final action = _pendingAction;
@@ -285,6 +403,7 @@ class BenchmarkController extends ChangeNotifier {
   Future<void> shutdown() {
     if (_shutdownOperation != null) return _shutdownOperation!;
     _closing = true;
+    _apiKey = '';
     _generation++;
     _timer?.cancel();
     _emit();
@@ -327,6 +446,7 @@ class BenchmarkController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _apiKey = '';
     _timer?.cancel();
     super.dispose();
   }
