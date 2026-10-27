@@ -4,7 +4,9 @@
 
 独立分支 `feature/hot-switch-global-monitor`。本轮不替换旧程序，不重启当前 Codex，不发送测试模型请求。构建及机器证据位于 `environment/hot-global-20261026-a/`；旧阶段记录保留其当时结论。
 
-收口复核（2026-10-27 UTC）：当前仍为来源1、active，无待切换来源及错误；实时元数据观察12个线程、零丢弃，初始覆盖缺口保留。独立64批次只读日志扫描发现872个来源/467个逻辑线程，仍属部分覆盖。审查另发现“续期恢复后保留旧错误”的状态缺陷，正在独立rc30候选中收口，不替换现存helper。新证据目录`environment/hot-global-completion-20261027-a/`。
+收口复核（2026-10-27 UTC）：当前仍为来源1、active，无待切换来源及错误；实时元数据观察12个线程、零丢弃，初始覆盖缺口保留。独立64批次只读日志扫描发现872个来源/467个逻辑线程，仍属部分覆盖。审查发现的“续期恢复后保留旧错误”已在独立rc30候选修复，未替换现存helper。新证据目录`environment/hot-global-completion-20261027-a/`。
+
+rc30产品源码`77ab206`，版本`0.2.4-rc.30+34`，候选`environment/stage-hot-global-rc30/`：两条恢复路径RED→GREEN、helper相关7项、全原生318通过/0失败/2显式忽略，其中生产隔离链路另行显式1通过；Clippy exit0且保留非阻断提示，Flutter analyze无问题及Flutter/Rust发布通过，三项未改C++合同各exit0。打包41项/31运行文件，core与helper均绑定同次构建回执和哈希，不含账号凭据或缓存。候选未启动，当前仍使用rc28界面/rc29helper；自然续期实机证据仍未补齐。报告见`environment/hot-global-completion-20261027-a/VALIDATION-REPORT.md`。
 
 ## 功能与入口
 
