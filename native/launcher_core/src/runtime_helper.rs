@@ -237,6 +237,7 @@ pub(crate) struct RuntimeOwner {
     pending: Option<PendingSwitch>,
     queued_refresh: VecDeque<(RefreshRequestId, Option<String>, Instant)>,
     answered_refresh: VecDeque<RefreshRequestId>,
+    confirmed_auth_revision: u64,
     last_sequence: u64,
     live: crate::global_live::LiveStore,
     bootstrap: crate::runtime_bootstrap::Bootstrap,
@@ -271,6 +272,7 @@ impl RuntimeOwner {
             pending: None,
             queued_refresh: VecDeque::new(),
             answered_refresh: VecDeque::new(),
+            confirmed_auth_revision: 0,
             last_sequence: 0,
             live: crate::global_live::LiveStore::default(),
             bootstrap,
@@ -284,6 +286,10 @@ impl RuntimeOwner {
             .checked_add(1)
             .ok_or(HelperError::Unsupported)?;
         Ok(CorrelationId(self.next_id))
+    }
+
+    pub(crate) fn confirmed_auth_revision(&self) -> u64 {
+        self.confirmed_auth_revision
     }
 
     fn remaining(deadline: Instant) -> Result<Duration, HelperError> {
@@ -494,6 +500,7 @@ impl RuntimeOwner {
                         previous.close();
                     }
                     self.phase = Phase::Active;
+                    self.confirmed_auth_revision = self.confirmed_auth_revision.wrapping_add(1);
                     self.flush_refresh()?;
                 } else {
                     self.phase = Phase::Unresolved;
@@ -613,7 +620,9 @@ impl RuntimeOwner {
                 return Err(HelperError::Source(error));
             }
             match delivery {
-                Some(Delivery::Written) => {}
+                Some(Delivery::Written) => {
+                    self.confirmed_auth_revision = self.confirmed_auth_revision.wrapping_add(1);
+                }
                 Some(Delivery::NotWritten) => return Err(HelperError::DeliveryNotWritten),
                 _ => {
                     self.phase = Phase::Unresolved;

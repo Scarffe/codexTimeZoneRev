@@ -474,3 +474,4 @@ fn helper_host_process_stop_unowned_keeps_target_alive_and_drops_transport() {
 }
 
 mod runtime_client_cases;
+mod recovery_cases;

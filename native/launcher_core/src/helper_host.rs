@@ -226,8 +226,13 @@ pub(crate) fn run_with_factory(
     let mut last_error = None;
     loop {
         // Runtime refresh/account metadata always runs before a GUI operation.
-        if let Err(error) = owner.poll_once() {
-            last_error = Some(error.kind());
+        let auth_revision = owner.confirmed_auth_revision();
+        match owner.poll_once() {
+            // An idle tick is not recovery. Clear an old error only after a
+            // confirmed account transition or a delivered scoped refresh.
+            Ok(_) if owner.confirmed_auth_revision() != auth_revision => last_error = None,
+            Err(error) => last_error = Some(error.kind()),
+            Ok(_) => {}
         }
         if owner.status().phase == Phase::TargetExited {
             if let Some(preparation) = preparing.take() {
@@ -370,7 +375,14 @@ pub(crate) fn run_with_factory(
                                 })
                         });
                         if let Some((root, _)) = expected {
-                            match owner.begin_quota_for_source(&root, &source_id, details) {
+                            let auth_revision = owner.confirmed_auth_revision();
+                            let read = owner.begin_quota_for_source(&root, &source_id, details);
+                            // Admitting a quota read also drains queued auth
+                            // events, so recovery can occur outside poll_once.
+                            if read.is_ok() && owner.confirmed_auth_revision() != auth_revision {
+                                last_error = None;
+                            }
+                            match read {
                                 Ok(read) => match server.defer_quota_response() {
                                     Ok(()) => {
                                         quota = Some(PendingQuota {
