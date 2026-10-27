@@ -127,6 +127,107 @@ fn wait_status(config: &HostConfig, predicate: impl Fn(&Value) -> bool) -> Value
 }
 
 #[test]
+fn helper_host_disconnected_quota_client_cannot_poison_authentication_status() {
+    let (_root, service) = service("desktop_auth");
+    let source = create(&service);
+    let home = service.root.join(&source);
+    let (_, created, _) = process_info(std::process::id()).unwrap();
+    let config = HostConfig {
+        target: TargetIdentity {
+            pid: std::process::id(),
+            creation_file_time: created,
+        },
+        control_label: source.trim_start_matches("profile-").to_owned(),
+    };
+    let recovery = Arc::new(RecoveryControl::default());
+    let worker_config = config.clone();
+    let worker_control = recovery.clone();
+    let host = RunningHost {
+        control: recovery.clone(),
+        thread: Some(thread::spawn(move || {
+            helper_host::run_with_factory(worker_config, &RecoveryFactory(worker_control))
+        })),
+    };
+    wait_status(&config, |_| true);
+    let reply = control(
+        &config,
+        101,
+        ControlAction::Switch {
+            source_id: source.clone(),
+            profiles_root: service.root.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(reply["ok"], true);
+    let before = wait_status(&config, |v| v["phase"] == "active");
+    assert!(before["errorKind"].is_null());
+    let cli_pid = fs::read_to_string(home.join(".desktop-child-pid")).unwrap();
+    fs::write(home.join(".synthetic-quota-delay-ms"), "2200").unwrap();
+
+    let ended_client = helper_control::request(
+        &config,
+        ControlRequest {
+            version: 1,
+            request_id: 102,
+            action: ControlAction::Quota {
+                source_id: source.clone(),
+                profiles_root: service.root.clone(),
+                details: false,
+            },
+        },
+        Instant::now() + Duration::from_secs(1),
+    );
+    assert!(matches!(ended_client, Err(HostError::Timeout)));
+    assert!(
+        home.join(".desktop-quota-waiting").exists(),
+        "the source must have admitted the slow request before its client closes"
+    );
+
+    // request() dropped its pipe. The deferred server reply will now fail,
+    // but neither authentication nor the retained source has failed.
+    let after = wait_status(&config, |v| v["phase"] == "active");
+    assert_eq!(after["sourceId"], source);
+    assert_eq!(after["activeSourceRetained"], true);
+    assert_eq!(
+        after["errorKind"],
+        Value::Null,
+        "a disconnected GUI reply is not evidence of an authentication failure"
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".desktop-child-pid")).unwrap(),
+        cli_pid
+    );
+    assert_eq!(
+        service
+            .lease_for(&source, Purpose::Task)
+            .err()
+            .unwrap()
+            .kind,
+        "busy"
+    );
+
+    fs::write(home.join(".synthetic-quota-delay-ms"), "0").unwrap();
+    let quota = control(
+        &config,
+        103,
+        ControlAction::Quota {
+            source_id: source.clone(),
+            profiles_root: service.root.clone(),
+            details: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(quota["ok"], true);
+    assert_eq!(quota["data"]["sourceId"], source);
+    recovery.fail_transport.store(true, Ordering::SeqCst);
+    let failed = wait_status(&config, |v| v["phase"] == "unresolved");
+    assert_eq!(failed["errorKind"], "transport_unavailable");
+    assert_eq!(failed["activeSourceRetained"], true);
+    drop(host);
+    assert!(service.lease_for(&source, Purpose::Task).is_ok());
+}
+
+#[test]
 fn helper_host_clears_recovered_auth_error_without_hiding_unresolved_transport() {
     // A missing host recovery update must leave source_mismatch visible after
     // the later correctly scoped response; idle ticks alone cannot clear it.

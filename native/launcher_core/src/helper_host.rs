@@ -223,15 +223,15 @@ pub(crate) fn run_with_factory(
     let mut owner = RuntimeOwner::new(transport, config.target.creation_file_time);
     let mut preparing: Option<Preparation> = None;
     let mut quota: Option<PendingQuota> = None;
-    let mut last_error = None;
+    let mut last_auth_error = None;
     loop {
         // Runtime refresh/account metadata always runs before a GUI operation.
         let auth_revision = owner.confirmed_auth_revision();
         match owner.poll_once() {
             // An idle tick is not recovery. Clear an old error only after a
             // confirmed account transition or a delivered scoped refresh.
-            Ok(_) if owner.confirmed_auth_revision() != auth_revision => last_error = None,
-            Err(error) => last_error = Some(error.kind()),
+            Ok(_) if owner.confirmed_auth_revision() != auth_revision => last_auth_error = None,
+            Err(error) => last_auth_error = Some(error.kind()),
             Ok(_) => {}
         }
         if owner.status().phase == Phase::TargetExited {
@@ -258,18 +258,18 @@ pub(crate) fn run_with_factory(
                 Ok(provider) if !preparation.cancel.load(Ordering::SeqCst) => {
                     let unused = provider.clone();
                     match owner.begin_switch(provider) {
-                        Ok(_) => last_error = None,
+                        Ok(_) => last_auth_error = None,
                         Err(error) => {
                             unused.close();
-                            last_error = Some(error.kind());
+                            last_auth_error = Some(error.kind());
                         }
                     }
                 }
                 Ok(provider) => {
                     provider.close();
-                    last_error = Some("cancelled");
+                    last_auth_error = Some("cancelled");
                 }
-                Err(error) => last_error = Some(error.kind()),
+                Err(error) => last_auth_error = Some(error.kind()),
             }
         }
         if let Some(pending) = quota.as_mut() {
@@ -294,9 +294,9 @@ pub(crate) fn run_with_factory(
                 };
                 // Cancellation/join affects this quota read only.
                 drop(pending.read);
-                if let Err(error) = server.respond(&reply) {
-                    last_error = Some(error.kind());
-                }
+                // A closed GUI cannot receive its quota reply. The control
+                // server resets that connection; authentication is unaffected.
+                let _ = server.respond(&reply);
                 owner.gui_detached();
             }
             thread::sleep(Duration::from_millis(10));
@@ -321,14 +321,16 @@ pub(crate) fn run_with_factory(
                 failure(request_id, "invalid_request")
             } else {
                 match action {
-                    ControlAction::Status => {
-                        success(request_id, status(&owner, preparing.is_some(), last_error))
-                    }
+                    ControlAction::Status => success(
+                        request_id,
+                        status(&owner, preparing.is_some(), last_auth_error),
+                    ),
                     ControlAction::Live => success(request_id, owner.live_snapshot()),
                     ControlAction::Reconcile => match owner.reconcile() {
-                        Ok(()) => {
-                            success(request_id, status(&owner, preparing.is_some(), last_error))
-                        }
+                        Ok(()) => success(
+                            request_id,
+                            status(&owner, preparing.is_some(), last_auth_error),
+                        ),
                         Err(error) => failure(request_id, error.kind()),
                     },
                     ControlAction::StopUnowned => {
@@ -358,7 +360,7 @@ pub(crate) fn run_with_factory(
                             failure(request_id, "source_invalid")
                         } else {
                             preparing = Some(Preparation::start(profiles_root, source_id));
-                            last_error = None;
+                            last_auth_error = None;
                             success(request_id, json!({"state":"preparing"}))
                         }
                     }
@@ -380,7 +382,7 @@ pub(crate) fn run_with_factory(
                             // Admitting a quota read also drains queued auth
                             // events, so recovery can occur outside poll_once.
                             if read.is_ok() && owner.confirmed_auth_revision() != auth_revision {
-                                last_error = None;
+                                last_auth_error = None;
                             }
                             match read {
                                 Ok(read) => match server.defer_quota_response() {
@@ -409,7 +411,9 @@ pub(crate) fn run_with_factory(
                             success(request_id, json!({"state":"cancelling_preparation"}))
                         } else {
                             match owner.cancel_switch() {
-                                Ok(()) => success(request_id, status(&owner, false, last_error)),
+                                Ok(()) => {
+                                    success(request_id, status(&owner, false, last_auth_error))
+                                }
                                 Err(error) => failure(request_id, error.kind()),
                             }
                         }
@@ -422,11 +426,13 @@ pub(crate) fn run_with_factory(
                         // Returning drops the transport normally. No target
                         // process is terminated or placed into a helper Job.
                         Ok(()) => return Ok(()),
-                        Err(error) => last_error = Some(error.kind()),
+                        Err(_) => {} // Keep the unowned host alive for a later client.
                     }
                 }
                 Ok(()) => {}
-                Err(error) => last_error = Some(error.kind()),
+                // Control delivery errors belong to that client, not the
+                // authentication owner. Real transport errors are kept above.
+                Err(_) => {}
             }
             // Each pipe transaction may be the GUI's last one. This changes no
             // provider/transport ownership and never terminates the host loop.
