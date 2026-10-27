@@ -1,6 +1,12 @@
-# rc31 独立候选 · 运行账号与全局监控
+# rc32 独立候选 · 运行账号与全局监控
 
-最新交付：rc31源码`f7cb310`、版本`0.2.4-rc.31+35`，目录`environment/stage-hot-global-rc31/`。全部历史现已按本地自然日分组，修正前一轮接受UTC偏差的收口错误；30项相关检查（含已发布DLL合成日志）、1060项Flutter完整回归、analyze与Windows发布通过。原生/Cpp源树未变，按冻结源树/哈希复用rc30组件。42项便携包无账号或缓存，候选未启动，当前进程未替换。报告`environment/global-civil-20261027-a/VALIDATION-REPORT.md`。
+最新交付：rc32源码`a36876f`、版本`0.2.4-rc.32+36`，目录`environment/stage-hot-global-rc32/`。修复界面控制连接断开被误记成认证错误：8项host回归、319项完整原生回归（0失败、2项明确忽略，其中生产隔离链路另行显式1通过）、Clippy exit0、Flutter analyze和Windows发布通过。Dart逻辑与rc31相同，复用其1060项完整回归；Cpp源树/哈希不变。core/helper来自本次同一冻结构建，42项便携包无凭据或缓存，ZIP SHA256为`64660528ccaac6c03fda892478e2f2c2846dce3ec011333c3572ec4b5e1a9d7f`。候选未启动，运行中helper未替换。报告`environment/control-status-20261027-a/VALIDATION-REPORT.md`。
+
+收尾保护已通过：2245个旧不可变文件、rc28–32各31个运行文件、rc30/31 ZIP均保持；原Codex/app-server、rc28界面和rc29helper的PID与创建时间保持，本轮临时测试进程为0。本轮没有登录、切换、额度查询或模型测试请求。
+
+当前验收分开记录：首次零重启接入和真实双账号`1→b→1`人工实机通过；全局监控实现、回归和交付通过。仍未完成自然external刷新及后续连续性、真实模型账号/计费归属。只读收尾仍见来源1 active、12线程/零丢帧、旧helper提示`unavailable`，严格健康判断未通过；rc32隔离修复不能证明该历史提示同因或已在线清除。相同外部证据门槛已跨rc30/31/32三次目标续接保留；本次交付后无可独立推进的重要实现缺口，目标按受阻收口，等待真实外部回调或用户实机证据，不重复健康查询或切换制造进展。
+
+上一版交付：rc31源码`f7cb310`、版本`0.2.4-rc.31+35`，目录`environment/stage-hot-global-rc31/`。全部历史现已按本地自然日分组，修正前一轮接受UTC偏差的收口错误；30项相关检查（含已发布DLL合成日志）、1060项Flutter完整回归、analyze与Windows发布通过。原生/Cpp源树未变，按冻结源树/哈希复用rc30组件。42项便携包无账号或缓存，候选未启动，当前进程未替换。报告`environment/global-civil-20261027-a/VALIDATION-REPORT.md`。
 
 最新实机观察：原helper仍为来源1 active、认证通道零丢帧/拒绝，无自然刷新回调，但再次保留`unavailable`提示，严格运行健康检查不能记通过。经现有helper一次指定来源额度查询成功（1.721秒、来源保持），提示未清除；不据此认定提示根因或证明续期。本轮没有登录、切换、重启或模型请求，四个原进程及2245旧文件保持。
 
