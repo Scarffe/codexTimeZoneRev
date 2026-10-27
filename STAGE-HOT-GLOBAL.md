@@ -1,6 +1,6 @@
 # rc29 修复候选 · 运行账号与全局监控
 
-最新实机结果：用户明确批准后，rc29 已受控替换旧认证 helper，并在原 Desktop/app-server 不重启的条件下复用 rc28 来源重新绑定为 `active`；两次真实额度查询成功，后续状态复核保持 active、认证通道零丢弃。rc28 界面及旧文件保留。详见 `environment/hot-global-real-20261026-b/LIVE-REPAIR-RESULT.md`。不同真实账号往返、自然续期回调和模型计费归属仍未验证。
+最新实机结果：真实双账号`1→b→1`已由用户手工完成并确认通过；只读收尾确认当前回到来源`1`且active，两来源身份不同、额度均可读取，原Codex/app-server/helper未重启，通道零丢弃。自动往返驱动因审批阻断未执行，不冒充自动化通过。报告见`environment/hot-global-roundtrip-rc29-a/MANUAL-ROUNDTRIP-RESULT.md`。自然续期回调、真实模型请求及计费归属仍未验证。
 
 独立分支 `feature/hot-switch-global-monitor`。本轮不替换旧程序，不重启当前 Codex，不发送测试模型请求。构建及机器证据位于 `environment/hot-global-20261026-a/`；旧阶段记录保留其当时结论。
 
@@ -44,4 +44,4 @@
 
 发布时新候选界面未启动，未复制rc28凭据，旧helper仍为待核对状态。最初的受控替换被自动审批要求明确授权，未绕过；用户随后明确批准 `REPAIR-APPROVAL.md` 范围，本次已完成对应实机恢复。旧helper37476及其来源查询进程25480退出，新helper17392来自rc29；原Codex16416/app-server25244创建身份及rc28界面29656均保持。恢复耗时约21.77秒，不称续期零中断。两次额度读取成功（1.755/1.673秒），20秒三次后续状态active，认证通道646行零丢弃。2245旧不可变文件核对通过。
 
-最新验证报告：`environment/hot-global-real-20261026-b/VALIDATION-REPORT.md`；不同真实账号往返、自然续期回调、模型计费归属仍未运行。
+构建及修复报告保留于`environment/hot-global-real-20261026-b/VALIDATION-REPORT.md`；不同真实账号往返现已人工验收通过，最新收尾见`environment/hot-global-roundtrip-rc29-a/MANUAL-ROUNDTRIP-RESULT.md`。自然续期回调、模型计费归属仍未运行。
