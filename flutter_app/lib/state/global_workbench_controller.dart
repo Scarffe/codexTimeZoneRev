@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../services/global_workbench.dart';
 import '../services/global_workbench_service.dart';
 import '../services/global_workbench_store.dart';
+import '../services/global_calendar.dart';
+import '../services/session_rhythm_projection.dart' show RhythmCalendar;
 
 /// One application owner for discovery and coherent, revision-bound views.
 class GlobalWorkbenchController extends ChangeNotifier {
@@ -14,8 +16,10 @@ class GlobalWorkbenchController extends ChangeNotifier {
     this.roots,
     this.pollInterval = const Duration(seconds: 30),
     DateTime Function()? now,
+    RhythmCalendar? calendar,
   }) : store = store ?? GlobalWorkbenchStore.memory(),
-       _now = now ?? DateTime.now {
+       _now = now ?? DateTime.now,
+       _calendar = calendar ?? RhythmCalendar.system() {
     _query = _rangeQuery();
   }
   final GlobalWorkbenchService service;
@@ -23,6 +27,8 @@ class GlobalWorkbenchController extends ChangeNotifier {
   final List<String>? roots;
   final Duration pollInterval;
   final DateTime Function() _now;
+  final RhythmCalendar _calendar;
+  int _allBucketDays = 1;
   late GlobalQuery _query;
   GlobalRange _range = GlobalRange.days7;
   GlobalSnapshot? _snapshot;
@@ -115,7 +121,7 @@ class GlobalWorkbenchController extends ChangeNotifier {
     String search = '',
     String sort = 'recent',
   }) {
-    final now = _now(), local = now.toLocal();
+    final now = _now(), local = _calendar.toLocal(now.toUtc());
     final dayCount = switch (_range) {
       GlobalRange.today => 1,
       GlobalRange.days7 => 7,
@@ -126,11 +132,9 @@ class GlobalWorkbenchController extends ChangeNotifier {
     if (dayCount > 0) {
       for (var i = dayCount - 1; i >= -1; i--) {
         edges.add(
-          DateTime(
-            local.year,
-            local.month,
-            local.day - i,
-          ).millisecondsSinceEpoch,
+          _calendar
+              .localDate(local.year, local.month, local.day - i)
+              .millisecondsSinceEpoch,
         );
       }
     }
@@ -176,7 +180,6 @@ class GlobalWorkbenchController extends ChangeNotifier {
         if (_closed || generation != _generation) return;
         if (scanned.phase != 'scanning' && scanned.coverage.pending == 0) break;
       }
-      if (!_closed && generation == _generation) _error = null;
     } catch (error) {
       if (!_closed && generation == _generation) _error = error.toString();
     } finally {
@@ -187,24 +190,63 @@ class GlobalWorkbenchController extends ChangeNotifier {
 
   Future<void> _loadQuery({bool page = false}) async {
     if (_closed) return;
-    final serial = ++_querySerial, requested = _query;
+    final serial = ++_querySerial;
+    var requested = _query;
+    final all = _range == GlobalRange.all;
+    var bucketDays = _allBucketDays;
+    int? expectedRevision = page || (all && requested.dayEdgesMs.isNotEmpty)
+        ? _snapshot?.revision
+        : null;
     _queryCount++;
     _notify();
     try {
-      var value = await _track(
-        service.query(
-          requested,
-          expectedRevision: page ? _snapshot?.revision : null,
-        ),
-      );
-      if (_closed || serial != _querySerial) return;
-      if (value.changed) {
-        _query = requested.copyWith(offset: 0);
-        value = await _track(service.query(_query));
+      // A changing index can invalidate either stage. Retry only a finite
+      // number of times; never publish a changed empty page or the UTC probe.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        var value = await _track(
+          service.query(requested, expectedRevision: expectedRevision),
+        );
         if (_closed || serial != _querySerial) return;
+        if (value.changed) {
+          requested = requested.copyWith(
+            offset: 0,
+            dayEdgesMs: all ? [] : null,
+          );
+          _query = requested;
+          expectedRevision = null;
+          continue;
+        }
+        if (all) {
+          if (requested.dayEdgesMs.isEmpty) {
+            final from = value.daily.firstOrNull?.fromMs;
+            final to = value.daily.lastOrNull?.toMs;
+            bucketDays = 1;
+            if (from != null && to != null && from < to) {
+              final civil = globalCivilBuckets(from, to, calendar: _calendar);
+              bucketDays = civil.daysPerBucket;
+              requested = requested.copyWith(dayEdgesMs: civil.edges);
+              final revision = value.revision;
+              value = await _track(
+                service.query(requested, expectedRevision: revision),
+              );
+              if (_closed || serial != _querySerial) return;
+              if (value.changed) {
+                requested = requested.copyWith(offset: 0, dayEdgesMs: []);
+                _query = requested;
+                expectedRevision = null;
+                continue;
+              }
+            }
+          }
+          value = value.withCivilBuckets(bucketDays);
+        }
+        _query = requested;
+        _snapshot = value;
+        if (all) _allBucketDays = bucketDays;
+        _error = null;
+        return;
       }
-      _snapshot = value;
-      _error = null;
+      throw StateError('global_index_changed_during_query');
     } catch (error) {
       if (!_closed && serial == _querySerial) _error = error.toString();
     } finally {

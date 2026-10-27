@@ -115,16 +115,14 @@ void main() {
   test(
     'revision invalidation restarts pagination instead of mixing pages',
     () async {
-      final backend = GlobalFixtureBackend();
+      final backend = _RevisionOnceBackend();
       backend.snapshot = globalSnapshotFixture(hasMore: true);
       final controller = GlobalWorkbenchController(
         service: GlobalWorkbenchService(backend),
       );
       await controller.initialize();
-      backend.snapshot = {
-        ...globalSnapshotFixture(revision: 2),
-        'changed': true,
-      };
+      backend.snapshot = globalSnapshotFixture(revision: 2);
+      backend.changedOnce = true;
       await controller.nextPage();
       expect(controller.query.offset, 0);
       expect(controller.snapshot!.revision, 2);
@@ -214,6 +212,22 @@ void main() {
     expect(backend.actions, isNot(contains('scan')));
     controller.dispose();
   });
+}
+
+class _RevisionOnceBackend extends GlobalFixtureBackend {
+  bool changedOnce = false;
+  @override
+  Future<Map<String, dynamic>> call(
+    String command, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
+    final result = await super.call(command, payload);
+    if (payload['action'] == 'query' && changedOnce) {
+      changedOnce = false;
+      return {...result, 'changed': true, 'daily': [], 'sessions': []};
+    }
+    return result;
+  }
 }
 
 class _CancelFailureBackend implements LauncherBackend {

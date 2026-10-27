@@ -268,6 +268,33 @@ class GlobalSnapshot {
       quality == 'partial' ||
       conflicts > 0 ||
       warnings.isNotEmpty;
+
+  /// The native explicit-edge path reports measurements unchanged; the client
+  /// owns the calendar step used to label those edge-defined groups.
+  GlobalSnapshot withCivilBuckets(int bucketDays) => GlobalSnapshot(
+    revision: revision,
+    indexEpoch: indexEpoch,
+    phase: phase,
+    observedAtMs: observedAtMs,
+    restored: restored,
+    coverage: coverage,
+    totals: totals,
+    filteredCount: filteredCount,
+    offset: offset,
+    hasMore: hasMore,
+    changed: changed,
+    dailyBasis: 'local',
+    dailyBucketDays: bucketDays,
+    quality: quality,
+    conflicts: conflicts,
+    roots: roots,
+    daily: daily,
+    projects: projects,
+    models: models,
+    sessions: sessions,
+    warnings: warnings,
+    reasons: reasons,
+  );
   factory GlobalSnapshot.fromJson(Map<String, dynamic> json) {
     final phase = _text(json['phase']);
     if (!{'empty', 'scanning', 'ready', 'partial'}.contains(phase)) {
@@ -335,6 +362,7 @@ class GlobalQuery {
     'expectedRevision': ?expectedRevision,
   };
   GlobalQuery copyWith({
+    List<int>? dayEdgesMs,
     String? project,
     String? model,
     String? status,
@@ -347,7 +375,7 @@ class GlobalQuery {
   }) => GlobalQuery(
     fromMs: fromMs,
     toMs: toMs,
-    dayEdgesMs: dayEdgesMs,
+    dayEdgesMs: dayEdgesMs ?? this.dayEdgesMs,
     project: clearProject ? null : project ?? this.project,
     model: clearModel ? null : model ?? this.model,
     status: clearStatus ? null : status ?? this.status,
