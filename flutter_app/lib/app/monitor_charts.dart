@@ -145,14 +145,28 @@ class MonitorChartFrame extends StatelessWidget {
     required this.title,
     required this.icon,
     this.controls = const [],
+    this.responsiveControls = false,
     required this.child,
     this.footnotes = const [],
   });
   final String title;
   final IconData icon;
   final List<Widget> controls;
+  final bool responsiveControls;
   final Widget child;
   final List<String> footnotes;
+
+  double _controlWidth(BuildContext context, double available) {
+    if (!responsiveControls) {
+      return math.min(AppCopy.of(context).isEnglish ? 180 : 142, available);
+    }
+    final minimum = AppCopy.of(context).isEnglish ? 150.0 : 132.0;
+    final columns = ((available + 8) / (minimum + 8)).floor().clamp(
+      1,
+      controls.length,
+    );
+    return (available - 8 * (columns - 1)) / columns;
+  }
 
   @override
   Widget build(BuildContext context) => FCard(
@@ -184,10 +198,7 @@ class MonitorChartFrame extends StatelessWidget {
                 children: [
                   for (final control in controls)
                     SizedBox(
-                      width: math.min(
-                        AppCopy.of(context).isEnglish ? 180 : 142,
-                        constraints.maxWidth,
-                      ),
+                      width: _controlWidth(context, constraints.maxWidth),
                       child: control,
                     ),
                 ],

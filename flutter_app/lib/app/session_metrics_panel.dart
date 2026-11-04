@@ -47,7 +47,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
       final id = (s['id'] ?? '').toString();
       final tag = id.length > 8 ? id.substring(id.length - 8) : id;
       final base =
-          '${_short(AppCopy.of(context).sessionTitle(s))} · ${_project(s['cwd'])} · $tag';
+          '${_short(AppCopy.of(context).sessionTitle(s, includeProject: false))} · ${_project(s['cwd'])} · $tag';
       var label = base;
       var suffix = 2;
       while (result.containsKey(label)) {
@@ -305,15 +305,39 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
         children: [
           FCard(
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    AppCopy.of(context).text('analysis.sessionTurnStatistics'),
-                    style: context.theme.typography.display.lg,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          AppCopy.of(context)
+                              .text('analysis.sessionTurnStatistics'),
+                          style: context.theme.typography.display.lg,
+                        ),
+                      ),
+                      MonitorIconAction(
+                        key: const ValueKey('session-information'),
+                        label: AppCopy.of(context)
+                            .text('analysis.sessionInformationAndDiagnostics'),
+                        icon: FLucideIcons.info,
+                        onPress: _information,
+                      ),
+                      MonitorIconAction(
+                        key: const ValueKey('session-refresh'),
+                        label: controller.listing
+                            ? AppCopy.of(context)
+                                  .text('analysis.listingSessions')
+                            : AppCopy.of(context)
+                                  .text('analysis.refreshLocalSessionList'),
+                        icon: FLucideIcons.refreshCw,
+                        onPress: controller.listing ? null : controller.list,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   LayoutBuilder(
                     builder: (context, constraints) => Wrap(
                       spacing: 10,
@@ -322,8 +346,8 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                       children: [
                         if (controller.sessions.isNotEmpty)
                           SizedBox(
-                            width: constraints.maxWidth > 650
-                                ? 420
+                            width: constraints.maxWidth >= 680
+                                ? constraints.maxWidth - 210
                                 : constraints.maxWidth,
                             child: Semantics(
                               label: AppCopy.of(context)
@@ -352,24 +376,6 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                               ),
                             ),
                           ),
-                        MonitorIconAction(
-                          key: const ValueKey('session-information'),
-                          label: AppCopy.of(
-                            context,
-                          ).text('analysis.sessionInformationAndDiagnostics'),
-                          icon: FLucideIcons.info,
-                          onPress: _information,
-                        ),
-                        MonitorIconAction(
-                          key: const ValueKey('session-refresh'),
-                          label: controller.listing
-                              ? AppCopy.of(context)
-                                    .text('analysis.listingSessions')
-                              : AppCopy.of(context)
-                                    .text('analysis.refreshLocalSessionList'),
-                          icon: FLucideIcons.refreshCw,
-                          onPress: controller.listing ? null : controller.list,
-                        ),
                         if (controller.selected != null)
                           FButton(
                             mainAxisSize: MainAxisSize.min,
@@ -391,7 +397,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                         context,
                       ).text('analysis.theCollectedSessionIsOutsideTheRecent'),
                     ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   DefaultTextStyle.merge(
                     style: context.theme.typography.body.sm.copyWith(
                       color: DashboardPalette.of(context).muted,
@@ -480,7 +486,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
                       ).text('analysis.selectASessionTheCurrentConversationIs'),
                     )
                   else ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
@@ -562,7 +568,7 @@ class _SessionMetricsPanelState extends State<SessionMetricsPanel> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           SessionChartPanels(
             sessionIdentity: controller.selected,
             data: charts,

@@ -1,3 +1,4 @@
+import '../services/session_identity.dart';
 import '../services/session_activity_timeline.dart';
 import '../services/session_measurement_quality.dart';
 import 'app_copy.dart';
@@ -841,13 +842,17 @@ extension SessionAnalysisCopy on AppCopy {
       ? text('analysis.quality.source')
       : quality.sourceLabel;
 
-  String sessionTitle(Map<String, dynamic> source) {
-    final title = source['title'];
-    if (title is String && title.trim().isNotEmpty) return title.trim();
-    final id =
-        source['id'] ??
-        (source['path'] as String? ?? '').split(RegExp(r'[\\/]')).last;
-    return text('analysis.session2', args: {'p0': id});
+  String sessionTitle(
+    Map<String, dynamic> source, {
+    bool includeProject = true,
+  }) {
+    return readableSessionName(
+      title: source['title'] is String ? source['title'] as String : null,
+      project: includeProject && source['cwd'] is String
+          ? source['cwd'] as String
+          : null,
+      english: isEnglish,
+    );
   }
 
   String sessionActivityLabel(Map<String, dynamic> source) {

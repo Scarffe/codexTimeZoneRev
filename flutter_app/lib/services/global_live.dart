@@ -4,13 +4,14 @@ class GlobalLiveItem {
   const GlobalLiveItem({
     required this.threadId,
     this.turnId,
+    this.title,
     required this.state,
     required this.attention,
     required this.observedAtMs,
     required this.sequence,
   });
   final String threadId, state, attention;
-  final String? turnId;
+  final String? turnId, title;
   final int observedAtMs, sequence;
 }
 
@@ -62,6 +63,9 @@ class GlobalLiveSnapshot {
       items.add(
         GlobalLiveItem(
           threadId: raw['threadId'] as String,
+          title: raw['title'] is String
+              ? (raw['title'] as String).trim()
+              : null,
           turnId: raw['turnId'] as String?,
           state: raw['state'] as String,
           attention: raw['attention'] as String,

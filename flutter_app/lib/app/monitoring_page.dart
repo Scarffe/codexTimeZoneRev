@@ -245,7 +245,7 @@ class _MonitoringPageState extends State<MonitoringPage> {
             FCard(
               key: const ValueKey('analysis-quota-card'),
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -273,7 +273,7 @@ class _MonitoringPageState extends State<MonitoringPage> {
                       ),
                       style: secondary,
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     if (owner != null && owner.selected != null) ...[
                       MonitorChoice(
                         key: const ValueKey('analysis-account-source'),
@@ -294,34 +294,54 @@ class _MonitoringPageState extends State<MonitoringPage> {
                         AppCopy.of(context)
                             .text('analysis.addAnAccountOnTheAccountQuota'),
                       ),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        if (bucket != null)
-                          MonitorChoice(
-                            key: const ValueKey('analysis-quota-bucket'),
-                            label: AppCopy.of(context)
-                                .text('analysis.quotaType'),
-                            value: bucket.id,
-                            items: {for (final b in buckets) b.label: b.id},
-                            onChanged: (value) =>
-                                setState(() => _bucket = value),
-                          ),
-                        MonitorChoice(
-                          key: const ValueKey('analysis-quota-view'),
-                          label: AppCopy.of(context).text('analysis.quotaView'),
-                          value: _view,
-                          items: {
-                            AppCopy.of(context).text('analysis.remaining'):
-                                'remaining',
-                            AppCopy.of(context).text('analysis.used'): 'used',
-                            AppCopy.of(context).text('analysis.untilReset'):
-                                'reset',
-                          },
-                          onChanged: (value) => setState(() => _view = value),
-                        ),
-                      ],
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final fieldWidth = constraints.maxWidth >= 480
+                            ? (constraints.maxWidth - 12) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            if (bucket != null)
+                              SizedBox(
+                                width: fieldWidth,
+                                child: MonitorChoice(
+                                  key: const ValueKey('analysis-quota-bucket'),
+                                  label: AppCopy.of(context)
+                                      .text('analysis.quotaType'),
+                                  value: bucket.id,
+                                  items: {
+                                    for (final b in buckets) b.label: b.id,
+                                  },
+                                  onChanged: (value) =>
+                                      setState(() => _bucket = value),
+                                ),
+                              ),
+                            SizedBox(
+                              width: fieldWidth,
+                              child: MonitorChoice(
+                                key: const ValueKey('analysis-quota-view'),
+                                label: AppCopy.of(context)
+                                    .text('analysis.quotaView'),
+                                value: _view,
+                                items: {
+                                  AppCopy.of(context)
+                                          .text('analysis.remaining'):
+                                      'remaining',
+                                  AppCopy.of(context).text('analysis.used'):
+                                      'used',
+                                  AppCopy.of(context)
+                                          .text('analysis.untilReset'):
+                                      'reset',
+                                },
+                                onChanged: (value) =>
+                                    setState(() => _view = value),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 16),
                     if (usage.error != null)

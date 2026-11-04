@@ -158,7 +158,7 @@ fn metadata_file(mut file: File, path: &Path) -> Option<Value> {
     }
     let p = &value["payload"];
     Some(
-        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"title":p["title"],"modifiedMs":modified,"path":path}),
+        json!({"id":p["id"],"cwd":p["cwd"],"timestamp":p["timestamp"],"source":p["source"],"title":crate::session_names::title(&p["title"]),"modifiedMs":modified,"path":path}),
     )
 }
 impl Reader {
@@ -186,6 +186,14 @@ impl Reader {
             file.try_clone().map_err(|_| "会话属性读取失败")?,
             &self.path,
         );
+        if let Some(source) = self.source_info.as_mut() {
+            let names = crate::session_names::home_for_rollout(&self.path)
+                .map(crate::session_names::read)
+                .unwrap_or_default();
+            if let Some(title) = source["id"].as_str().and_then(|id| names.get(id)) {
+                source["title"] = json!(title);
+            }
+        }
         let session = self
             .source_info
             .as_ref()
@@ -436,6 +444,7 @@ impl Reader {
     }
 }
 fn recent(base: &Path) -> Vec<Value> {
+    let names = crate::session_names::read(crate::session_names::home_for_root(base));
     let mut files = Vec::new();
     walk(base, 0, &mut files);
     files.sort_by_key(|p| {
@@ -450,6 +459,12 @@ fn recent(base: &Path) -> Vec<Value> {
         .filter_map(|p| p.canonicalize().ok())
         .filter(|p| p.starts_with(base))
         .filter_map(|p| metadata(&p))
+        .map(|mut source| {
+            if let Some(title) = source["id"].as_str().and_then(|id| names.get(id)) {
+                source["title"] = json!(title);
+            }
+            source
+        })
         .take(100)
         .collect();
     sessions
@@ -480,6 +495,43 @@ pub fn execute(payload: Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    #[test]
+    fn session_titles_list_and_poll_follow_index_renames_without_resetting_metrics() {
+        let home = tempfile::tempdir().unwrap();
+        let sessions = home.path().join("sessions");
+        fs::create_dir_all(&sessions).unwrap();
+        let sessions = sessions.canonicalize().unwrap();
+        let path = sessions.join("rollout-thread.jsonl");
+        fs::write(&path, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\",\"source\":\"vscode\",\"title\":\"Fallback name\"}}\n").unwrap();
+        let mut index = File::create(home.path().join("session_index.jsonl")).unwrap();
+        writeln!(
+            index,
+            "{}",
+            json!({"id":"thread","thread_name":"First name"})
+        )
+        .unwrap();
+        index.flush().unwrap();
+        let mut reader = Reader::default();
+        let before = reader.poll(path.clone()).unwrap();
+        assert_eq!(before["sourceInfo"]["title"], "First name");
+        assert_eq!(recent(&sessions)[0]["title"], "First name");
+        writeln!(
+            index,
+            "{}",
+            json!({"id":"thread","thread_name":"Renamed name"})
+        )
+        .unwrap();
+        index.flush().unwrap();
+        let after = reader.poll(path).unwrap();
+        assert_eq!(after["sourceInfo"]["title"], "Renamed name");
+        assert_eq!(after["sourceInfo"]["id"], "thread");
+        assert_eq!(after["logEpoch"], before["logEpoch"]);
+        assert_eq!(after["completedTurns"], before["completedTurns"]);
+        assert_eq!(recent(&sessions)[0]["title"], "Renamed name");
+        drop(index);
+        fs::remove_file(home.path().join("session_index.jsonl")).unwrap();
+        assert_eq!(recent(&sessions)[0]["title"], "Fallback name");
+    }
     #[test]
     fn pool_keeps_nine_interleaved_readers_and_reuses_same_path() {
         let mut files: Vec<_> = (0..9)

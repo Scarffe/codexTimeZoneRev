@@ -245,8 +245,20 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,
-          width <= 620 ? 45 : 56,
+          width >= 1100 ? 192 : (width <= 620 ? 45 : 56),
         );
+        expect(find.text('CODEX TIMEZONE'), findsNothing);
+        expect(
+          tester.getSize(find.byKey(const ValueKey('workspace-header'))).height,
+          lessThanOrEqualTo(64),
+        );
+        for (final destination in WorkspaceDestination.values) {
+          final label = find.descendant(
+            of: find.byKey(ValueKey('workspace-${destination.name}')),
+            matching: find.byType(Text),
+          );
+          expect(label, width >= 1100 ? findsOneWidget : findsNothing);
+        }
         final rail = tester.getRect(
           find.byKey(const ValueKey('workspace-rail')),
         );

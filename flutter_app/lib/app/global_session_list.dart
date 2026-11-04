@@ -3,6 +3,7 @@ import 'package:forui/forui.dart';
 
 import '../l10n/app_copy.dart';
 import '../services/global_workbench.dart';
+import '../services/session_identity.dart';
 import 'dashboard_style.dart';
 import 'global_workbench_charts.dart';
 import 'monitor_information.dart';
@@ -86,115 +87,151 @@ class GlobalSessionList extends StatelessWidget {
                   ),
                 ),
               ),
-            for (final row in rows)
-              Container(
-                key: ValueKey('global-row-${row.key}'),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: palette.border)),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            ConstrainedBox(
+              key: const ValueKey('global-session-rows-viewport'),
+              constraints: const BoxConstraints(maxHeight: 440),
+              child: _SessionRowsViewport(
+                // Reset for a different page/order, but keep the reader's place
+                // when titles or counters refresh for the same result set.
+                key: ValueKey((
+                  sort,
+                  snapshot?.offset,
+                  Object.hashAll(rows.map((row) => row.key)),
+                )),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Container(
-                      width: 4,
-                      height: 30,
-                      margin: const EdgeInsets.only(top: 3, right: 12),
-                      decoration: BoxDecoration(
-                        color: row.lifecycleState == 'failed'
-                            ? palette.danger
-                            : row.lifecycleState == 'running' &&
-                                  row.freshness == 'fresh'
-                            ? palette.dataBlue
-                            : palette.muted.withValues(alpha: .35),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            row.shortId.isEmpty
-                                ? copy.text('global.unassigned')
-                                : row.shortId,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.theme.typography.body.sm.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                    for (final row in rows)
+                      Container(
+                        key: ValueKey('global-row-${row.key}'),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: palette.border),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            globalBucketName(copy, row.project),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.theme.typography.body.xs.copyWith(
-                              color: palette.muted,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 30,
+                              margin: const EdgeInsets.only(top: 3, right: 12),
+                              decoration: BoxDecoration(
+                                color: row.lifecycleState == 'failed'
+                                    ? palette.danger
+                                    : row.lifecycleState == 'running' &&
+                                          row.freshness == 'fresh'
+                                    ? palette.dataBlue
+                                    : palette.muted.withValues(alpha: .35),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 5),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 4,
-                            children: [
-                              Text(
-                                globalBucketName(copy, row.model),
-                                style: context.theme.typography.body.xs,
-                              ),
-                              Text(
-                                copy.text('global.state.${row.lifecycleState}'),
-                                style: context.theme.typography.body.xs,
-                              ),
-                              Text(
-                                copy.text('global.freshness.${row.freshness}'),
-                                style: context.theme.typography.body.xs
-                                    .copyWith(color: palette.muted),
-                              ),
-                              Text(
-                                '${globalNumber(copy, row.tokens.totalTokens)} token',
-                                style: context.theme.typography.body.xs,
-                              ),
-                              Text(
-                                copy.dateTime(
-                                  row.lastEventMs == null
-                                      ? null
-                                      : DateTime.fromMillisecondsSinceEpoch(
-                                          row.lastEventMs!,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  FTooltip(
+                                    tipBuilder: (context, _) => Text(
+                                      readableSessionName(
+                                        title: row.title,
+                                        project: row.project,
+                                        english: copy.isEnglish,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      readableSessionName(
+                                        title: row.title,
+                                        project: row.project,
+                                        english: copy.isEnglish,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: context.theme.typography.body.sm
+                                          .copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${globalBucketName(copy, sessionProjectName(row.project))} · ${sessionIdentitySuffix(row.threadId)}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: context.theme.typography.body.xs
+                                        .copyWith(color: palette.muted),
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 4,
+                                    children: [
+                                      Text(
+                                        globalBucketName(copy, row.model),
+                                        style: context.theme.typography.body.xs,
+                                      ),
+                                      Text(
+                                        copy.text(
+                                          'global.state.${row.lifecycleState}',
                                         ),
-                                  compact: true,
-                                ),
-                                style: context.theme.typography.body.xs
-                                    .copyWith(color: palette.muted),
+                                        style: context.theme.typography.body.xs,
+                                      ),
+                                      Text(
+                                        copy.text(
+                                          'global.freshness.${row.freshness}',
+                                        ),
+                                        style: context.theme.typography.body.xs
+                                            .copyWith(color: palette.muted),
+                                      ),
+                                      Text(
+                                        '${globalNumber(copy, row.tokens.totalTokens)} token',
+                                        style: context.theme.typography.body.xs,
+                                      ),
+                                      Text(
+                                        copy.dateTime(
+                                          row.lastEventMs == null
+                                              ? null
+                                              : DateTime.fromMillisecondsSinceEpoch(
+                                                  row.lastEventMs!,
+                                                ),
+                                          compact: true,
+                                        ),
+                                        style: context.theme.typography.body.xs
+                                            .copyWith(color: palette.muted),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FButton(
-                      key: ValueKey('global-open-${row.threadId}'),
-                      variant: FButtonVariant.outline,
-                      mainAxisSize: MainAxisSize.min,
-                      onPress: () {
-                        if (row.canOpenDetail && onOpen != null) {
-                          onOpen!(row);
-                        } else {
-                          _summary(context, row);
-                        }
-                      },
-                      child: Text(
-                        copy.text(
-                          row.canOpenDetail && onOpen != null
-                              ? 'global.open'
-                              : 'global.summary',
+                            ),
+                            const SizedBox(width: 8),
+                            FButton(
+                              key: ValueKey('global-open-${row.threadId}'),
+                              variant: FButtonVariant.outline,
+                              mainAxisSize: MainAxisSize.min,
+                              onPress: () {
+                                if (row.canOpenDetail && onOpen != null) {
+                                  onOpen!(row);
+                                } else {
+                                  _summary(context, row);
+                                }
+                              },
+                              child: Text(
+                                copy.text(
+                                  row.canOpenDetail && onOpen != null
+                                      ? 'global.open'
+                                      : 'global.summary',
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -238,6 +275,14 @@ class GlobalSessionList extends StatelessWidget {
           Text(copy.text('global.summaryOnly')),
           const SizedBox(height: 16),
           for (final fact in [
+            (
+              'global.name',
+              readableSessionName(
+                title: row.title,
+                project: row.project,
+                english: copy.isEnglish,
+              ),
+            ),
             ('global.thread', row.threadId),
             ('global.transport', row.sessionId),
             ('global.project', row.project),
@@ -258,5 +303,32 @@ class GlobalSessionList extends StatelessWidget {
         ],
       );
     },
+  );
+}
+
+class _SessionRowsViewport extends StatefulWidget {
+  const _SessionRowsViewport({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<_SessionRowsViewport> createState() => _SessionRowsViewportState();
+}
+
+class _SessionRowsViewportState extends State<_SessionRowsViewport> {
+  // The outer overview owns its own PageStorage entry. The inner result page
+  // must never save or restore an offset in that same entry.
+  final _controller = ScrollController(keepScrollOffset: false);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+    controller: _controller,
+    primary: false,
+    child: widget.child,
   );
 }

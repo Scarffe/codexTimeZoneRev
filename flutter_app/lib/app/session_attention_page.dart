@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../services/session_attention.dart';
+import '../services/session_identity.dart';
 import '../state/session_attention_controller.dart';
 
 class SessionAttentionPage extends StatefulWidget {
@@ -105,7 +106,8 @@ class _SessionAttentionPageState extends State<SessionAttentionPage> {
                         ),
                         items: {
                           for (final (index, s) in c.availableSessions.indexed)
-                            '${s.title} · ${s.id} · ${index + 1}': s.path,
+                            '${s.title} · ${sessionIdentitySuffix(s.id)} · ${index + 1}':
+                                s.path,
                         },
                         control: FSelectControl.lifted(
                           value: _path,

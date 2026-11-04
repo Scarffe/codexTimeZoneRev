@@ -210,6 +210,9 @@ impl Kernel {
                     )
                 })
                 .unwrap();
+            // Identity deduplication may include copies from different homes.
+            // The displayed name must belong to the selected source path.
+            let title = best.title.as_deref();
             let mut reasons: BTreeSet<String> = sources
                 .iter()
                 .flat_map(|s| s.reasons.iter().cloned())
@@ -290,9 +293,10 @@ impl Kernel {
             }
             if let Some(search) = &q.search {
                 let haystack = format!(
-                    "{thread} {} {}",
+                    "{thread} {} {} {}",
                     project.as_deref().unwrap_or(""),
-                    model.as_deref().unwrap_or("")
+                    model.as_deref().unwrap_or(""),
+                    title.unwrap_or("")
                 )
                 .to_lowercase();
                 if !haystack.contains(search) {
@@ -445,7 +449,7 @@ impl Kernel {
             if unclosed_stale {
                 stale_running += 1;
             }
-            rows.push(json!({"path":best.path,"threadId":thread,"sessionId":best.session_id,"project":project,"model":model,"lifecycleState":lifecycle,"attentionState":"unknown","freshness":freshness,"lastEventMs":last,"tokens":row_bucket.tokens,"basis":basis,"quality":quality,"reasons":reasons,"canOpenDetail":!best.child&&best.source_state=="ok"&&catalog::strict_detail_supported(&best.path),"sourceState":best.source_state}));
+            rows.push(json!({"path":best.path,"threadId":thread,"sessionId":best.session_id,"title":title,"project":project,"model":model,"lifecycleState":lifecycle,"attentionState":"unknown","freshness":freshness,"lastEventMs":last,"tokens":row_bucket.tokens,"basis":basis,"quality":quality,"reasons":reasons,"canOpenDetail":!best.child&&best.source_state=="ok"&&catalog::strict_detail_supported(&best.path),"sourceState":best.source_state}));
         }
         if q.sort == "tokens" {
             rows.sort_by(|a, b| {

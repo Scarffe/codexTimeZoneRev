@@ -380,6 +380,22 @@ impl Kernel {
             self.start_discovery();
             return Ok(json!({"globalVersion":1,"cancelled":true,"revision":self.revision}));
         }
+        // Names are independent metadata: a rename need not append rollout
+        // bytes. Scope each index to its home and refresh outside query().
+        let mut names = BTreeMap::new();
+        for root in &self.roots {
+            let home = crate::session_names::home_for_root(root);
+            names
+                .entry(home.to_path_buf())
+                .or_insert_with(|| crate::session_names::read(home));
+        }
+        for source in self.sources.values_mut() {
+            source.title = crate::session_names::home_for_rollout(&source.path)
+                .and_then(|home| names.get(home))
+                .and_then(|index| index.get(&source.thread_id))
+                .cloned()
+                .or_else(|| source.metadata_title.clone());
+        }
         self.observed_at_ms = now;
         self.revision = self.revision.saturating_add(1);
         let dirty = bytes > 0
@@ -393,6 +409,9 @@ impl Kernel {
                     old.source_state != s.source_state
                         || old.length != s.length
                         || old.reasons != s.reasons
+                        || old.title != s.title
+                        || old.metadata_title != s.metadata_title
+                        || old.metadata_title_read != s.metadata_title_read
                 })
             });
         let committed = dirty && self.save(Some((generation, epoch)));

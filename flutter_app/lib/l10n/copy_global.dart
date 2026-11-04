@@ -1,6 +1,7 @@
 import 'copy_types.dart';
 
 const AppMessages globalMessages = {
+  'global.name': (zh: '会话名称', en: 'Conversation name'),
   'global.title': (zh: '全局会话工作台', en: 'Global session workbench'),
   'global.subtitle': (
     zh: '自动发现本地会话与归档 · 账号额度独立观察',

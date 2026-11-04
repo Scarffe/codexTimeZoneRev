@@ -3,6 +3,7 @@ import 'package:forui/forui.dart';
 
 import '../l10n/app_copy.dart';
 import '../services/global_live.dart';
+import '../services/session_identity.dart';
 import '../state/global_live_controller.dart';
 import 'dashboard_style.dart';
 
@@ -201,7 +202,12 @@ class GlobalLivePanel extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _shortId(item.threadId),
+                              readableSessionName(
+                                title: item.title,
+                                english: copy.isEnglish,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: body.sm.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
@@ -211,6 +217,10 @@ class GlobalLivePanel extends StatelessWidget {
                               spacing: 10,
                               runSpacing: 4,
                               children: [
+                                Text(
+                                  sessionIdentitySuffix(item.threadId),
+                                  style: body.xs.copyWith(color: palette.muted),
+                                ),
                                 Text(
                                   copy.text('live.state.${item.state}'),
                                   style: body.xs,
@@ -245,9 +255,6 @@ class GlobalLivePanel extends StatelessWidget {
     },
   );
 
-  String _shortId(String id) => id.length > 20
-      ? '${id.substring(0, 8)}…${id.substring(id.length - 8)}'
-      : id;
   int _priority(GlobalLiveItem item) => switch (item.attention) {
     'approval' || 'input' || 'approval_and_input' => 0,
     _ =>

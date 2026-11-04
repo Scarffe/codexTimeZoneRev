@@ -388,11 +388,27 @@ pub(super) fn read_source(
     source.source_state = "ok".into();
     source.restored = false;
     let mut reader = BufReader::new(file);
+    let mut read = 0;
+    // Pre-title version-2 caches retain their usage ledger. Recover only the
+    // first metadata record once, without replaying usage or changing identity.
+    if !source.metadata_title_read && source.offset > 0 {
+        if reader.seek(SeekFrom::Start(0)).is_ok() {
+            if let Ok(bytes) = line(&mut reader) {
+                read += bytes.len();
+                if let Ok(row) = serde_json::from_slice::<Value>(&bytes) {
+                    if row["type"] == "session_meta" && row["payload"]["id"] == source.thread_id {
+                        source.metadata_title =
+                            crate::session_names::title(&row["payload"]["title"]);
+                    }
+                }
+                source.metadata_title_read = true;
+            }
+        }
+    }
     if reader.seek(SeekFrom::Start(source.offset)).is_err() {
         source.source_state = "unreadable".into();
         return 0;
     }
-    let mut read = 0;
     while read < budget.saturating_sub(TAIL_BYTES) && !cancelled(generation, epoch) {
         let bytes = match line(&mut reader) {
             Ok(v) => v,

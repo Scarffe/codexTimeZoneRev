@@ -37,7 +37,7 @@ class LauncherPage extends StatelessWidget {
     List<Widget> children,
   ) => FCard(
     child: Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -54,7 +54,7 @@ class LauncherPage extends StatelessWidget {
               color: context.theme.colors.mutedForeground,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           ...children,
         ],
       ),
@@ -70,59 +70,98 @@ class LauncherPage extends StatelessWidget {
       copy.text('launcher.settings'),
       copy.text('launcher.settingsDescription'),
       [
-        FSelect<String>(
-          label: Text(copy.text('launcher.mode')),
-          items: {
-            copy.text('launcher.zone'): 'zone',
-            copy.text('launcher.offset'): 'offset',
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final sideBySide = constraints.maxWidth >= 560;
+            final modeWidth = sideBySide ? 180.0 : constraints.maxWidth;
+            final zoneWidth = sideBySide
+                ? constraints.maxWidth - modeWidth - 12
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: modeWidth,
+                  child: FSelect<String>(
+                    key: const ValueKey('launcher-mode'),
+                    label: Text(copy.text('launcher.mode')),
+                    items: {
+                      copy.text('launcher.zone'): 'zone',
+                      copy.text('launcher.offset'): 'offset',
+                    },
+                    enabled: launcher.editable,
+                    control: FSelectControl.lifted(
+                      value: settings.mode,
+                      onChange: (value) {
+                        if (value != null) {
+                          launcher.update(settings.copyWith(mode: value));
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: zoneWidth,
+                  child: settings.mode == 'zone'
+                      ? FSelect<String>.search(
+                          key: const ValueKey('launcher-timezone'),
+                          label: Text(copy.text('launcher.zone')),
+                          description: Text(
+                            copy.text('launcher.zoneDescription'),
+                          ),
+                          items: {
+                            for (final zone in launcher.zones)
+                              (copy.isEnglish
+                                      ? zone.id
+                                      : '${zone.label} · ${zone.id}'):
+                                  zone.id,
+                          },
+                          enabled:
+                              launcher.editable && launcher.zones.isNotEmpty,
+                          control: FSelectControl.lifted(
+                            value:
+                                launcher.zones.any(
+                                  (zone) => zone.id == settings.zoneId,
+                                )
+                                ? settings.zoneId
+                                : null,
+                            onChange: (value) {
+                              if (value != null) {
+                                launcher.update(
+                                  settings.copyWith(zoneId: value),
+                                );
+                              }
+                            },
+                          ),
+                        )
+                      : FSelect<int>(
+                          key: const ValueKey('launcher-offset'),
+                          label: Text(copy.text('launcher.offset')),
+                          description: Text(
+                            copy.text('launcher.offsetDescription'),
+                          ),
+                          enabled: launcher.editable,
+                          items: {
+                            for (var i = -12; i <= 14; i++)
+                              offsetLabel(i * 60): i,
+                          },
+                          control: FSelectControl.lifted(
+                            value: settings.offset,
+                            onChange: (value) {
+                              if (value != null) {
+                                launcher.update(
+                                  settings.copyWith(offset: value),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            );
           },
-          enabled: launcher.editable,
-          control: FSelectControl.lifted(
-            value: settings.mode,
-            onChange: (value) {
-              if (value != null) {
-                launcher.update(settings.copyWith(mode: value));
-              }
-            },
-          ),
         ),
-        const SizedBox(height: 12),
-        if (settings.mode == 'zone')
-          FSelect<String>.search(
-            label: Text(copy.text('launcher.zone')),
-            description: Text(copy.text('launcher.zoneDescription')),
-            items: {
-              for (final zone in launcher.zones)
-                (copy.isEnglish ? zone.id : '${zone.label} · ${zone.id}'):
-                    zone.id,
-            },
-            enabled: launcher.editable && launcher.zones.isNotEmpty,
-            control: FSelectControl.lifted(
-              value: launcher.zones.any((zone) => zone.id == settings.zoneId)
-                  ? settings.zoneId
-                  : null,
-              onChange: (value) {
-                if (value != null) {
-                  launcher.update(settings.copyWith(zoneId: value));
-                }
-              },
-            ),
-          )
-        else
-          FSelect<int>(
-            label: Text(copy.text('launcher.offset')),
-            description: Text(copy.text('launcher.offsetDescription')),
-            enabled: launcher.editable,
-            items: {for (var i = -12; i <= 14; i++) offsetLabel(i * 60): i},
-            control: FSelectControl.lifted(
-              value: settings.offset,
-              onChange: (value) {
-                if (value != null) {
-                  launcher.update(settings.copyWith(offset: value));
-                }
-              },
-            ),
-          ),
         if (launcher.editable && launcher.validationError != null) ...[
           const SizedBox(height: 12),
           FAlert(
@@ -231,21 +270,14 @@ class LauncherPage extends StatelessWidget {
             if (constraints.maxWidth < 720) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  clientPath,
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: FDivider(),
-                  ),
-                  skinControls,
-                ],
+                children: [clientPath, const FDivider(), skinControls],
               );
             }
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(flex: 6, child: clientPath),
-                const SizedBox(width: 32),
+                const SizedBox(width: 24),
                 Expanded(flex: 5, child: skinControls),
               ],
             );
@@ -261,7 +293,7 @@ class LauncherPage extends StatelessWidget {
           color: DashboardPalette.of(context).panel,
           border: Border(top: BorderSide(color: context.theme.colors.border)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -389,13 +421,14 @@ class LauncherPage extends StatelessWidget {
                     final clock = ClockPanel(
                       settings: settings,
                       preview: launcher.preview,
+                      compact: true,
                     );
                     if (constraints.maxWidth < 820) {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           clock,
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           settingCard,
                         ],
                       );
@@ -403,16 +436,16 @@ class LauncherPage extends StatelessWidget {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 5, child: clock),
-                        const SizedBox(width: 16),
-                        Expanded(flex: 6, child: settingCard),
+                        Expanded(child: clock),
+                        const SizedBox(width: 12),
+                        Expanded(child: settingCard),
                       ],
                     );
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 clientCard,
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 _section(
                   context,
                   copy.text('launcher.network'),
@@ -633,7 +666,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
     return FCard(
       key: const ValueKey('time-preview-card'),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -645,56 +678,58 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
                   color: palette.controlAccent,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  copy.text('launcher.clock'),
-                  style: context.theme.typography.display.lg,
+                Expanded(
+                  child: Text(
+                    copy.text('launcher.clock'),
+                    style: context.theme.typography.display.lg,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
             Text(
               widget.settings.mode == 'zone'
                   ? widget.settings.zoneId
                   : copy.text('launcher.fixedOffset'),
               style: muted,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text(
                 target?.time ?? '--:--:--',
                 style: context.theme.typography.display.xl.copyWith(
-                  fontSize: widget.compact ? 46 : 56,
+                  fontSize: widget.compact ? 40 : 46,
                   height: 1.15,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: -1.5,
+                  letterSpacing: -.8,
                   fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-            Text(
-              target == null
-                  ? copy.text('launcher.validZone')
-                  : copy.isEnglish
-                  ? _clockDate(copy, targetDate!)
-                  : target.date,
-              style: muted,
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FBadge(
-                child: Text(
-                  target?.offset ?? copy.text('launcher.invalidZone'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  target == null
+                      ? copy.text('launcher.validZone')
+                      : copy.isEnglish
+                      ? _clockDate(copy, targetDate!)
+                      : target.date,
+                  style: muted,
                 ),
-              ),
+                FBadge(
+                  child: Text(
+                    target?.offset ?? copy.text('launcher.invalidZone'),
+                  ),
+                ),
+              ],
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: FDivider(),
-            ),
+            const FDivider(),
             Wrap(
               spacing: 20,
               runSpacing: 8,
@@ -728,7 +763,7 @@ class _ClockPanelState extends State<ClockPanel> with WidgetsBindingObserver {
                     Text(
                       local.time,
                       style: context.theme.typography.display.lg.copyWith(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),

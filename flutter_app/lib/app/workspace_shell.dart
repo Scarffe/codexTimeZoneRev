@@ -57,6 +57,7 @@ class WorkspaceShell extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final narrow = constraints.maxWidth <= 620;
+      final labeledNavigation = constraints.maxWidth >= 1100;
       final colors = context.theme.colors;
       final palette = DashboardPalette.of(context);
       final copy = AppCopy.of(context);
@@ -72,36 +73,54 @@ class WorkspaceShell extends StatelessWidget {
           children: [
             Container(
               key: const ValueKey('workspace-rail'),
-              width: narrow ? 45 : 56,
+              width: labeledNavigation ? 192 : (narrow ? 45 : 56),
               decoration: BoxDecoration(
                 color: palette.rail,
                 border: Border(right: BorderSide(color: colors.border)),
               ),
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: EdgeInsets.symmetric(
+                horizontal: labeledNavigation ? 8 : 0,
+                vertical: 12,
+              ),
               child: Column(
                 children: [
-                  for (final destination in WorkspaceDestination.values)
-                    _RailEntry(
-                      key: ValueKey('workspace-${destination.name}'),
-                      name:
-                          destination == WorkspaceDestination.sessions &&
-                              unreadCount > 0
-                          ? copy.text(
-                              'nav.unread',
-                              args: {
-                                'name': copy.text('nav.${destination.name}'),
-                                'count': unreadCount,
-                              },
-                            )
-                          : copy.text('nav.${destination.name}'),
-                      icon: destination.icon,
-                      selected: selected == destination,
-                      onPress: () => onSelect(destination),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final destination in WorkspaceDestination.values)
+                            _RailEntry(
+                              key: ValueKey('workspace-${destination.name}'),
+                              expanded: labeledNavigation,
+                              label: copy.text('nav.${destination.name}'),
+                              name:
+                                  destination ==
+                                          WorkspaceDestination.sessions &&
+                                      unreadCount > 0
+                                  ? copy.text(
+                                      'nav.unread',
+                                      args: {
+                                        'name': copy.text(
+                                          'nav.${destination.name}',
+                                        ),
+                                        'count': unreadCount,
+                                      },
+                                    )
+                                  : copy.text('nav.${destination.name}'),
+                              icon: destination.icon,
+                              selected: selected == destination,
+                              onPress: () => onSelect(destination),
+                            ),
+                        ],
+                      ),
                     ),
-                  const Spacer(),
-                  MonitorIconAction(
+                  ),
+                  _RailEntry(
                     key: const ValueKey('monitor-settings'),
-                    label: copy.text('app.monitorSettings'),
+                    name: copy.text('app.monitorSettings'),
+                    expanded: labeledNavigation,
+                    selected: false,
                     icon: FLucideIcons.settings,
                     onPress: onSettings,
                   ),
@@ -113,46 +132,32 @@ class WorkspaceShell extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    constraints: BoxConstraints(minHeight: narrow ? 62 : 78),
+                    key: const ValueKey('workspace-header'),
+                    constraints: BoxConstraints(minHeight: narrow ? 56 : 60),
                     decoration: BoxDecoration(
                       color: palette.panel.withValues(alpha: .45),
                       border: Border(bottom: BorderSide(color: colors.border)),
                     ),
                     padding: EdgeInsets.symmetric(
                       horizontal: horizontal,
-                      vertical: narrow ? 8 : 11,
+                      vertical: 8,
                     ),
                     child: Row(
                       children: [
                         Expanded(
                           child: Semantics(
                             header: true,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (!narrow)
-                                  Text(
-                                    'CODEX TIMEZONE',
-                                    style: context.theme.typography.body.xs
-                                        .copyWith(
-                                          color: palette.muted,
-                                          fontSize: 10,
-                                          height: 1.2,
-                                          letterSpacing: 1.7,
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                            child: Text(
+                              copy.text('nav.${selected.name}'),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.theme.typography.display.lg
+                                  .copyWith(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.2,
+                                    letterSpacing: -.2,
                                   ),
-                                if (!narrow) const SizedBox(height: 3),
-                                Text(
-                                  copy.text('nav.${selected.name}'),
-                                  style: context.theme.typography.display.xl
-                                      .copyWith(
-                                        height: 1.2,
-                                        letterSpacing: -.4,
-                                      ),
-                                ),
-                              ],
                             ),
                           ),
                         ),
@@ -300,7 +305,7 @@ class WorkspaceShell extends StatelessWidget {
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
                         horizontal,
-                        narrow ? 15 : horizontal,
+                        narrow ? 12 : 16,
                         horizontal,
                         0,
                       ),
@@ -343,11 +348,15 @@ class _RailEntry extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onPress,
+    this.expanded = false,
+    this.label,
   });
   final String name;
+  final String? label;
   final IconData icon;
   final bool selected;
-  final VoidCallback onPress;
+  final bool expanded;
+  final VoidCallback? onPress;
 
   @override
   Widget build(BuildContext context) => MergeSemantics(
@@ -358,6 +367,7 @@ class _RailEntry extends StatelessWidget {
         childAnchor: Alignment.centerRight,
         tipBuilder: (context, _) => Text(name),
         child: DashboardMotionFeedback(
+          enabled: onPress != null,
           child: FButton.raw(
             semanticsLabel: name,
             semanticsTooltip: name,
@@ -365,14 +375,14 @@ class _RailEntry extends StatelessWidget {
             variant: FButtonVariant.ghost,
             onPress: onPress,
             child: SizedBox(
-              width: 44,
+              width: expanded ? double.infinity : 44,
               height: 44,
               child: Container(
                 decoration: BoxDecoration(
                   color: selected
                       ? DashboardPalette.of(context).selected
                       : const Color(0x00000000),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(7),
                 ),
                 child: Stack(
                   alignment: Alignment.center,
@@ -390,12 +400,44 @@ class _RailEntry extends StatelessWidget {
                           ),
                         ),
                       ),
-                    Icon(
-                      icon,
-                      size: 18,
-                      color: selected
-                          ? DashboardPalette.of(context).controlAccent
-                          : DashboardPalette.of(context).muted,
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: expanded ? 12 : 0,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: expanded
+                            ? MainAxisAlignment.start
+                            : MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            icon,
+                            size: 18,
+                            color: selected
+                                ? DashboardPalette.of(context).controlAccent
+                                : DashboardPalette.of(context).muted,
+                          ),
+                          if (expanded) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                label ?? name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: context.theme.typography.body.sm
+                                    .copyWith(
+                                      color: selected
+                                          ? DashboardPalette.of(context)
+                                                .foreground
+                                          : DashboardPalette.of(context).muted,
+                                      fontWeight: selected
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                 ),

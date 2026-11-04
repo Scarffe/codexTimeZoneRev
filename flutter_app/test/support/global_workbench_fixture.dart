@@ -97,6 +97,7 @@ Map<String, dynamic> globalSessionFixture({
 }) => {
   'path': r'C:\synthetic-global\sessions\rollout-synthetic.jsonl',
   'threadId': id,
+  'title': '修复启动器的时区显示',
   'sessionId': 'transport-session-01',
   'project': r'C:\synthetic\图像处理',
   'model': 'synthetic-model-alpha',

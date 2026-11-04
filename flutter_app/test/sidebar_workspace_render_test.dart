@@ -131,6 +131,7 @@ void main() {
     for (final (family, filename) in [
       ('Segoe UI Variable Text', 'SegUIVar.ttf'),
       ('Segoe UI', 'segoeui.ttf'),
+      ('Microsoft YaHei UI', 'msyh.ttc'),
     ]) {
       final font = File('C:/Windows/Fonts/$filename');
       await (FontLoader(family)..addFont(
@@ -248,7 +249,7 @@ void main() {
           await tapAction(tester, 'workspace-analysis');
           expect(
             tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,
-            width <= 620 ? 45 : 56,
+            width >= 1100 ? 192 : (width <= 620 ? 45 : 56),
           );
           final account = tester.widget<AccountUsagePanel>(
             find.byType(AccountUsagePanel, skipOffstage: false),

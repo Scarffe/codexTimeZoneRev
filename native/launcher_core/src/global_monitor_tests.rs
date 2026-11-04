@@ -58,6 +58,181 @@ fn catch_up(kernel: &mut Kernel, home: &Path) {
     panic!("bounded scans did not catch up");
 }
 #[test]
+fn session_titles_refresh_without_rollout_growth_and_survive_cache_restore() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let path = fixture(&home, "thread", "transport", false);
+    let mut rollout = fs::OpenOptions::new().append(true).open(&path).unwrap();
+    record(&mut rollout, usage("thread", "turn", "response", 20));
+    let mut index = File::create(home.join("session_index.jsonl")).unwrap();
+    record(
+        &mut index,
+        json!({"id":"thread","thread_name":"Initial name","updated_at":"2026-11-03T00:00:00Z"}),
+    );
+    let cache = temp.path().join("cache.json");
+    let mut kernel = Kernel::new(cache.clone());
+    catch_up(&mut kernel, &home);
+    let before = kernel.query(&json!({})).unwrap();
+    assert_eq!(before["sessions"][0]["title"], "Initial name");
+    let length = fs::metadata(&path).unwrap().len();
+    record(
+        &mut index,
+        json!({"id":"thread","thread_name":"Renamed conversation","updated_at":"2026-11-04T00:00:00Z"}),
+    );
+    // Query remains I/O-free and uses the last scanned metadata snapshot.
+    assert_eq!(
+        kernel.query(&json!({"search":"Renamed"})).unwrap()["filteredCount"],
+        0
+    );
+    catch_up(&mut kernel, &home);
+    let after = kernel
+        .query(&json!({"search":"RENAMED conversation"}))
+        .unwrap();
+    assert_eq!(after["filteredCount"], 1);
+    assert_eq!(after["sessions"][0]["title"], "Renamed conversation");
+    assert_eq!(after["sessions"][0]["threadId"], "thread");
+    assert_eq!(after["sessions"][0]["sessionId"], "transport");
+    assert_eq!(after["sessions"][0]["path"], before["sessions"][0]["path"]);
+    assert_eq!(after["totals"]["tokens"], before["totals"]["tokens"]);
+    assert_eq!(fs::metadata(&path).unwrap().len(), length);
+    let restored = Kernel::new(cache);
+    assert_eq!(
+        restored.query(&json!({})).unwrap()["sessions"][0]["title"],
+        "Renamed conversation"
+    );
+}
+
+#[test]
+fn session_titles_keep_same_name_identities_and_scope_indexes_to_each_root() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let one = temp.path().join("one");
+    let two = temp.path().join("two");
+    fixture(&one, "first", "transport-one", false);
+    let second = fixture(&two, "second", "transport-two", false);
+    let archive = two.join("archived_sessions");
+    fs::create_dir_all(&archive).unwrap();
+    fs::rename(second, archive.join("rollout-second.jsonl")).unwrap();
+    let mut first_names = File::create(one.join("session_index.jsonl")).unwrap();
+    record(
+        &mut first_names,
+        json!({"id":"first","thread_name":"Shared name"}),
+    );
+    record(
+        &mut first_names,
+        json!({"id":"second","thread_name":"Wrong root"}),
+    );
+    let mut second_names = File::create(two.join("session_index.jsonl")).unwrap();
+    record(
+        &mut second_names,
+        json!({"id":"second","thread_name":"Shared name"}),
+    );
+    record(
+        &mut second_names,
+        json!({"id":"first","thread_name":"Wrong root"}),
+    );
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    for _ in 0..3 {
+        kernel
+            .scan(&json!({"generation":1,"roots":[one.join("sessions"),archive]}))
+            .unwrap();
+    }
+    let page = kernel.query(&json!({"search":"Shared name"})).unwrap();
+    assert_eq!(page["filteredCount"], 2);
+    assert_eq!(page["sessions"][0]["threadId"], "first");
+    assert_eq!(page["sessions"][1]["threadId"], "second");
+    assert_ne!(page["sessions"][0]["path"], page["sessions"][1]["path"]);
+    assert_eq!(
+        kernel.query(&json!({"search":"Wrong root"})).unwrap()["filteredCount"],
+        0
+    );
+}
+
+#[test]
+fn session_titles_fall_back_to_metadata_and_accept_pre_title_caches() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let path = fixture(&home, "named", "transport", false);
+    let mut rollout = File::create(path).unwrap();
+    record(
+        &mut rollout,
+        json!({"type":"session_meta","payload":{"id":"named","title":"Metadata title","source":"vscode"}}),
+    );
+    fixture(&home, "unnamed", "transport-two", false);
+    let index_path = home.join("session_index.jsonl");
+    fs::write(&index_path, "not json\n{\"id\":\"named\",\"thread_name\":42}\n{\"id\":\"named\",\"thread_name\":\"   \"}\n").unwrap();
+    let cache = temp.path().join("cache.json");
+    let mut kernel = Kernel::new(cache.clone());
+    catch_up(&mut kernel, &home);
+    let page = kernel.query(&json!({})).unwrap();
+    assert_eq!(page["sessions"][0]["title"], "Metadata title");
+    assert!(page["sessions"][1]["title"].is_null());
+    let mut disk: Value = serde_json::from_reader(File::open(&cache).unwrap()).unwrap();
+    for source in disk["sources"].as_object_mut().unwrap().values_mut() {
+        source.as_object_mut().unwrap().remove("title");
+        source.as_object_mut().unwrap().remove("metadata_title");
+        source
+            .as_object_mut()
+            .unwrap()
+            .remove("metadata_title_read");
+    }
+    fs::write(&cache, serde_json::to_vec(&disk).unwrap()).unwrap();
+    let mut restored = Kernel::new(cache);
+    assert_eq!(restored.query(&json!({})).unwrap()["restored"], true);
+    catch_up(&mut restored, &home);
+    assert_eq!(
+        restored.query(&json!({"search":"Metadata title"})).unwrap()["filteredCount"],
+        1
+    );
+    fs::write(
+        index_path,
+        "{\"id\":\"named\",\"thread_name\":\"Current name\"}\n",
+    )
+    .unwrap();
+    catch_up(&mut restored, &home);
+    assert_eq!(
+        restored.query(&json!({"search":"Current name"})).unwrap()["filteredCount"],
+        1
+    );
+}
+
+#[test]
+fn session_titles_do_not_borrow_names_from_another_home_with_the_same_id() {
+    let _guard = guarded();
+    let temp = tempfile::tempdir().unwrap();
+    let one = temp.path().join("one");
+    let two = temp.path().join("two");
+    fixture(&one, "same-id", "transport-one", false);
+    let selected = fixture(&two, "same-id", "transport-two", false);
+    let mut rollout = fs::OpenOptions::new().append(true).open(&selected).unwrap();
+    record(&mut rollout, usage("same-id", "turn", "response", 20));
+    fs::write(
+        one.join("session_index.jsonl"),
+        "{\"id\":\"same-id\",\"thread_name\":\"Other home name\"}\n",
+    )
+    .unwrap();
+    let mut kernel = Kernel::new(temp.path().join("cache.json"));
+    for _ in 0..3 {
+        kernel
+            .scan(&json!({"generation":1,"roots":[one,two]}))
+            .unwrap();
+    }
+    let page = kernel.query(&json!({})).unwrap();
+    assert_eq!(
+        page["sessions"][0]["path"],
+        json!(selected.canonicalize().unwrap())
+    );
+    assert_eq!(page["sessions"][0]["sessionId"], "transport-two");
+    assert!(page["sessions"][0]["title"].is_null());
+    assert_eq!(
+        kernel.query(&json!({"search":"Other home name"})).unwrap()["filteredCount"],
+        0
+    );
+}
+
+#[test]
 fn global_monitor_indexes_more_than_old_limits_and_does_not_scan_on_query() {
     let _guard = guarded();
     let temp = tempfile::tempdir().unwrap();

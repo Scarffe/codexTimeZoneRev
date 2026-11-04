@@ -35,6 +35,7 @@ mod proxy;
 mod runtime_helper;
 mod runtime_bootstrap;
 mod session_metrics;
+mod session_names;
 mod task_protocol;
 mod tasks;
 // K3.0 is an offline contract experiment, absent from release dispatch/binaries.

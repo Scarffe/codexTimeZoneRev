@@ -43,8 +43,9 @@ class _SessionMeasurementWorkspaceState
                 border: Border.all(color: DashboardPalette.of(context).border),
                 borderRadius: BorderRadius.circular(7),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
                 children: [
                   MergeSemantics(
                     child: Semantics(

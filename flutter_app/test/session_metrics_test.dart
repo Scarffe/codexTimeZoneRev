@@ -155,7 +155,7 @@ void main() {
       }
       await tester.tap(find.byKey(const ValueKey('session-selector')));
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('会话 main · fixture · main').last);
+      await tester.tap(find.textContaining('未命名会话 · fixture · main').last);
       await tester.pumpAndSettle();
       expect(
         c.selected,
@@ -178,7 +178,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('session-selector')));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('会话 main · fixture · main').last);
+    await tester.tap(find.textContaining('未命名会话 · fixture · main').last);
     await tester.pumpAndSettle();
     expect(c.selected, 'a');
     expect(find.textContaining('样本质量：日志报告值 · 未充分核验'), findsOneWidget);

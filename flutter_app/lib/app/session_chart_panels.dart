@@ -85,6 +85,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     final status = recentMetric == 'status';
     return MonitorChartFrame(
       key: const ValueKey('session-recent-chart'),
+      responsiveControls: true,
       title: AppCopy.of(context).text('analysis.recentTurns'),
       icon: FLucideIcons.chartColumn,
       controls: [
@@ -208,6 +209,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     };
     return MonitorChartFrame(
       key: const ValueKey('session-configuration-chart'),
+      responsiveControls: true,
       title: AppCopy.of(context).text('analysis.configurationComparison'),
       icon: FLucideIcons.chartBar,
       controls: [
@@ -325,6 +327,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     }
     return MonitorChartFrame(
       key: const ValueKey('session-activity-chart'),
+      responsiveControls: true,
       title: AppCopy.of(context).text('analysis.lastTurnActivity'),
       icon: FLucideIcons.activity,
       controls: [
@@ -377,6 +380,7 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
     };
     return MonitorChartFrame(
       key: const ValueKey('session-response-chart'),
+      responsiveControls: true,
       title: AppCopy.of(context)
           .text('analysis.lastTurnResponsesRecentResponses'),
       icon: FLucideIcons.chartColumnStacked,
@@ -459,12 +463,12 @@ class _SessionChartPanelsState extends State<SessionChartPanels> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final width = MediaQuery.sizeOf(context).width > 620
-          ? (constraints.maxWidth - 16) / 2
+      final width = constraints.maxWidth >= 900
+          ? (constraints.maxWidth - 12) / 2
           : constraints.maxWidth;
       return Wrap(
-        spacing: 16,
-        runSpacing: 16,
+        spacing: 12,
+        runSpacing: 12,
         children: [
           for (final panel in [
             _recent(context),

@@ -131,6 +131,12 @@ pub(super) struct Source {
     pub path: PathBuf,
     pub thread_id: String,
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub metadata_title: Option<String>,
+    #[serde(default)]
+    pub metadata_title_read: bool,
     pub parent_thread_id: Option<String>,
     pub project: Option<String>,
     pub child: bool,
@@ -164,6 +170,9 @@ impl Source {
             path,
             thread_id: String::new(),
             session_id: None,
+            title: None,
+            metadata_title: None,
+            metadata_title_read: false,
             parent_thread_id: None,
             project: None,
             child: false,
@@ -192,6 +201,11 @@ impl Source {
     pub fn valid_cache(&self) -> bool {
         self.thread_id.len() <= 32768
             && self.session_id.as_ref().is_none_or(|v| v.len() <= 32768)
+            && self.title.as_ref().is_none_or(|v| v.len() <= 32768)
+            && self
+                .metadata_title
+                .as_ref()
+                .is_none_or(|v| v.len() <= 32768)
             && self.offset <= self.length
             && self.contexts.len() <= 2_000_000
             && self.responses.len() <= 2_000_000
@@ -212,6 +226,8 @@ impl Source {
                 }
                 self.thread_id = id;
                 self.session_id = text(&p["session_id"]);
+                self.metadata_title = crate::session_names::title(&p["title"]);
+                self.metadata_title_read = true;
                 self.project = text(&p["cwd"]).map(project_key);
                 self.reasons.remove("missing_session_meta");
                 self.child = p["source"].is_object();

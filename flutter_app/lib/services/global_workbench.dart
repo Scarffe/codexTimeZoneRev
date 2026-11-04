@@ -156,6 +156,7 @@ class GlobalSessionRow {
     required this.basis,
     required this.quality,
     required this.canOpenDetail,
+    this.title,
     this.lastEventMs,
     List<String> reasons = const [],
   }) : reasons = List.unmodifiable(reasons);
@@ -173,6 +174,7 @@ class GlobalSessionRow {
   final int? lastEventMs;
   final List<String> reasons;
   final bool canOpenDetail;
+  final String? title;
   String get key => '$path\u0000$threadId\u0000$sessionId';
   String get shortId =>
       threadId.length > 20 ? '${threadId.substring(0, 17)}…' : threadId;
@@ -202,6 +204,7 @@ class GlobalSessionRow {
     return GlobalSessionRow(
       path: _text(json['path']),
       threadId: _text(json['threadId']),
+      title: json['title'] is String ? (json['title'] as String).trim() : null,
       sessionId: _text(json['sessionId']),
       project: _text(json['project']),
       model: _text(json['model']),

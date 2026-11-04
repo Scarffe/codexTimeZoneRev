@@ -391,6 +391,21 @@ class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
               ),
             ),
           const SizedBox(height: 12),
+          GlobalSessionList(
+            key: _sessionRows,
+            snapshot: snapshot,
+            busy: controller?.busy ?? false,
+            sort: controller?.query.sort ?? 'recent',
+            onSort: (value) => controller?.setSort(value),
+            onPrevious: controller == null || controller.query.offset == 0
+                ? null
+                : controller.previousPage,
+            onNext: controller == null || snapshot?.hasMore != true
+                ? null
+                : controller.nextPage,
+            onOpen: widget.onOpenSession,
+          ),
+          const SizedBox(height: 20),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -427,20 +442,6 @@ class _WorkspaceOverviewPageState extends State<WorkspaceOverviewPage> {
             ),
           ),
           const SizedBox(height: 16),
-          GlobalSessionList(
-            key: _sessionRows,
-            snapshot: snapshot,
-            busy: controller?.busy ?? false,
-            sort: controller?.query.sort ?? 'recent',
-            onSort: (value) => controller?.setSort(value),
-            onPrevious: controller == null || controller.query.offset == 0
-                ? null
-                : controller.previousPage,
-            onNext: controller == null || snapshot?.hasMore != true
-                ? null
-                : controller.nextPage,
-            onOpen: widget.onOpenSession,
-          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,

@@ -209,23 +209,66 @@ pub(crate) fn unavailable(connected: bool) -> Value {
     json!({"liveVersion":1,"connected":connected,"coverage":if connected {"partial"}else{"unavailable"},
         "initialGap":true,"dropped":0,"generation":0,"items":[]})
 }
+// Enrich only the UI response, after the bounded helper control frame has been
+// received. Custom global-monitor roots must never name current-runtime IDs.
+fn with_titles(mut snapshot: Value, home: Option<&std::path::Path>) -> Value {
+    if let Some(items) = snapshot["items"]
+        .as_array_mut()
+        .filter(|items| !items.is_empty())
+    {
+        let names = home.map(crate::session_names::read).unwrap_or_default();
+        for item in items {
+            let title = item["threadId"].as_str().and_then(|id| names.get(id));
+            item["title"] = json!(title);
+        }
+    }
+    snapshot
+}
 pub(crate) fn execute(payload: Value) -> Result<Value, String> {
     if payload.as_object().is_none_or(|v| v.len() != 1) || payload["action"] != "status" {
         return Err("global_invalid_request".into());
     }
     #[cfg(windows)]
-    {
-        Ok(crate::desktop_runtime_client::live_snapshot())
-    }
+    let snapshot = crate::desktop_runtime_client::live_snapshot();
     #[cfg(not(windows))]
-    {
-        Ok(unavailable(false))
-    }
+    let snapshot = unavailable(false);
+    Ok(with_titles(
+        snapshot,
+        crate::session_names::default_home().as_deref(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_titles_live_enrichment_refreshes_without_changing_runtime_identity_or_sequence() {
+        let home = tempfile::tempdir().unwrap();
+        let mut store = LiveStore::default();
+        store.apply(event(1, 1, 4, 0, 2048, None));
+        let original = store.snapshot(true);
+        let thread = original["items"][0]["threadId"].as_str().unwrap();
+        let path = home.path().join("session_index.jsonl");
+        let write_title = |title: &str| {
+            std::fs::write(
+                &path,
+                format!("{}\n", json!({"id":thread,"thread_name":title})),
+            )
+            .unwrap();
+        };
+        write_title("First name");
+        assert_eq!(
+            with_titles(original.clone(), Some(home.path()))["items"][0]["title"],
+            "First name"
+        );
+        write_title("Renamed name");
+        let mut updated = with_titles(original.clone(), Some(home.path()));
+        assert_eq!(updated["items"][0]["title"], "Renamed name");
+        updated["items"][0].as_object_mut().unwrap().remove("title");
+        assert_eq!(updated, original);
+        let other = tempfile::tempdir().unwrap();
+        assert!(with_titles(original, Some(other.path()))["items"][0]["title"].is_null());
+    }
     fn event(
         sequence: u64,
         kind: u32,
