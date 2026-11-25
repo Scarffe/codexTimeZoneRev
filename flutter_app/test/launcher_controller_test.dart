@@ -32,6 +32,22 @@ class FakeBackend implements LauncherBackend {
 }
 
 void main() {
+  test('Antigravity uses the draft timezone independently of Codex', () async {
+    final backend = FakeBackend();
+    final controller = LauncherController(backend);
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    controller.detected = '';
+    controller.update(controller.settings.copyWith(mode: 'offset', offset: -5));
+
+    expect(controller.canLaunch, isFalse);
+    expect(await controller.action('launch_antigravity'), isTrue);
+    expect(backend.calls, ['bootstrap', 'launch_antigravity']);
+    expect(backend.payloads.last['settings'], controller.settings.toJson());
+    expect(controller.detected, isEmpty);
+    expect(controller.dirty, isTrue);
+  });
+
   const needsRepair = <String, dynamic>{
     'repairRequired': true,
     'launched': false,

@@ -50,7 +50,11 @@ const launcherMessages = <String, AppMessage>{
   'launcher.repairing': (zh: '正在修复…', en: 'Repairing…'),
   'launcher.repair': (zh: '一键修复并重试', en: 'Repair and retry'),
   'launcher.launching': (zh: '正在启动…', en: 'Launching…'),
-  'launcher.launch': (zh: '保存并启动', en: 'Save and launch'),
+  'launcher.launch': (zh: '保存并启动 Codex', en: 'Save and launch Codex'),
+  'launcher.launchAntigravity': (
+    zh: '启动 Antigravity',
+    en: 'Launch Antigravity',
+  ),
   'launcher.save': (zh: '保存设置', en: 'Save settings'),
   'launcher.shortcut': (zh: '创建快捷方式', en: 'Create shortcut'),
   'launcher.dirty': (zh: '未保存修改', en: 'Unsaved changes'),
@@ -133,6 +137,14 @@ const launcherMessages = <String, AppMessage>{
   'launcher.status.launching': (
     zh: '正在识别当前版本、检查身份并启动 Codex…',
     en: 'Detecting the current version, checking identity and launching Codex…',
+  ),
+  'launcher.status.launchingAntigravity': (
+    zh: '正在按所选时区启动 Antigravity…',
+    en: 'Launching Antigravity with the selected time zone…',
+  ),
+  'launcher.status.antigravityStarted': (
+    zh: '已按所选时区启动 Antigravity 进程，窗口仍可能在加载。',
+    en: 'Antigravity started with the selected time zone. The window may still be loading.',
   ),
   'launcher.status.repairing': (
     zh: '正在检查并修复，请确认 Windows 管理员提示…',

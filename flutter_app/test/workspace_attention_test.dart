@@ -37,7 +37,7 @@ void main() {
     (tester) async {
       await tester.pumpWidget(const LauncherApplication(preview: true));
       await tester.pumpAndSettle();
-      expect(find.text('保存并启动'), findsOneWidget);
+      expect(find.text('保存并启动 Codex'), findsOneWidget);
       for (final name in [
         'launcher',
         'overview',
@@ -159,7 +159,7 @@ void main() {
       );
       await f.completeA();
       await tester.pump();
-      expect(find.text('保存并启动'), findsOneWidget);
+      expect(find.text('保存并启动 Codex'), findsOneWidget);
       final notice = f.attention.notices.single;
       await f.attention.unwatch(notice.watchKey);
       await tester.tap(find.byKey(const ValueKey('workspace-sessions')));

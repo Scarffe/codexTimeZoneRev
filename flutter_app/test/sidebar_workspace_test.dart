@@ -32,7 +32,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('保存并启动'), findsOneWidget);
+    expect(find.text('保存并启动 Codex'), findsOneWidget);
     final account = tester.widget<AccountUsagePanel>(
       find.byType(AccountUsagePanel, skipOffstage: false),
     );
@@ -55,7 +55,7 @@ void main() {
     await tester.ensureVisible(find.text('完成'));
     await tester.tap(find.text('完成'));
     await tester.pumpAndSettle();
-    expect(find.text('保存并启动'), findsOneWidget);
+    expect(find.text('保存并启动 Codex'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('monitor-settings')), findsOneWidget);
@@ -152,7 +152,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(find.text('保存并启动'), findsOneWidget);
+          expect(find.text('保存并启动 Codex'), findsOneWidget);
           expect(tester.takeException(), isNull);
           await tester.tap(find.byKey(const ValueKey('workspace-accounts')));
           await tester.pumpAndSettle();

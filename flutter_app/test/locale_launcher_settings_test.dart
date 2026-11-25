@@ -97,10 +97,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('保存并启动'), findsOneWidget);
+      expect(find.text('保存并启动 Codex'), findsOneWidget);
       language.value = AppLanguage.en;
       await tester.pumpAndSettle();
-      expect(find.text('Save and launch'), findsOneWidget);
+      expect(find.text('Save and launch Codex'), findsOneWidget);
       expect(find.text('Launch settings'), findsOneWidget);
       expect(find.text('Unsaved changes'), findsOneWidget);
       expect(find.textContaining(r'C:\原始路径\Codex.exe'), findsWidgets);

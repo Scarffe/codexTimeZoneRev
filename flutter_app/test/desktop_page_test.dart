@@ -70,7 +70,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('一键修复并重试'), findsNothing);
-      await tester.tap(find.text('保存并启动'));
+      await tester.tap(find.text('保存并启动 Codex'));
       await tester.pumpAndSettle();
       expect(backend.calls, ['bootstrap', 'launch']);
       expect(find.text('一键修复并重试'), findsOneWidget);

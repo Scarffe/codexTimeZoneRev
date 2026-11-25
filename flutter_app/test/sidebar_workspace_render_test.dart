@@ -22,12 +22,17 @@ class SidebarRenderBackend extends PageBackend {
   static final project = r'C:\合成项目\' + List.filled(10, '很长的工程目录').join(r'\');
   static final path = '$project\\sessions\\sidebar-fixture.jsonl';
   int sessionCalls = 0;
+  int antigravityLaunches = 0;
 
   @override
   Future<Map<String, dynamic>> call(
     String command, [
     Map<String, dynamic> payload = const {},
   ]) async {
+    if (command == 'launch_antigravity') {
+      antigravityLaunches++;
+      return {'launched': true};
+    }
     if (command != 'session_metrics') return super.call(command, payload);
     sessionCalls++;
     final info = <String, dynamic>{
@@ -227,7 +232,9 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(find.text('保存并启动'), findsOneWidget);
+          expect(find.text('保存并启动 Codex'), findsOneWidget);
+          final antigravity = find.text('启动 Antigravity');
+          expect(antigravity.hitTestable(), findsOneWidget);
           expect(find.byType(AccountUsagePanel), findsNothing);
           expect(find.byType(SessionMetricsPanel), findsNothing);
           expect(tester.takeException(), isNull);
@@ -246,6 +253,9 @@ void main() {
               '$appearance-${width.toInt()}-launcher',
             );
           }
+          await tester.tap(antigravity);
+          await tester.pumpAndSettle();
+          expect(backend.antigravityLaunches, 1);
           await tapAction(tester, 'workspace-analysis');
           expect(
             tester.getSize(find.byKey(const ValueKey('workspace-rail'))).width,

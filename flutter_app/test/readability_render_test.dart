@@ -64,7 +64,7 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          final save = find.text('保存并启动');
+          final save = find.text('保存并启动 Codex');
           expect(save, findsOneWidget);
           await tester.ensureVisible(save);
           await tester.pumpAndSettle();

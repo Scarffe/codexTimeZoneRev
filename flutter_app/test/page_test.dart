@@ -88,7 +88,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('启动器'), findsOneWidget);
-        expect(find.text('保存并启动'), findsOneWidget);
+        expect(find.text('保存并启动 Codex'), findsOneWidget);
         expect(find.text('演示模式'), findsOneWidget);
         expect(tester.takeException(), isNull);
         if (capture) {

@@ -111,6 +111,7 @@ fn dispatch(request: &str) -> Result<Value, String> {
         "validate",
         "save",
         "launch",
+        "launch_antigravity",
         "check_launch",
         "repair_launch",
         "create_shortcut",

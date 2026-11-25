@@ -122,13 +122,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const LauncherApplication(preview: true));
     await tester.pumpAndSettle();
-    expect(find.text('保存并启动'), findsOneWidget);
+    expect(find.text('保存并启动 Codex'), findsOneWidget);
     expect(find.byType(AccountUsagePanel), findsNothing);
     expect(find.byType(SessionMetricsPanel), findsNothing);
     await switchPage(tester, 'analysis');
     expect(find.byType(AccountUsagePanel, skipOffstage: false), findsOneWidget);
     expect(find.byType(SessionMetricsPanel), findsOneWidget);
-    expect(find.text('保存并启动'), findsNothing);
+    expect(find.text('保存并启动 Codex'), findsNothing);
     await switchPage(tester, 'overview');
     expect(find.byKey(const ValueKey('recent-monitor-notice')), findsOneWidget);
     await tester.ensureVisible(find.byKey(const ValueKey('monitor-settings')));
@@ -399,7 +399,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('保存并启动'), findsOneWidget);
+      expect(find.text('保存并启动 Codex'), findsOneWidget);
       await nativeAction('monitorDetails');
       await tester.pumpAndSettle();
       expect(
@@ -455,7 +455,7 @@ void main() {
           1000;
       await usage.query(r'C:\fixture\Codex.exe');
       await tester.pumpAndSettle();
-      expect(find.text('保存并启动'), findsOneWidget);
+      expect(find.text('保存并启动 Codex'), findsOneWidget);
       await switchPage(tester, 'analysis');
       await switchPage(tester, 'overview');
       await tester.ensureVisible(
@@ -543,7 +543,7 @@ void main() {
         expect(find.textContaining('当前预览未启用'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await switchPage(tester, 'launcher');
-        expect(find.text('保存并启动'), findsOneWidget);
+        expect(find.text('保存并启动 Codex'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
       });

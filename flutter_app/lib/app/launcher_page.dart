@@ -357,6 +357,19 @@ class LauncherPage extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (launcher.platform == 'windows')
+                  _motionButton(
+                    FButton(
+                      mainAxisSize: MainAxisSize.min,
+                      variant: FButtonVariant.outline,
+                      onPress: launcher.canLaunchAntigravity
+                          ? () => launcher.action('launch_antigravity')
+                          : null,
+                      child: _buttonText(
+                        copy.text('launcher.launchAntigravity'),
+                      ),
+                    ),
+                  ),
                 _motionButton(
                   FButton(
                     mainAxisSize: MainAxisSize.min,

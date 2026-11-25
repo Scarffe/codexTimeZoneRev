@@ -172,7 +172,7 @@ void main() {
           select(WorkspaceDestination.launcher);
           await tester.pumpAndSettle();
           expect(scroll.position.pixels, closeTo(retainedOffset, .1));
-          expect(find.text('保存并启动'), findsOneWidget);
+          expect(find.text('保存并启动 Codex'), findsOneWidget);
           // Disposing before the reveal callback must not access a dead page.
           openNotice(fixture.attention.notices.single);
           await tester.pumpWidget(const SizedBox());

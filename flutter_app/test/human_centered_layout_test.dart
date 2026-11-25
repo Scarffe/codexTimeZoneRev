@@ -70,7 +70,7 @@ void main() {
             expect(mode.left, greaterThan(tester.getRect(clock).right));
           }
           final launch = find.text(
-            language == 'en' ? 'Save and launch' : '保存并启动',
+            language == 'en' ? 'Save and launch Codex' : '保存并启动 Codex',
           );
           expect(launch.hitTestable(), findsOneWidget);
           final owner = tester

@@ -17,6 +17,7 @@ use ::windows::{
 };
 
 mod launch_log;
+mod antigravity;
 #[cfg(test)]
 mod log_tests;
 mod process;
@@ -96,6 +97,9 @@ fn same_path(a: &Path, b: &Path) -> bool {
     normalize(a) == normalize(b)
 }
 fn is_running(executable: &Path) -> Result<bool, String> {
+    is_client_running(&["codex.exe", "chatgpt.exe"], Some(executable))
+}
+fn is_client_running(names: &[&str], executable: Option<&Path>) -> Result<bool, String> {
     unsafe {
         let mut session = 0;
         ProcessIdToSessionId(std::process::id(), &mut session).map_err(|e| e.to_string())?;
@@ -105,9 +109,10 @@ fn is_running(executable: &Path) -> Result<bool, String> {
         loop {
             let end = entry.szExeFile.iter().position(|c| *c == 0).unwrap_or(entry.szExeFile.len());
             let name = String::from_utf16_lossy(&entry.szExeFile[..end]).to_lowercase();
-            if ["codex.exe", "chatgpt.exe"].contains(&name.as_str()) {
+            if names.contains(&name.as_str()) {
                 let mut candidate_session = 0;
                 if ProcessIdToSessionId(entry.th32ProcessID, &mut candidate_session).is_ok() && session == candidate_session {
+                    let Some(executable) = executable else { return Ok(true); };
                     let process = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, entry.th32ProcessID) {
                         Ok(p) => Handle(p), Err(_) => return Ok(true),
                     };
@@ -279,7 +284,7 @@ fn launch_inner(dir: &Path, mut s: Settings, log: &mut launch_log::LaunchLog) ->
     }
     log.record("target_resolved", json!({"target":target}))?;
     let path = &target.executable;
-    if is_running(&path)? { return Err("客户端正在运行，请保存工作并完全退出 Codex 后重试。".into()); }
+    if is_running(path)? { return Err("客户端正在运行，请保存工作并完全退出 Codex 后重试。".into()); }
     let mut arguments: Vec<OsString> = Vec::new();
     let skin = if s.dream_skin_compatible {
         let root = skin_root()?; let state = skin_state(&root)?; let port = skin_port(&state)?; let script = skin_script(&root, &state)?;
@@ -331,6 +336,7 @@ pub fn execute(command: &str, payload: Value) -> Result<Value, String> {
         "validate" => { let target = target::resolve(payload["path"].as_str().unwrap_or_default())?; Ok(json!({"path":target.executable,"target":target})) },
         "save" => { save(&dir, &settings(&payload, &dir)?)?; Ok(json!({"path":dir.join("settings.json"),"message":format!("设置已保存到 {}", dir.join("settings.json").display())})) },
         "launch" => launch(&dir, settings(&payload, &dir)?),
+        "launch_antigravity" => antigravity::launch(&settings(&payload, &dir)?),
         "check_launch" => {
             let mut log = launch_log::LaunchLog::preflight(&dir)?;
             let s = settings(&payload, &dir)?;

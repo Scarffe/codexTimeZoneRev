@@ -50,6 +50,7 @@ class LauncherController extends ChangeNotifier {
   bool get canSave =>
       editable && validationError == null && !preview && !offlineTrial;
   bool get canLaunch => canSave && effectivePath.isNotEmpty;
+  bool get canLaunchAntigravity => platform == 'windows' && canSave;
 
   void _emit() {
     if (!_disposed) notifyListeners();
@@ -128,6 +129,7 @@ class LauncherController extends ChangeNotifier {
     if (![
       'save',
       'launch',
+      'launch_antigravity',
       'repair_launch',
       'create_shortcut',
       'launch_dream_skin',
@@ -135,7 +137,13 @@ class LauncherController extends ChangeNotifier {
     ].contains(command)) {
       return false;
     }
-    if (['save', 'launch', 'repair_launch'].contains(command) &&
+    if (command == 'launch_antigravity' && platform != 'windows') return false;
+    if ([
+          'save',
+          'launch',
+          'launch_antigravity',
+          'repair_launch',
+        ].contains(command) &&
         validationError != null) {
       report('时区设置无效。', detail: validationError);
       return false;
@@ -152,6 +160,7 @@ class LauncherController extends ChangeNotifier {
     report(switch (command) {
       'save' => '正在保存设置…',
       'launch' => '正在识别当前版本、检查身份并启动 Codex…',
+      'launch_antigravity' => '正在按所选时区启动 Antigravity…',
       'repair_launch' => '正在检查并修复，请确认 Windows 管理员提示…',
       'create_shortcut' => '正在创建桌面快捷方式…',
       'launch_dream_skin' => '正在打开 Dream Skin…',
