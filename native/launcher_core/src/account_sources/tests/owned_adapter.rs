@@ -11,7 +11,7 @@ use std::{
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
         process::CommandExt,
     },
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, Stdio},
     sync::mpsc::{self, Receiver},
 };
@@ -22,9 +22,6 @@ use windows::Win32::{
         PROCESS_SYNCHRONIZE,
     },
 };
-
-const OWNED_NODE: &str =
-    r"C:\Users\FixtureUser\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe";
 
 fn process_identity(pid: u32) -> (OwnedHandle, TargetIdentity) {
     unsafe {
@@ -81,7 +78,10 @@ impl OwnedNode {
         .unwrap();
         let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         // No CODEX/OPENAI/profile or Node preload environment is inherited.
-        let mut process = Command::new(OWNED_NODE)
+        let profile = std::env::var_os("USERPROFILE").expect("Windows fixture user profile");
+        let node = PathBuf::from(profile)
+            .join(".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe");
+        let mut process = Command::new(node)
             .arg(work.path().join("owned_adapter_parent.cjs"))
             .env_clear()
             .env("SystemRoot", &system)

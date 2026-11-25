@@ -15,7 +15,7 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parent
-APPROVED_NODE = Path(r'C:\Users\FixtureUser\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe')
+APPROVED_NODE = Path.home() / '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
 NODE_SHA256 = '3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237'
 SENTINEL = b'SYNTHETIC_PRIVATE_VALUE_6d3f1a'
 FROZEN_V3 = ROOT.parent / 'hot-spike' / 'attachment-v2' / 'node-observer-v3'

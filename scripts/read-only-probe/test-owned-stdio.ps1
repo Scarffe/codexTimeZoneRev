@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Rustc = 'C:/Users/FixtureUser/Desktop/CodexTimeZone/source/environment/toolchains/rustup/toolchains/stable-x86_64-pc-windows-msvc/bin/rustc.exe')
+param([string]$Rustc = 'rustc')
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $evidence = Join-Path $root ('environment/k3-2-readonly-validation-20261025-a/transport-' + [guid]::NewGuid().ToString('N'))

@@ -28,7 +28,6 @@ using observer::ModuleProof;
 using observer::Shared;
 constexpr wchar_t kDesktop[] = L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1021.3705.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe";
 constexpr wchar_t kChrome[] = L"C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1021.3705.0_x64__2p2nqsd0c76g0\\app\\chrome.dll";
-constexpr wchar_t kNode[] = L"C:\\Users\\FixtureUser\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\node\\bin\\node.exe";
 constexpr char kDesktopSha[] = "c5a6ea0f6d99d696e9976c0ecefb6b8410a7dd5b17d96fb69a72c83a8192b649";
 constexpr char kChromeSha[] = "e049ab292c32d867288b5cb06248f5c0a947c895a6e7eec2def9e44b0f7fed15";
 constexpr char kServerSha[] = "1103e9e09c71fa2cd0afd6d8f3b9a2d63174fe8efd7cb5bd09f1cb14ef58a098";
@@ -139,6 +138,13 @@ std::wstring serverPath() {
   wchar_t local[32768]{}; const auto n = GetEnvironmentVariableW(L"LOCALAPPDATA", local, 32768);
   if (!n || n >= 32768) return {};
   return (std::filesystem::path(local) / L"OpenAI/Codex/bin/2993767bd1dfb009/codex.exe").wstring();
+}
+std::wstring fixtureNodePath() {
+  wchar_t profile[32768]{};
+  const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
+  if (!length || length >= 32768) return {};
+  return (std::filesystem::path(profile) /
+          L".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe").wstring();
 }
 struct ProcessHandleEntry { HANDLE value; SIZE_T handleCount, pointerCount; ULONG access, typeIndex, attributes, reserved; };
 std::vector<ProcessHandleEntry> handles(HANDLE process) {
@@ -387,7 +393,10 @@ Result attach(DWORD ownerPid, DWORD childPid, std::uint64_t ownerCreation, std::
   if (!context->ownerProcess || !context->childProcess || !identity(context->ownerProcess.value, context->owner) || !identity(context->childProcess.value, context->child)
       || context->owner.creation != ownerCreation || context->child.creation != childCreation || context->child.parent != ownerPid) return Result::IdentityChanged;
   if (fixture) {
-    if (context->owner.parent != GetCurrentProcessId() || !equalPath(context->owner.path, kNode) || !equalPath(context->child.path, kNode) || !hashMatches(kNode, kNodeSha)) return Result::IdentityChanged;
+    const auto node = fixtureNodePath();
+    if (node.empty() || context->owner.parent != GetCurrentProcessId() ||
+        !equalPath(context->owner.path, node) || !equalPath(context->child.path, node) ||
+        !hashMatches(node, kNodeSha)) return Result::IdentityChanged;
   } else {
     if (!equalPath(context->owner.path, kDesktop) || !equalPath(context->child.path, serverPath()) || !hashMatches(context->owner.path, kDesktopSha) || !hashMatches(context->child.path, kServerSha)) return Result::ModuleNotProven;
     const auto expected = std::filesystem::path(bridgeDirectory()) / L"codex_desktop_observer.dll";
